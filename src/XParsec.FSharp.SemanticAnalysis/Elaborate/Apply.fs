@@ -29,7 +29,7 @@ module internal ElaborateApply =
         | OptionalDefault.Const cv ->
             match cv with
             | TConstValue.Unit -> TExpr.Const(cv, ctx.Intrinsics.Unit, tok)
-            | TConstValue.Integral(k, _) -> TExpr.Const(cv, ctx.Intrinsics.OfIntKind k, tok)
+            | TConstValue.Integral v -> TExpr.Const(cv, ctx.Intrinsics.OfIntKind(IntValue.kind v), tok)
             | TConstValue.Float _ -> TExpr.Const(cv, ctx.Intrinsics.Float, tok)
             | TConstValue.Float32 _ -> TExpr.Const(cv, ctx.Intrinsics.Float32, tok)
             | TConstValue.Bool _ -> TExpr.Const(cv, ctx.Intrinsics.Bool, tok)

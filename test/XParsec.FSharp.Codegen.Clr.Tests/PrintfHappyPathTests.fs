@@ -238,7 +238,7 @@ let tests =
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
                     | EqList [ FormatSeg.Lit "a="
-                               FormatSeg.Hole(_, TExpr.Const(TConstValue.Integral(IntKind.Int32, 7L), _, _))
+                               FormatSeg.Hole(_, TExpr.Const(TConstValue.Integral(IntValue.Int32 7), _, _))
                                FormatSeg.Lit " b="
                                FormatSeg.Hole(_, TExpr.Const(TConstValue.String "x", _, _))
                                FormatSeg.Lit "!" ] -> ()
@@ -586,7 +586,7 @@ let tests =
                 match soleDecl "printfn \"%A\" 42" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match segs with
-                    | BlockOne(FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntKind.Int32, 42L), _, _))) ->
+                    | BlockOne(FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntValue.Int32 42), _, _))) ->
                         Expect.isTrue (isStructured hole) "%A is a Structured hole"
                         Expect.equal (widthBudgetOf hole) None "plain %A → no width budget (emit defaults to 80)"
                         Expect.equal (sizeBudgetOf hole) None "and no size budget"
@@ -768,7 +768,7 @@ let tests =
                         Expect.equal ty BuiltinTypes.tyUnit "fprintf result is unit"
 
                         match segs with
-                        | BlockOne(FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntKind.Int32, 42L), _, _))) ->
+                        | BlockOne(FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntValue.Int32 42), _, _))) ->
                             Expect.equal hole.Ty BuiltinTypes.tyInt "the %d hole types as int"
                         | other -> failtestf "unexpected Format segments: %A" other
                     | other -> failtestf "expected a ToWriter Format body, got: %A" other
@@ -830,7 +830,7 @@ let tests =
                         Expect.equal ty BuiltinTypes.tyUnit "bprintf result is unit"
 
                         match segs with
-                        | BlockOne(FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntKind.Int32, 42L), _, _))) ->
+                        | BlockOne(FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntValue.Int32 42), _, _))) ->
                             Expect.equal hole.Ty BuiltinTypes.tyInt "the %d hole types as int"
                         | other -> failtestf "unexpected Format segments: %A" other
                     | other -> failtestf "expected a ToBuilder Format body, got: %A" other
@@ -1748,7 +1748,7 @@ let tests =
 
                     match segs with
                     | BlockTwo(FormatSeg.Lit "x=",
-                               FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntKind.Int32, 1L), _, _))) ->
+                               FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntValue.Int32 1), _, _))) ->
                         Expect.equal (formatOf hole) None "a plain hole is AppendFormatted with no format clause"
 
                         Expect.equal hole.Ty (TyConst(RuntimeNames.intKey, Block.empty)) "the hole types as int"
@@ -1828,9 +1828,9 @@ let tests =
                     match segs with
                     | BlockOne(FormatSeg.DynHole d) ->
                         match d.Width, d.Precision, d.Value with
-                        | ValueSome(TExpr.Const(TConstValue.Integral(IntKind.Int32, 5L), _, _)),
+                        | ValueSome(TExpr.Const(TConstValue.Integral(IntValue.Int32 5), _, _)),
                           ValueNone,
-                          TExpr.Const(TConstValue.Integral(IntKind.Int32, 42L), _, _) ->
+                          TExpr.Const(TConstValue.Integral(IntValue.Int32 42), _, _) ->
                             match d.Spec.Source with
                             | HoleSpecSource.Classified(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.Verbatim,
                                                                                       PrintfHoleForm.Alignment.Star false)) ->
@@ -1903,7 +1903,7 @@ let tests =
                     | BlockOne(FormatSeg.DynHole d) ->
                         match d.Width, d.Precision, d.Spec.Source with
                         | ValueNone,
-                          ValueSome(TExpr.Const(TConstValue.Integral(IntKind.Int32, 3L), _, _)),
+                          ValueSome(TExpr.Const(TConstValue.Integral(IntValue.Int32 3), _, _)),
                           HoleSpecSource.Classified(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.Fixed PrintfHoleForm.Prec.Star,
                                                                                   PrintfHoleForm.Alignment.None)) -> ()
                         | other -> failtestf "expected precision-only DynHole over Fixed(Star), got: %A" other
@@ -1917,8 +1917,8 @@ let tests =
                     match segs with
                     | BlockOne(FormatSeg.DynHole d) ->
                         match d.Width, d.Precision, d.Spec.Source with
-                        | ValueSome(TExpr.Const(TConstValue.Integral(IntKind.Int32, 8L), _, _)),
-                          ValueSome(TExpr.Const(TConstValue.Integral(IntKind.Int32, 3L), _, _)),
+                        | ValueSome(TExpr.Const(TConstValue.Integral(IntValue.Int32 8), _, _)),
+                          ValueSome(TExpr.Const(TConstValue.Integral(IntValue.Int32 3), _, _)),
                           HoleSpecSource.Classified(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.Fixed PrintfHoleForm.Prec.Star,
                                                                                   PrintfHoleForm.Alignment.Star false)) ->
                             ()

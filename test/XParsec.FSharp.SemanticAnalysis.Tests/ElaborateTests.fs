@@ -43,7 +43,7 @@ let tests =
 
                 match tast.Decls.[0] with
                 | TDecl.Let({
-                                Value = TExpr.Const(TConstValue.Integral(IntKind.Int32, 1L), ty, _)
+                                Value = TExpr.Const(TConstValue.Integral(IntValue.Int32 1), ty, _)
                             } as m,
                             _,
                             _) ->
@@ -158,17 +158,15 @@ let tests =
                 match tast.Decls.[0] with
                 | TDecl.Let({
                                 Value = TExpr.UnionCons("Cons",
-                                                        EqList [ TExpr.Const(TConstValue.Integral(IntKind.Int32, 1L),
+                                                        EqList [ TExpr.Const(TConstValue.Integral(IntValue.Int32 1),
                                                                              _,
                                                                              _)
                                                                  TExpr.UnionCons("Cons",
-                                                                                 EqList [ TExpr.Const(TConstValue.Integral(IntKind.Int32,
-                                                                                                                           2L),
+                                                                                 EqList [ TExpr.Const(TConstValue.Integral(IntValue.Int32 2),
                                                                                                       _,
                                                                                                       _)
                                                                                           TExpr.UnionCons("Cons",
-                                                                                                          EqList [ TExpr.Const(TConstValue.Integral(IntKind.Int32,
-                                                                                                                                                    3L),
+                                                                                                          EqList [ TExpr.Const(TConstValue.Integral(IntValue.Int32 3),
                                                                                                                                _,
                                                                                                                                _)
                                                                                                                    TExpr.UnionCons("Empty",
@@ -229,12 +227,8 @@ let tests =
 
                 match tast.Decls.[0] with
                 | TDecl.Let({
-                                Value = TExpr.ArrayLit(EqList [ TExpr.Const(TConstValue.Integral(IntKind.Int32, 1L),
-                                                                            _,
-                                                                            _)
-                                                                TExpr.Const(TConstValue.Integral(IntKind.Int32, 2L),
-                                                                            _,
-                                                                            _) ],
+                                Value = TExpr.ArrayLit(EqList [ TExpr.Const(TConstValue.Integral(IntValue.Int32 1), _, _)
+                                                                TExpr.Const(TConstValue.Integral(IntValue.Int32 2), _, _) ],
                                                        outerTy,
                                                        _)
                             },
@@ -271,7 +265,7 @@ let namespaceTests =
 
                 match tast.Decls.[0] with
                 | TDecl.Let({
-                                Value = TExpr.Const(TConstValue.Integral(IntKind.Int32, 1L), ty, _)
+                                Value = TExpr.Const(TConstValue.Integral(IntValue.Int32 1), ty, _)
                             } as m,
                             _,
                             _) ->
@@ -329,7 +323,7 @@ let nestedModuleTests =
 
                 match tast.Decls.[1] with
                 | TDecl.Let({
-                                Value = TExpr.Const(TConstValue.Integral(IntKind.Int32, 1L), ty, _)
+                                Value = TExpr.Const(TConstValue.Integral(IntValue.Int32 1), ty, _)
                             } as m,
                             _,
                             _) ->

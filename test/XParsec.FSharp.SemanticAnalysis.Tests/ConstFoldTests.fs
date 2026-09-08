@@ -22,8 +22,7 @@ let private foldWith (named: string -> FoldedConst voption) (exprSrc: string) =
 
 let private fold (exprSrc: string) = foldWith (fun _ -> ValueNone) exprSrc
 
-let private int32 (v: int) =
-    TConstValue.Integral(IntKind.Int32, int64 v)
+let private int32 (v: int) = TConstValue.Integral(IntValue.Int32 v)
 
 let private plainC (v: TConstValue) : FoldedConst = { Value = v; EnumKey = ValueNone }
 
@@ -43,7 +42,7 @@ let private localEnum (spelling: string) : FoldedConst voption =
 /// External cases at the width the caller picked, a string case as a string literal.
 let private externalEnum (spelling: string) : FoldedConst voption =
     match spelling with
-    | "Direction.Up" -> ValueSome(enumC directionKey (TConstValue.Integral(IntKind.Int64, 3L)))
+    | "Direction.Up" -> ValueSome(enumC directionKey (TConstValue.Integral(IntValue.Int64 3L)))
     | "Color.Red" -> ValueSome(enumC colorKey (TConstValue.String "red"))
     // Same width as `E.*`, a different enum: for the mixed-identity test.
     | "E.A" -> ValueSome(enumC eKey (int32 1))
@@ -68,11 +67,11 @@ let tests =
                     test "unsuffixed int" { Expect.equal (fold "1") (Ok(plainC (int32 1))) "1" }
 
                     test "suffixed byte" {
-                        Expect.equal (fold "255uy") (Ok(plainC (TConstValue.Integral(IntKind.Byte, 255L)))) "255uy"
+                        Expect.equal (fold "255uy") (Ok(plainC (TConstValue.Integral(IntValue.Byte 255uy)))) "255uy"
                     }
 
                     test "int64" {
-                        Expect.equal (fold "5L") (Ok(plainC (TConstValue.Integral(IntKind.Int64, 5L)))) "5L"
+                        Expect.equal (fold "5L") (Ok(plainC (TConstValue.Integral(IntValue.Int64 5L)))) "5L"
                     }
 
                     test "float" { Expect.equal (fold "1.5") (Ok(plainC (TConstValue.Float 1.5))) "1.5" }
@@ -120,7 +119,7 @@ let tests =
                     test "an external int case folds at the caller's width" {
                         Expect.equal
                             (foldWith externalEnum "Direction.Up")
-                            (Ok(enumC directionKey (TConstValue.Integral(IntKind.Int64, 3L))))
+                            (Ok(enumC directionKey (TConstValue.Integral(IntValue.Int64 3L))))
                             "Direction.Up"
                     }
 
@@ -213,7 +212,7 @@ let tests =
                     test "negation wraps at the width" {
                         Expect.equal
                             (fold "-(-128y)")
-                            (Ok(plainC (TConstValue.Integral(IntKind.SByte, -128L))))
+                            (Ok(plainC (TConstValue.Integral(IntValue.SByte(-128y)))))
                             "-(-128y) stays -128y"
                     }
 

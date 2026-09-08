@@ -16,10 +16,14 @@ type FrozenWriter =
         Types: FrozenTypeTableBuilder
     }
 
+    member inline this.Write(v: sbyte) = this.Out.Write v
     member inline this.Write(v: byte) = this.Out.Write v
+    member inline this.Write(v: int16) = this.Out.Write v
     member inline this.Write(v: uint16) = this.Out.Write v
     member inline this.Write(v: int) = this.Out.Write v
+    member inline this.Write(v: uint32) = this.Out.Write v
     member inline this.Write(v: int64) = this.Out.Write v
+    member inline this.Write(v: uint64) = this.Out.Write v
     member inline this.Write(v: float) = this.Out.Write v
     member inline this.Write(v: float32) = this.Out.Write v
     member inline this.Write(v: decimal) = this.Out.Write v
@@ -38,10 +42,14 @@ type FrozenReader =
         Types: FrozenTypeTable
     }
 
+    member inline this.ReadSByte() = this.In.ReadSByte()
     member inline this.ReadByte() = this.In.ReadByte()
+    member inline this.ReadInt16() = this.In.ReadInt16()
     member inline this.ReadUInt16() = this.In.ReadUInt16()
     member inline this.ReadInt32() = this.In.ReadInt32()
+    member inline this.ReadUInt32() = this.In.ReadUInt32()
     member inline this.ReadInt64() = this.In.ReadInt64()
+    member inline this.ReadUInt64() = this.In.ReadUInt64()
     member inline this.ReadDouble() = this.In.ReadDouble()
     member inline this.ReadSingle() = this.In.ReadSingle()
     member inline this.ReadDecimal() = this.In.ReadDecimal()

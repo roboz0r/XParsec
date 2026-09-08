@@ -172,7 +172,7 @@ type ExternalAbbrevShape =
 /// An external enum case's compile-time value.
 [<RequireQualifiedAccess>]
 type ExternalEnumCaseValue =
-    | IntVal of kind: IntKind * value: int64
+    | IntVal of IntValue
     | StringVal of string
 
 /// Per-case shape inside an `ExternalTypeShape.Enum`: the identifier (the `C1` of `E.C1`)

@@ -8,12 +8,10 @@ module ExternalEnumShape =
     let private tryCase (c: TEnumCaseG<'tok>) : ExternalEnumCaseShape voption =
         match c.Value with
         | ValueSome(TEnumLiteral.Int v) ->
-            let kind, bits = TEnumCases.integralValue v
-
             ValueSome
                 {
                     Name = c.Name
-                    Value = ExternalEnumCaseValue.IntVal(kind, bits)
+                    Value = ExternalEnumCaseValue.IntVal(TEnumCases.integralValue v)
                 }
         | ValueSome(TEnumLiteral.String s) ->
             ValueSome

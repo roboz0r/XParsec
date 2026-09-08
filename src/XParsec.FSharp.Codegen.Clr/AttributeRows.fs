@@ -83,18 +83,18 @@ module internal AttributeBlob =
         match v with
         | TConstValue.Bool x -> ValueSome(struct (0x02uy, (fun b -> b.WriteBoolean x)))
         | TConstValue.Char c -> ValueSome(struct (0x03uy, (fun b -> b.WriteUInt16(uint16 c))))
-        | TConstValue.Integral(kind, bits) ->
-            match kind with
-            | IntKind.SByte -> ValueSome(struct (0x04uy, (fun b -> b.WriteByte(byte bits))))
-            | IntKind.Byte -> ValueSome(struct (0x05uy, (fun b -> b.WriteByte(byte bits))))
-            | IntKind.Int16 -> ValueSome(struct (0x06uy, (fun b -> b.WriteUInt16(uint16 bits))))
-            | IntKind.UInt16 -> ValueSome(struct (0x07uy, (fun b -> b.WriteUInt16(uint16 bits))))
-            | IntKind.Int32 -> ValueSome(struct (0x08uy, (fun b -> b.WriteUInt32(uint32 bits))))
-            | IntKind.UInt32 -> ValueSome(struct (0x09uy, (fun b -> b.WriteUInt32(uint32 bits))))
-            | IntKind.Int64 -> ValueSome(struct (0x0Auy, (fun b -> b.WriteUInt64(uint64 bits))))
-            | IntKind.UInt64 -> ValueSome(struct (0x0Buy, (fun b -> b.WriteUInt64(uint64 bits))))
-            | IntKind.NativeInt
-            | IntKind.UNativeInt -> ValueNone
+        | TConstValue.Integral v ->
+            match v with
+            | IntValue.SByte n -> ValueSome(struct (0x04uy, (fun b -> b.WriteSByte n)))
+            | IntValue.Byte n -> ValueSome(struct (0x05uy, (fun b -> b.WriteByte n)))
+            | IntValue.Int16 n -> ValueSome(struct (0x06uy, (fun b -> b.WriteInt16 n)))
+            | IntValue.UInt16 n -> ValueSome(struct (0x07uy, (fun b -> b.WriteUInt16 n)))
+            | IntValue.Int32 n -> ValueSome(struct (0x08uy, (fun b -> b.WriteInt32 n)))
+            | IntValue.UInt32 n -> ValueSome(struct (0x09uy, (fun b -> b.WriteUInt32 n)))
+            | IntValue.Int64 n -> ValueSome(struct (0x0Auy, (fun b -> b.WriteInt64 n)))
+            | IntValue.UInt64 n -> ValueSome(struct (0x0Buy, (fun b -> b.WriteUInt64 n)))
+            | IntValue.NativeInt _
+            | IntValue.UNativeInt _ -> ValueNone
         | TConstValue.Float32 f -> ValueSome(struct (0x0Cuy, (fun b -> b.WriteSingle f)))
         | TConstValue.Float f -> ValueSome(struct (0x0Duy, (fun b -> b.WriteDouble f)))
         | TConstValue.String s -> ValueSome(struct (0x0Euy, (fun b -> b.WriteSerializedString s)))

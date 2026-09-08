@@ -3,6 +3,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 open Vesper
 open System
 open System.Collections.Generic
+open XParsec.FSharp.Lexer
 
 // `.fsi` ↔ `.fs` conformance of type BODIES: a signature's body for a key against the body the
 // implementation would publish signatureless under the same key. Field, case and member types on
@@ -75,7 +76,7 @@ module ConformanceBodies =
 
     let private describeEnumValue (v: ExternalEnumCaseValue) : string =
         match v with
-        | ExternalEnumCaseValue.IntVal(kind, value) -> sprintf "%d (%A)" value kind
+        | ExternalEnumCaseValue.IntVal v -> sprintf "%s (%A)" (IntValue.render v) (IntValue.kind v)
         | ExternalEnumCaseValue.StringVal s -> sprintf "\"%s\"" s
 
     let private describeMember (m: MemberShape) : string =

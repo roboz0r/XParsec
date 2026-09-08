@@ -408,8 +408,8 @@ module M =
                         (cases |> Block.map (fun c -> c.Value))
                         (Block.ofSeq
                             [
-                                ExternalEnumCaseValue.IntVal(IntKind.Int32, 0L)
-                                ExternalEnumCaseValue.IntVal(IntKind.Int32, 1L)
+                                ExternalEnumCaseValue.IntVal(IntValue.Int32 0)
+                                ExternalEnumCaseValue.IntVal(IntValue.Int32 1)
                             ])
                         "case values at the unsuffixed kind"
 

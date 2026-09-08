@@ -7,11 +7,10 @@ open Vesper
 // cluster (a function's SOURCE arity and the flat signature derived from it). Every node
 // carries its inferred type inline.
 
-/// A compile-time constant. `Integral` carries its kind beside its value, and `bits` is that
-/// value extended to 64 bits at the kind's signedness.
+/// A compile-time constant.
 [<RequireQualifiedAccess>]
 type TConstValue =
-    | Integral of kind: IntKind * bits: int64
+    | Integral of IntValue
     | Float of double
     | Float32 of single
     | Bool of bool

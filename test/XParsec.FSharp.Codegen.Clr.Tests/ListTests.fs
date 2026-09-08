@@ -30,17 +30,13 @@ let tests =
                     match Block.toList segs with
                     | [ FormatSeg.Hole(hole,
                                        TExpr.UnionCons("Cons",
-                                                       EqList [ TExpr.Const(TConstValue.Integral(IntKind.Int32, 1L),
-                                                                            _,
-                                                                            _)
+                                                       EqList [ TExpr.Const(TConstValue.Integral(IntValue.Int32 1), _, _)
                                                                 TExpr.UnionCons("Cons",
-                                                                                EqList [ TExpr.Const(TConstValue.Integral(IntKind.Int32,
-                                                                                                                          2L),
+                                                                                EqList [ TExpr.Const(TConstValue.Integral(IntValue.Int32 2),
                                                                                                      _,
                                                                                                      _)
                                                                                          TExpr.UnionCons("Cons",
-                                                                                                         EqList [ TExpr.Const(TConstValue.Integral(IntKind.Int32,
-                                                                                                                                                   3L),
+                                                                                                         EqList [ TExpr.Const(TConstValue.Integral(IntValue.Int32 3),
                                                                                                                               _,
                                                                                                                               _)
                                                                                                                   TExpr.UnionCons("Empty",

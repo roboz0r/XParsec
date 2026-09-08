@@ -50,7 +50,7 @@ let private importedEnum (qualifiedName: string) (kind: IntKind) : IExternalSymb
         |> List.map (fun (n, v) ->
             {
                 Name = n
-                Value = ExternalEnumCaseValue.IntVal(kind, v)
+                Value = ExternalEnumCaseValue.IntVal(IntValue.ofInt64 kind v)
             }
             : ExternalEnumCaseShape
         )

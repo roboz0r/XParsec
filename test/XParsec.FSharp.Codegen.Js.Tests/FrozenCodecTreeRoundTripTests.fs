@@ -295,8 +295,8 @@ let tests =
                     | [ a ] -> Block.toList a.Args
                     | other -> failtestf "expected exactly one Mark attribute, got %d" (List.length other)
 
-                let int32 (v: int64) =
-                    TConstValue.Integral(XParsec.FSharp.Lexer.IntKind.Int32, v)
+                let int32 (v: int) =
+                    TConstValue.Integral(XParsec.FSharp.Lexer.IntValue.Int32 v)
 
                 let positional (v: TConstValue) : TAttributeArg =
                     {
@@ -308,11 +308,11 @@ let tests =
                 Expect.equal
                     (markArgs (typeDecl "Point").Attributes)
                     [
-                        positional (int32 -3L)
+                        positional (int32 -3)
                         positional (TConstValue.String "hi")
                         {
                             Name = ValueSome "Extra"
-                            Value = int32 3L
+                            Value = int32 3
                             EnumKey = ValueSome (typeDecl "Targets").TypeKey
                         }
                     ]
@@ -325,7 +325,7 @@ let tests =
 
                 Expect.equal
                     (markArgs fieldAttrs)
-                    [ positional (int32 1L); positional (TConstValue.String "f") ]
+                    [ positional (int32 1); positional (TConstValue.String "f") ]
                     "the record field's attribute came back off the wire"
 
                 let caseAttrs =
@@ -335,7 +335,7 @@ let tests =
 
                 Expect.equal
                     (markArgs caseAttrs)
-                    [ positional (int32 3L); positional (TConstValue.String "c") ]
+                    [ positional (int32 3); positional (TConstValue.String "c") ]
                     "the union case's folded args came back off the wire"
 
                 // The verdicts are VIEWS over the attribute list, so asserting them on the
@@ -356,7 +356,7 @@ let tests =
 
                 Expect.equal
                     (markArgs enumCaseAttrs)
-                    [ positional (int32 4L); positional (TConstValue.String "e") ]
+                    [ positional (int32 4); positional (TConstValue.String "e") ]
                     "the enum case's folded args came back off the wire"
 
                 let memberAttrs =
@@ -366,7 +366,7 @@ let tests =
 
                 Expect.equal
                     (markArgs memberAttrs)
-                    [ positional (int32 5L); positional (TConstValue.String "m") ]
+                    [ positional (int32 5); positional (TConstValue.String "m") ]
                     "the member's folded args came back off the wire"
 
                 Expect.isTrue (survivesRoundTrip f) "the attributed file survived flatten/thaw structurally"

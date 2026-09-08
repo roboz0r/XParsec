@@ -44,8 +44,9 @@ module internal EnumCaseValues =
 
             match ConstFold.tryLiteral nameOf c with
             // `isEnumBase` excludes exactly the pointer pair.
-            | Ok(TConstValue.Integral(k, bits)) when IntKind.isEnumBase k ->
-                Ok(TEnumLiteral.Int(TConstValue.Integral(k, bits)))
+            | Ok(TConstValue.Integral(IntValue.NativeInt _))
+            | Ok(TConstValue.Integral(IntValue.UNativeInt _)) -> Error(EnumCaseRejection.NotAnEnumConstant(nameOf t))
+            | Ok(TConstValue.Integral v) -> Ok(TEnumLiteral.Int(TConstValue.Integral v))
             | Error NumericLiteralRejection.CustomLiteral -> Error EnumCaseRejection.CustomLiteral
             | Error NumericLiteralRejection.OutOfRange -> Error EnumCaseRejection.NotRepresentable
             // The remaining `Ok`s are the bool / char / float / decimal constants
@@ -63,9 +64,10 @@ module internal EnumCaseValues =
         | Expr.PrefixApp(op, operand) when op.Token = Token.OpSubtraction ->
             match tryResolve nameOf onInvalid operand with
             // Negation wraps AT THE WIDTH: `-(-128y)` stays `-128y`.
-            | Ok(TEnumLiteral.Int(TConstValue.Integral(k, bits))) when IntKind.isSigned k ->
-                Ok(TEnumLiteral.Int(TConstValue.Integral(k, IntKind.negate k bits)))
-            | Ok(TEnumLiteral.Int(TConstValue.Integral _)) -> Error EnumCaseRejection.NegativeUnsigned
+            | Ok(TEnumLiteral.Int(TConstValue.Integral v)) ->
+                match IntValue.negate v with
+                | ValueSome n -> Ok(TEnumLiteral.Int(TConstValue.Integral n))
+                | ValueNone -> Error EnumCaseRejection.NegativeUnsigned
             // `-"abc"` or a deeper non-int form: nothing negatable came back.
             | Ok(TEnumLiteral.String _)
             | Ok(TEnumLiteral.Int _) -> Error EnumCaseRejection.NotConstant

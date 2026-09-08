@@ -66,9 +66,8 @@ let tests =
             }
 
             test "numeric enum preserves the authored integral kind (suffix)" {
-                // `1uy` → `IntKind.Byte`: the authored kind is carried on the
-                // constant's `IntKind` and is never defaulted, so the renderer
-                // re-prints the `uy` suffix.
+                // `1uy` → `IntValue.Byte`: the authored kind is the constant's own
+                // case and is never defaulted, so the renderer re-prints the `uy` suffix.
                 let tast = analyse "type Widths = | A = 1uy | B = 2uy"
 
                 Expect.equal

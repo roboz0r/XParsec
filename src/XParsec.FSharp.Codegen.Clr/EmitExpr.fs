@@ -22,7 +22,7 @@ module EmitExpr =
         | ExprShape.Const ->
             match TastAccessor.exprConstValue e with
             | TConstValue.String s -> b.Add(ILInstr.Ldstr(env.Ctx.UserString s))
-            | TConstValue.Integral(k, bits) -> EmitTypes.pushIntConst b k bits
+            | TConstValue.Integral v -> EmitTypes.pushIntConst b v
             | TConstValue.Bool v -> b.Add(ILInstr.LdcI4(if v then 1 else 0))
             | TConstValue.Float x -> b.Add(ILInstr.LdcR8 x)
             | TConstValue.Float32 x -> b.Add(ILInstr.LdcR4 x)

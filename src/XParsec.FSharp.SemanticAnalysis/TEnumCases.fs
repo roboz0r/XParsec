@@ -29,18 +29,21 @@ module TEnumCases =
         | false, true -> ValueSome TEnumVariant.String
         | false, false -> ValueNone
 
-    let integralValue (v: TConstValue) : IntKind * int64 =
+    let integralValue (v: TConstValue) : IntValue =
         match v with
-        | TConstValue.Integral(k, bits) when IntKind.isEnumBase k -> k, bits
+        | TConstValue.Integral(IntValue.NativeInt _)
+        | TConstValue.Integral(IntValue.UNativeInt _) as n ->
+            failwithf "TEnumCases.integralValue: nativeint enum literal %A" n
+        | TConstValue.Integral n -> n
         | other -> failwithf "TEnumCases.integralValue: non-integral enum literal %A" other
 
-    let integralKind (v: TConstValue) : IntKind = fst (integralValue v)
+    let integralKind (v: TConstValue) : IntKind = IntValue.kind (integralValue v)
 
     /// Unsuffixed `int` (`IntKind.Int32`) is NOT explicit: it adopts whatever explicit
     /// kind the enum has, else stays `int`.
     let private isExplicitKind (v: TConstValue) : bool =
         match v with
-        | TConstValue.Integral(IntKind.Int32, _) -> false
+        | TConstValue.Integral(IntValue.Int32 _) -> false
         | _ -> true
 
     /// The underlying primitive TYPE of a numeric enum: the first explicit kind if any,

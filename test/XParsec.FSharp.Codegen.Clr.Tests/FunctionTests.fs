@@ -67,9 +67,8 @@ let tests =
                         match Block.toList segs with
                         | [ FormatSeg.Hole(_,
                                            TExpr.InlineCall(
-                                               args = EqList [ TExpr.Const(TConstValue.Integral(IntKind.Int32, 41L),
-                                                                           _,
-                                                                           _) ])) ] -> ()
+                                               args = EqList [ TExpr.Const(TConstValue.Integral(IntValue.Int32 41), _, _) ])) ] ->
+                            ()
                         | other -> failtestf "unexpected segments: %A" other
                     | other -> failtestf "unexpected inline TAST: %A" other
                 }

@@ -151,39 +151,59 @@ module FrozenCodecTypes =
 
     // ── non-generic payloads the tree / side tables carry ──────────────
 
-    let private writeIntKind (w: FrozenWriter) (k: IntKind) =
-        match k with
-        | IntKind.SByte -> w.Write 0uy
-        | IntKind.Byte -> w.Write 1uy
-        | IntKind.Int16 -> w.Write 2uy
-        | IntKind.UInt16 -> w.Write 3uy
-        | IntKind.Int32 -> w.Write 4uy
-        | IntKind.UInt32 -> w.Write 5uy
-        | IntKind.Int64 -> w.Write 6uy
-        | IntKind.UInt64 -> w.Write 7uy
-        | IntKind.NativeInt -> w.Write 8uy
-        | IntKind.UNativeInt -> w.Write 9uy
+    /// A kind tag, then the value at its own width.
+    let private writeIntValue (w: FrozenWriter) (v: IntValue) =
+        match v with
+        | IntValue.SByte n ->
+            w.Write 0uy
+            w.Write n
+        | IntValue.Byte n ->
+            w.Write 1uy
+            w.Write n
+        | IntValue.Int16 n ->
+            w.Write 2uy
+            w.Write n
+        | IntValue.UInt16 n ->
+            w.Write 3uy
+            w.Write n
+        | IntValue.Int32 n ->
+            w.Write 4uy
+            w.Write n
+        | IntValue.UInt32 n ->
+            w.Write 5uy
+            w.Write n
+        | IntValue.Int64 n ->
+            w.Write 6uy
+            w.Write n
+        | IntValue.UInt64 n ->
+            w.Write 7uy
+            w.Write n
+        | IntValue.NativeInt n ->
+            w.Write 8uy
+            w.Write n
+        | IntValue.UNativeInt n ->
+            w.Write 9uy
+            w.Write n
 
-    let private readIntKind (r: FrozenReader) : IntKind =
+    let private readIntValue (r: FrozenReader) : IntValue =
         match r.ReadByte() with
-        | 0uy -> IntKind.SByte
-        | 1uy -> IntKind.Byte
-        | 2uy -> IntKind.Int16
-        | 3uy -> IntKind.UInt16
-        | 4uy -> IntKind.Int32
-        | 5uy -> IntKind.UInt32
-        | 6uy -> IntKind.Int64
-        | 7uy -> IntKind.UInt64
-        | 8uy -> IntKind.NativeInt
-        | 9uy -> IntKind.UNativeInt
-        | b -> failwithf "FrozenCodec: unknown IntKind tag %d" b
+        | 0uy -> IntValue.SByte(r.ReadSByte())
+        | 1uy -> IntValue.Byte(r.ReadByte())
+        | 2uy -> IntValue.Int16(r.ReadInt16())
+        | 3uy -> IntValue.UInt16(r.ReadUInt16())
+        | 4uy -> IntValue.Int32(r.ReadInt32())
+        | 5uy -> IntValue.UInt32(r.ReadUInt32())
+        | 6uy -> IntValue.Int64(r.ReadInt64())
+        | 7uy -> IntValue.UInt64(r.ReadUInt64())
+        | 8uy -> IntValue.NativeInt(r.ReadInt64())
+        | 9uy -> IntValue.UNativeInt(r.ReadUInt64())
+        | b -> failwithf "FrozenCodec: unknown IntValue tag %d" b
 
     let writeTConstValue (w: FrozenWriter) (v: TConstValue) =
         match v with
-        | TConstValue.Integral(width, bits) ->
+        | TConstValue.Integral n ->
             w.Write 0uy
-            writeIntKind w width
-            w.Write bits
+            writeIntValue w n
         | TConstValue.Float d ->
             w.Write 1uy
             w.Write d
@@ -206,10 +226,7 @@ module FrozenCodecTypes =
 
     let readTConstValue (r: FrozenReader) : TConstValue =
         match r.ReadByte() with
-        | 0uy ->
-            let width = readIntKind r
-            let bits = r.ReadInt64()
-            TConstValue.Integral(width, bits)
+        | 0uy -> TConstValue.Integral(readIntValue r)
         | 1uy -> TConstValue.Float(r.ReadDouble())
         | 2uy -> TConstValue.Float32(r.ReadSingle())
         | 3uy -> TConstValue.Bool(r.ReadBoolean())

@@ -37,14 +37,13 @@ let private opSym =
 let private prefixSym = Map.ofList [ "op_UnaryNegation", "-" ]
 
 /// A constant's source form, carrying the AUTHORED KIND as its F# suffix, so a `10us` silently
-/// arriving as an `int` is visible in every snapshot. Both halves of an integral constant come
-/// off its `IntKind`, so a new kind renders with no edit.
+/// arriving as an `int` is visible in every snapshot.
 let private constText (v: TConstValue) : string =
     let inv (x: 'a :> System.IFormattable) =
         x.ToString(null, System.Globalization.CultureInfo.InvariantCulture)
 
     match v with
-    | TConstValue.Integral(k, bits) -> IntKind.render k bits + IntKind.suffix k
+    | TConstValue.Integral n -> IntValue.render n + IntKind.suffix (IntValue.kind n)
     | TConstValue.Float n -> inv n
     | TConstValue.Float32 n -> inv n + "f"
     | TConstValue.Decimal d -> inv d + "M"

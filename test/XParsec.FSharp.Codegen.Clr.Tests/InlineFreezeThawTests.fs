@@ -261,7 +261,7 @@ let private publishing (unitASource: string) : IExternalSymbolProvider =
 /// The constant `let r = …` reduced to. `kindOf`'s clause bodies are bare `int` literals, so
 /// WHICH clause the expansion selected is read off the entry the call's edge points to. An
 /// unresolved call leaves an `App` node instead, which reaches no `Const`.
-let private resolvedConst (provider: IExternalSymbolProvider) (src: string) : int64 =
+let private resolvedConst (provider: IExternalSymbolProvider) (src: string) : int =
     let lexed, file = parseFile src
 
     let tast =
@@ -269,12 +269,12 @@ let private resolvedConst (provider: IExternalSymbolProvider) (src: string) : in
 
     Expect.isEmpty (tast.Diagnostics |> Diagnostic.errors) (sprintf "no errors for:\n%s" src)
 
-    let rec result (e: Pooled.TExpr) : int64 =
+    let rec result (e: Pooled.TExpr) : int =
         match e with
         | TExprG.InlineCall(spec = SpecializationId i) -> result tast.Specializations.[i].Value
         | TExprG.Lambda(_, body, _, _)
         | TExprG.Let(_, body, _, _) -> result body
-        | TExprG.Const(TConstValue.Integral(_, v), _, _) -> v
+        | TExprG.Const(TConstValue.Integral(IntValue.Int32 v), _, _) -> v
         | other -> failtestf "expected `r` to reduce to a resolved constant, got %A" other
 
     match Block.tryLast tast.Decls with
@@ -525,17 +525,17 @@ let tests =
                 // against the CALL-SITE operand type, in B, over cells B minted at thaw.
                 Expect.equal
                     (resolvedConst provider "open Lib\nlet r : int = Kinds.kindOf 5\n")
-                    1L
+                    1
                     "int operand selects the int clause"
 
                 Expect.equal
                     (resolvedConst provider "open Lib\nlet r : int = Kinds.kindOf 5.0\n")
-                    2L
+                    2
                     "float operand selects the float clause"
 
                 Expect.equal
                     (resolvedConst provider "open Lib\nlet r : int = Kinds.kindOf true\n")
-                    0L
+                    0
                     "an operand no clause names falls to the `^T : ^T` catch-all"
             }
 

@@ -137,8 +137,8 @@ module internal AttributeFold =
                             match cases |> Block.tryFind (fun c -> c.Name = caseName) with
                             | ValueSome case ->
                                 match case.Value with
-                                | ExternalEnumCaseValue.IntVal(kind, v) ->
-                                    ValueSome(ofLiteral key (TEnumLiteral.Int(TConstValue.Integral(kind, v))))
+                                | ExternalEnumCaseValue.IntVal v ->
+                                    ValueSome(ofLiteral key (TEnumLiteral.Int(TConstValue.Integral v)))
                                 | ExternalEnumCaseValue.StringVal s -> ValueSome(ofLiteral key (TEnumLiteral.String s))
                             | ValueNone -> ValueNone
                         | _ -> ValueNone
@@ -226,7 +226,8 @@ module internal AttributeFold =
                 Block.toList usage.Args
                 |> List.tryPick (fun a ->
                     match a.Name, a.Value with
-                    | ValueNone, TConstValue.Integral(_, v) -> Some(int v)
+                    // `AttributeTargets` is an `int`-based enum.
+                    | ValueNone, TConstValue.Integral(IntValue.Int32 v) -> Some v
                     | _ -> None
                 )
 

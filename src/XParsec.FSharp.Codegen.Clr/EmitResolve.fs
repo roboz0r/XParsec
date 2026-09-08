@@ -323,8 +323,8 @@ module EmitResolve =
     /// primitive type it boxes to. `TEnumCases.integralValue` rejects any kind a `System.Enum`
     /// cannot be based on, `nativeint` included, so the bare load needs no width conversion.
     let enumIntLoad (v: TConstValue) : ILInstr * FrozenType =
-        let k, bits = TEnumCases.integralValue v
-        EmitTypes.intConstLoad k bits, FTConst(RuntimeNames.intKindKey k, Block.empty)
+        let n = TEnumCases.integralValue v
+        EmitTypes.intConstLoad n, FTConst(RuntimeNames.intKindKey (IntValue.kind n), Block.empty)
 
     /// Push a string/mixed enum case literal as the wrapper `.ctor`'s single argument: a
     /// string case is `ldstr` (a ref, assignable to a `string` or `obj` field unboxed); a

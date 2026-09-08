@@ -706,7 +706,7 @@ let tests =
                     Expect.equal ty tyUnit "printfn result is unit"
 
                     match Block.toList segs with
-                    | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntKind.Int32, 42L), _, _)) ] ->
+                    | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntValue.Int32 42), _, _)) ] ->
                         Expect.equal hole.Ty tyInt "the %d hole types as int"
 
                         // `%d` carries no flags, so its classified `Source` is a
@@ -756,7 +756,7 @@ let tests =
                 match lastDeclValue tast with
                 | TExpr.Format(FormatSink.ToString, segs, _, _) ->
                     match Block.toList segs with
-                    | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntKind.Int32, 42L), _, _))
+                    | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntValue.Int32 42), _, _))
                         FormatSeg.Lit "!" ] -> Expect.equal hole.Ty tyInt "the %d hole types as int"
                     | other -> failtestf "unexpected Format segments: %A" other
                 | other -> failtestf "expected a native string-sink Format, got: %A" other

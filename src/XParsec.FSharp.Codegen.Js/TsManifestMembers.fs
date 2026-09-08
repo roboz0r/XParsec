@@ -237,8 +237,8 @@ module internal TsManifestMembers =
                         Some(
                             {
                                 Name = caseName
-                                // A TS numeric member is `int`.
-                                Value = ExternalEnumCaseValue.IntVal(IntKind.Int32, n)
+                                // A TS numeric member is `int`; the wire's `int64` wraps onto it.
+                                Value = ExternalEnumCaseValue.IntVal(IntValue.Int32(int n))
                             }
                             : ExternalEnumCaseShape
                         )

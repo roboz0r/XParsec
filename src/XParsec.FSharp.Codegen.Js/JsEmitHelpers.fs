@@ -94,12 +94,12 @@ module JsEmitHelpers =
     /// A scalar `Const` value → its JS expression.
     let constExpr (value: TConstValue) (loc: JsLoc voption) : JsExpr =
         match value with
-        | TConstValue.Integral(k, _) when IntKind.isNative k ->
+        | TConstValue.Integral(IntValue.NativeInt _ | IntValue.UNativeInt _) ->
             failwith "EmitJs: nativeint literals have no representation on the target platform"
         // `10L` → `10n`: a plain number would lose the magnitudes past 2^53 the width carries.
-        | TConstValue.Integral(k, bits) when IntKind.isWide k ->
-            JsExpr.Literal(JsLiteral.BigInt(IntKind.render k bits), loc)
-        | TConstValue.Integral(k, bits) -> JsExpr.Literal(JsLiteral.Number(IntKind.render k bits), loc)
+        | TConstValue.Integral((IntValue.Int64 _ | IntValue.UInt64 _) as v) ->
+            JsExpr.Literal(JsLiteral.BigInt(IntValue.render v), loc)
+        | TConstValue.Integral v -> JsExpr.Literal(JsLiteral.Number(IntValue.render v), loc)
         | TConstValue.Float d -> JsExpr.Literal(JsLiteral.Number(formatDouble d), loc)
         | TConstValue.Float32 f -> JsExpr.Literal(JsLiteral.Number(formatDouble (float f)), loc)
         | TConstValue.Bool b -> JsExpr.Literal(JsLiteral.Boolean b, loc)

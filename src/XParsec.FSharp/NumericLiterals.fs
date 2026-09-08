@@ -23,9 +23,7 @@ type IntKind =
     | NativeInt
     | UNativeInt
 
-/// Per-kind facts, and the operations on a kind's value. A value travels as `bits: int64`,
-/// the 64-bit two's-complement encoding: sign-extended out of a signed kind, zero-extended
-/// out of an unsigned one. A `uint64` past `Int64.MaxValue` reads back through `render`.
+/// Per-kind facts: width, signedness and the literal suffix.
 module IntKind =
 
     let all: IntKind list =
@@ -83,25 +81,6 @@ module IntKind =
         | IntKind.Int64
         | IntKind.UInt64 -> false
 
-    /// The kind needs 64 bits: the CIL `int64` stack type, or a JS `BigInt`. Everything
-    /// narrower shares the `int32` stack type and the JS `number`.
-    let isWide (k: IntKind) : bool =
-        match k with
-        | IntKind.Int64
-        | IntKind.UInt64
-        | IntKind.NativeInt
-        | IntKind.UNativeInt -> true
-        | IntKind.SByte
-        | IntKind.Byte
-        | IntKind.Int16
-        | IntKind.UInt16
-        | IntKind.Int32
-        | IntKind.UInt32 -> false
-
-    /// May a CLR enum be based on this kind? `System.Enum` admits the eight fixed-width kinds
-    /// only.
-    let isEnumBase (k: IntKind) : bool = not (isNative k)
-
     /// The integral kind a lexed token's `NumericKind` denotes, `ValueNone` for the
     /// non-integral ones: the floats, `decimal`, and the custom `NumericLiteral` suffixes.
     let ofNumericKind (kind: NumericKind) : IntKind voption =
@@ -118,66 +97,141 @@ module IntKind =
         | NumericKind.UNativeInt -> ValueSome IntKind.UNativeInt
         | _ -> ValueNone
 
+[<RequireQualifiedAccess>]
+type IntValue =
+    | SByte of sbyte
+    | Byte of byte
+    | Int16 of int16
+    | UInt16 of uint16
+    | Int32 of int32
+    | UInt32 of uint32
+    | Int64 of int64
+    | UInt64 of uint64
+    | NativeInt of int64
+    | UNativeInt of uint64
+
+[<RequireQualifiedAccess>]
+type BitwiseOp =
+    | Or
+    | And
+    | Xor
+
+module IntValue =
+
+    let kind (v: IntValue) : IntKind =
+        match v with
+        | IntValue.SByte _ -> IntKind.SByte
+        | IntValue.Byte _ -> IntKind.Byte
+        | IntValue.Int16 _ -> IntKind.Int16
+        | IntValue.UInt16 _ -> IntKind.UInt16
+        | IntValue.Int32 _ -> IntKind.Int32
+        | IntValue.UInt32 _ -> IntKind.UInt32
+        | IntValue.Int64 _ -> IntKind.Int64
+        | IntValue.UInt64 _ -> IntKind.UInt64
+        | IntValue.NativeInt _ -> IntKind.NativeInt
+        | IntValue.UNativeInt _ -> IntKind.UNativeInt
+
+    /// `n` wrapped onto `k`'s width: the low bits of the two's-complement pattern.
+    let ofInt64 (k: IntKind) (n: int64) : IntValue =
+        match k with
+        | IntKind.SByte -> IntValue.SByte(sbyte n)
+        | IntKind.Byte -> IntValue.Byte(byte n)
+        | IntKind.Int16 -> IntValue.Int16(int16 n)
+        | IntKind.UInt16 -> IntValue.UInt16(uint16 n)
+        | IntKind.Int32 -> IntValue.Int32(int32 n)
+        | IntKind.UInt32 -> IntValue.UInt32(uint32 n)
+        | IntKind.Int64 -> IntValue.Int64 n
+        | IntKind.UInt64 -> IntValue.UInt64(uint64 n)
+        | IntKind.NativeInt -> IntValue.NativeInt n
+        | IntKind.UNativeInt -> IntValue.UNativeInt(uint64 n)
+
+    let zero (k: IntKind) : IntValue = ofInt64 k 0L
+
     /// Read a magnitude at `k`'s width, range-checked by the `Convert` overload
     /// (`Convert.ToByte("300", 10)` throws). Throws `OverflowException` / `FormatException`
-    /// for a magnitude or sign the kind cannot hold. The result is encoded into `bits`.
-    let parseBits (k: IntKind) (digits: string) (radix: int) : int64 =
+    /// for a magnitude or sign the kind cannot hold.
+    let parse (k: IntKind) (digits: string) (radix: int) : IntValue =
         match k with
-        | IntKind.SByte -> int64 (Convert.ToSByte(digits, radix))
-        | IntKind.Byte -> int64 (Convert.ToByte(digits, radix))
-        | IntKind.Int16 -> int64 (Convert.ToInt16(digits, radix))
-        | IntKind.UInt16 -> int64 (Convert.ToUInt16(digits, radix))
-        | IntKind.Int32 -> int64 (Convert.ToInt32(digits, radix))
-        | IntKind.UInt32 -> int64 (Convert.ToUInt32(digits, radix))
-        | IntKind.Int64 -> Convert.ToInt64(digits, radix)
-        | IntKind.UInt64 -> int64 (Convert.ToUInt64(digits, radix))
-        // Pointer-width: read the magnitude at 64 bits, the width of the targeted runtimes.
-        | IntKind.NativeInt -> Convert.ToInt64(digits, radix)
-        | IntKind.UNativeInt -> int64 (Convert.ToUInt64(digits, radix))
+        | IntKind.SByte -> IntValue.SByte(Convert.ToSByte(digits, radix))
+        | IntKind.Byte -> IntValue.Byte(Convert.ToByte(digits, radix))
+        | IntKind.Int16 -> IntValue.Int16(Convert.ToInt16(digits, radix))
+        | IntKind.UInt16 -> IntValue.UInt16(Convert.ToUInt16(digits, radix))
+        | IntKind.Int32 -> IntValue.Int32(Convert.ToInt32(digits, radix))
+        | IntKind.UInt32 -> IntValue.UInt32(Convert.ToUInt32(digits, radix))
+        | IntKind.Int64 -> IntValue.Int64(Convert.ToInt64(digits, radix))
+        | IntKind.UInt64 -> IntValue.UInt64(Convert.ToUInt64(digits, radix))
+        | IntKind.NativeInt -> IntValue.NativeInt(Convert.ToInt64(digits, radix))
+        | IntKind.UNativeInt -> IntValue.UNativeInt(Convert.ToUInt64(digits, radix))
 
-    /// Truncate a 64-bit pattern onto `k`'s width and re-extend it, giving the normal form of
-    /// `bits`. A wrap for the narrow kinds, the identity for the 64-bit ones.
-    let private normalize (k: IntKind) (bits: int64) : int64 =
-        match k with
-        | IntKind.SByte -> int64 (sbyte bits)
-        | IntKind.Byte -> int64 (byte bits)
-        | IntKind.Int16 -> int64 (int16 bits)
-        | IntKind.UInt16 -> int64 (uint16 bits)
-        | IntKind.Int32 -> int64 (int32 bits)
-        | IntKind.UInt32 -> int64 (uint32 bits)
-        | IntKind.Int64
-        | IntKind.UInt64
-        | IntKind.NativeInt
-        | IntKind.UNativeInt -> bits
-
-    /// The value's decimal text at the kind's own signedness, as the .NET primitive's
-    /// `ToString()` prints it.
-    let render (k: IntKind) (bits: int64) : string =
-        if isSigned k then string bits else string (uint64 bits)
+    /// The value's decimal text, as the .NET primitive's `ToString()` prints it.
+    let render (v: IntValue) : string =
+        match v with
+        | IntValue.SByte n -> string n
+        | IntValue.Byte n -> string n
+        | IntValue.Int16 n -> string n
+        | IntValue.UInt16 n -> string n
+        | IntValue.Int32 n -> string n
+        | IntValue.UInt32 n -> string n
+        | IntValue.Int64 n -> string n
+        | IntValue.UInt64 n -> string n
+        | IntValue.NativeInt n -> string n
+        | IntValue.UNativeInt n -> string n
 
     /// The value boxed at its own .NET primitive type, as a CLR enum-case field constant must
     /// carry it: the metadata writer reads the box's runtime type.
-    let boxed (k: IntKind) (bits: int64) : obj =
-        match k with
-        | IntKind.SByte -> box (sbyte bits)
-        | IntKind.Byte -> box (byte bits)
-        | IntKind.Int16 -> box (int16 bits)
-        | IntKind.UInt16 -> box (uint16 bits)
-        | IntKind.Int32 -> box (int32 bits)
-        | IntKind.UInt32 -> box (uint32 bits)
-        | IntKind.Int64 -> box bits
-        | IntKind.UInt64 -> box (uint64 bits)
-        | IntKind.NativeInt -> box (nativeint bits)
-        | IntKind.UNativeInt -> box (unativeint (uint64 bits))
+    let boxed (v: IntValue) : obj =
+        match v with
+        | IntValue.SByte n -> box n
+        | IntValue.Byte n -> box n
+        | IntValue.Int16 n -> box n
+        | IntValue.UInt16 n -> box n
+        | IntValue.Int32 n -> box n
+        | IntValue.UInt32 n -> box n
+        | IntValue.Int64 n -> box n
+        | IntValue.UInt64 n -> box n
+        | IntValue.NativeInt n -> box (nativeint n)
+        | IntValue.UNativeInt n -> box (unativeint n)
 
-    /// Two's-complement negation at `k`'s width: the value wraps rather than growing, so
-    /// `-(-128y)` is `-128y` and `-Int32.MinValue` is itself. Meaningful only on a signed
-    /// kind, since F# defines no negation on an unsigned one.
-    let negate (k: IntKind) (bits: int64) : int64 = normalize k (-bits)
+    /// Two's-complement negation at the value's own width: `-(-128y)` is `-128y` and
+    /// `-Int32.MinValue` is itself. `ValueNone` for an unsigned value, since F# defines no
+    /// negation on one.
+    let negate (v: IntValue) : IntValue voption =
+        match v with
+        | IntValue.SByte n -> ValueSome(IntValue.SByte(-n))
+        | IntValue.Int16 n -> ValueSome(IntValue.Int16(-n))
+        | IntValue.Int32 n -> ValueSome(IntValue.Int32(-n))
+        | IntValue.Int64 n -> ValueSome(IntValue.Int64(-n))
+        | IntValue.NativeInt n -> ValueSome(IntValue.NativeInt(-n))
+        | IntValue.Byte _
+        | IntValue.UInt16 _
+        | IntValue.UInt32 _
+        | IntValue.UInt64 _
+        | IntValue.UNativeInt _ -> ValueNone
+
+    /// `l op r` at the operands' shared kind, `ValueNone` when the kinds differ.
+    let bitwise (op: BitwiseOp) (l: IntValue) (r: IntValue) : IntValue voption =
+        let inline apply (a: ^a) (b: ^a) : ^a =
+            match op with
+            | BitwiseOp.Or -> a ||| b
+            | BitwiseOp.And -> a &&& b
+            | BitwiseOp.Xor -> a ^^^ b
+
+        match l, r with
+        | IntValue.SByte a, IntValue.SByte b -> ValueSome(IntValue.SByte(apply a b))
+        | IntValue.Byte a, IntValue.Byte b -> ValueSome(IntValue.Byte(apply a b))
+        | IntValue.Int16 a, IntValue.Int16 b -> ValueSome(IntValue.Int16(apply a b))
+        | IntValue.UInt16 a, IntValue.UInt16 b -> ValueSome(IntValue.UInt16(apply a b))
+        | IntValue.Int32 a, IntValue.Int32 b -> ValueSome(IntValue.Int32(apply a b))
+        | IntValue.UInt32 a, IntValue.UInt32 b -> ValueSome(IntValue.UInt32(apply a b))
+        | IntValue.Int64 a, IntValue.Int64 b -> ValueSome(IntValue.Int64(apply a b))
+        | IntValue.UInt64 a, IntValue.UInt64 b -> ValueSome(IntValue.UInt64(apply a b))
+        | IntValue.NativeInt a, IntValue.NativeInt b -> ValueSome(IntValue.NativeInt(apply a b))
+        | IntValue.UNativeInt a, IntValue.UNativeInt b -> ValueSome(IntValue.UNativeInt(apply a b))
+        | _ -> ValueNone
 
 [<RequireQualifiedAccess>]
 type NumericLiteralValue =
-    | Integral of kind: IntKind * bits: int64
+    | Integral of IntValue
     | Float of double
     | Float32 of single
     | Decimal of decimal
@@ -258,12 +312,12 @@ module NumericLiterals =
             let radix = baseRadix numBase
             let kind = TokenInfo.numericKind token
 
-            // An integral kind reads its magnitude through `IntKind.parseBits`, whose
+            // An integral kind reads its magnitude through `IntValue.parse`, whose
             // `Convert` overload is that kind's range check. The kinds `ofNumericKind`
             // declines are the non-integral ones, and each parses its own way.
             let project () =
                 match IntKind.ofNumericKind kind with
-                | ValueSome k -> Ok(NumericLiteralValue.Integral(k, IntKind.parseBits k (intDigits numBase text) radix))
+                | ValueSome k -> Ok(NumericLiteralValue.Integral(IntValue.parse k (intDigits numBase text) radix))
                 | ValueNone ->
 
                     match kind with

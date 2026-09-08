@@ -40,7 +40,7 @@ let tests =
                                   Pattern = TPat.NamedSimple _
                                   Value = TExpr.InlineCall(
                                       spec = spec
-                                      args = EqList [ TExpr.Const(TConstValue.Integral(IntKind.Int32, 5L), _, _) ])
+                                      args = EqList [ TExpr.Const(TConstValue.Integral(IntValue.Int32 5), _, _) ])
                               },
                               false,
                               _) ] ->

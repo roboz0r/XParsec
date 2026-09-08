@@ -317,7 +317,7 @@ let tests =
 
                 match tast.Decls.[0] with
                 | TDecl.Let({
-                                Value = TExpr.Const(TConstValue.Integral(IntKind.Int64, 1L), _, _)
+                                Value = TExpr.Const(TConstValue.Integral(IntValue.Int64 1L), _, _)
                             },
                             _,
                             _) -> ()
@@ -330,7 +330,7 @@ let tests =
 
                 match tast.Decls.[0] with
                 | TDecl.Let({
-                                Value = TExpr.Const(TConstValue.Integral(IntKind.Byte, 255L), _, _)
+                                Value = TExpr.Const(TConstValue.Integral(IntValue.Byte 255uy), _, _)
                             },
                             _,
                             _) -> ()

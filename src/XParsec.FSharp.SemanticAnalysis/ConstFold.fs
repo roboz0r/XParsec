@@ -83,7 +83,7 @@ module ConstFold =
         | Token.CharLiteral -> Ok(TConstValue.Char(parseCharLiteral text))
         | _ ->
             match NumericLiterals.parseNumericLiteral t.Token text with
-            | Ok(NumericLiteralValue.Integral(k, bits)) -> Ok(TConstValue.Integral(k, bits))
+            | Ok(NumericLiteralValue.Integral v) -> Ok(TConstValue.Integral v)
             | Ok(NumericLiteralValue.Float n) -> Ok(TConstValue.Float n)
             | Ok(NumericLiteralValue.Float32 n) -> Ok(TConstValue.Float32 n)
             | Ok(NumericLiteralValue.Decimal n) -> Ok(TConstValue.Decimal n)
@@ -133,10 +133,10 @@ module ConstFold =
         | Expr.PrefixApp(op, operand) when op.Token = Token.OpSubtraction ->
             match tryConstant nameOf onInvalid tryNamedConstant operand with
             // Negation wraps AT THE WIDTH: `-(-128y)` stays `-128y`.
-            | Ok {
-                     Value = TConstValue.Integral(k, bits)
-                 } when IntKind.isSigned k -> Ok(plain (TConstValue.Integral(k, IntKind.negate k bits)))
-            | Ok { Value = TConstValue.Integral _ } -> Error ConstRejection.NegativeUnsigned
+            | Ok { Value = TConstValue.Integral v } ->
+                match IntValue.negate v with
+                | ValueSome n -> Ok(plain (TConstValue.Integral n))
+                | ValueNone -> Error ConstRejection.NegativeUnsigned
             | Ok { Value = TConstValue.Float n } -> Ok(plain (TConstValue.Float(-n)))
             | Ok { Value = TConstValue.Float32 n } -> Ok(plain (TConstValue.Float32(-n)))
             | Ok { Value = TConstValue.Decimal n } -> Ok(plain (TConstValue.Decimal(-n)))
@@ -150,33 +150,31 @@ module ConstFold =
             | Token.OpExclusiveOr ->
                 let fold = tryConstant nameOf onInvalid tryNamedConstant
 
+                let bitOp =
+                    match op.Token with
+                    | Token.OpBitwiseOr -> BitwiseOp.Or
+                    | Token.OpBitwiseAnd -> BitwiseOp.And
+                    | _ -> BitwiseOp.Xor
+
                 match fold left, fold right with
                 | Ok {
-                         Value = TConstValue.Integral(lk, lb)
+                         Value = TConstValue.Integral l
                          EnumKey = lKey
                      },
                   Ok {
-                         Value = TConstValue.Integral(rk, rb)
+                         Value = TConstValue.Integral r
                          EnumKey = rKey
                      } ->
-                    if lk = rk then
-                        // `bits` is 64-bit-extended at the kind's signedness, and the three
-                        // ops are closed over that extension, so no re-normalisation.
-                        let bits =
-                            match op.Token with
-                            | Token.OpBitwiseOr -> lb ||| rb
-                            | Token.OpBitwiseAnd -> lb &&& rb
-                            | _ -> lb ^^^ rb
-
+                    match IntValue.bitwise bitOp l r with
+                    | ValueSome v ->
                         Ok
                             {
-                                Value = TConstValue.Integral(lk, bits)
+                                Value = TConstValue.Integral v
                                 // A combination stays within one enum; mixed identities fold
                                 // to a bare integral.
                                 EnumKey = if lKey = rKey then lKey else ValueNone
                             }
-                    else
-                        Error ConstRejection.KindMismatch
+                    | ValueNone -> Error ConstRejection.KindMismatch
                 | Ok _, Ok _ -> Error ConstRejection.KindMismatch
                 | Error e, _
                 | _, Error e -> Error e

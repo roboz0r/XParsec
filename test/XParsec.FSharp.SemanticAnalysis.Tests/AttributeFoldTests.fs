@@ -52,7 +52,7 @@ let private namedEnum (n: string) (enumKey: TypeKey) (v: TConstValue) : TAttribu
         EnumKey = ValueSome enumKey
     }
 
-let private int32 (v: int64) : TConstValue = TConstValue.Integral(IntKind.Int32, v)
+let private int32 (v: int) : TConstValue = TConstValue.Integral(IntValue.Int32 v)
 
 /// Every position marked: `Mark` is an ordinary project-local class, `Targets` a
 /// project-local enum for the enum-valued argument.
@@ -96,9 +96,9 @@ let tests =
                 Expect.equal
                     (markArgs (typeDecl pools "Point").Attributes)
                     [
-                        positional (int32 -3L)
+                        positional (int32 -3)
                         positional (TConstValue.String "hi")
-                        namedEnum "Extra" (typeDecl pools "Targets").TypeKey (int32 3L)
+                        namedEnum "Extra" (typeDecl pools "Targets").TypeKey (int32 3)
                     ]
                     "`Targets.A ||| Targets.B` folds through the local enum's case table, keeping its key"
             }
@@ -113,7 +113,7 @@ let tests =
 
                 Expect.equal
                     (markArgs field.Attributes)
-                    [ positional (int32 1L); positional (TConstValue.String "f") ]
+                    [ positional (int32 1); positional (TConstValue.String "f") ]
                     "field X carries its folded Mark"
             }
 
@@ -123,7 +123,7 @@ let tests =
 
                 Expect.equal
                     (markArgs decl.Attributes)
-                    [ positional (int32 2L); positional (TConstValue.String "u") ]
+                    [ positional (int32 2); positional (TConstValue.String "u") ]
                     "the union decl carries its folded Mark"
 
                 let case =
@@ -133,7 +133,7 @@ let tests =
 
                 Expect.equal
                     (markArgs case.Attributes)
-                    [ positional (int32 3L); positional (TConstValue.String "c") ]
+                    [ positional (int32 3); positional (TConstValue.String "c") ]
                     "case Circle carries its folded Mark"
             }
 
@@ -147,7 +147,7 @@ let tests =
 
                 Expect.equal
                     (markArgs case.Attributes)
-                    [ positional (int32 4L); positional (TConstValue.String "e") ]
+                    [ positional (int32 4); positional (TConstValue.String "e") ]
                     "case Red carries its folded Mark"
             }
 
@@ -162,7 +162,7 @@ let tests =
 
                 Expect.equal
                     (markArgs m.Attributes)
-                    [ positional (int32 5L); positional (TConstValue.String "m") ]
+                    [ positional (int32 5); positional (TConstValue.String "m") ]
                     "member M carries its folded Mark"
             }
 
@@ -191,7 +191,7 @@ let tests =
                         // Class = 4, Struct = 8, read off the external contract's case table.
                         {
                             Name = ValueNone
-                            Value = int32 12L
+                            Value = int32 12
                             EnumKey = ValueSome RuntimeNames.attributeTargetsKey
                         }
                         named "AllowMultiple" (TConstValue.Bool true)
@@ -259,17 +259,17 @@ let tests =
                 | [] -> ()
                 | errs -> failtestf "the literal source must analyse clean, got %A" errs
 
-                Expect.equal (markArgs (typeDecl pools "A").Attributes) [ positional (int32 3L) ] "bare Mask"
-                Expect.equal (markArgs (typeDecl pools "B").Attributes) [ positional (int32 8L) ] "qualified Deep.Bit"
+                Expect.equal (markArgs (typeDecl pools "A").Attributes) [ positional (int32 3) ] "bare Mask"
+                Expect.equal (markArgs (typeDecl pools "B").Attributes) [ positional (int32 8) ] "qualified Deep.Bit"
 
                 Expect.equal
                     (markArgs (typeDecl pools "C").Attributes)
-                    [ positional (int32 11L) ]
+                    [ positional (int32 11) ]
                     "Combined folded through its own literal references"
 
                 Expect.equal
                     (markArgs (typeDecl pools "D").Attributes)
-                    [ positional (int32 11L) ]
+                    [ positional (int32 11) ]
                     "Mask ||| Deep.Bit folds in argument position"
             }
 
@@ -381,7 +381,7 @@ let tests =
 
                 Expect.equal
                     (markArgs decl.Attributes)
-                    [ positional (int32 2L); positional (TConstValue.String "u") ]
+                    [ positional (int32 2); positional (TConstValue.String "u") ]
                     "Mark folds beside its bracket sibling"
 
                 Expect.isTrue decl.IsRequireQualifiedAccess "the sibling attribute lands too"

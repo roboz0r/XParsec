@@ -146,8 +146,8 @@ type internal Assembler
         // before the field pass attaches the `Constant` rows.
         for ed in partitioned.Enums do
             for (caseName, v) in ed.Cases do
-                let k, bits = TEnumCases.integralValue v
-                enumFieldConstants.[FieldKey.EnumCaseField(ed.Decl.Key, caseName)] <- IntKind.boxed k bits
+                enumFieldConstants.[FieldKey.EnumCaseField(ed.Decl.Key, caseName)] <-
+                    IntValue.boxed (TEnumCases.integralValue v)
 
             let caseValues = Dictionary<string, TConstValue>()
 

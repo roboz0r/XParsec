@@ -400,9 +400,9 @@ let tests =
                 Expect.equal
                     [ for c in casesOf "Colour" -> c.Name, c.Value ]
                     [
-                        "Red", ExternalEnumCaseValue.IntVal(IntKind.Int32, -1L)
-                        "Green", ExternalEnumCaseValue.IntVal(IntKind.Byte, 2L)
-                        "Amber", ExternalEnumCaseValue.IntVal(IntKind.Int32, -3L)
+                        "Red", ExternalEnumCaseValue.IntVal(IntValue.Int32(-1))
+                        "Green", ExternalEnumCaseValue.IntVal(IntValue.Byte 2uy)
+                        "Amber", ExternalEnumCaseValue.IntVal(IntValue.Int32(-3))
                     ]
                     "numeric cases keep source order and each case's own kind"
 

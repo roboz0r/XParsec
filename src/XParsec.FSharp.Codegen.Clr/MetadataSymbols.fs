@@ -129,7 +129,7 @@ module private MetadataMapping =
             None
         else
             match intKindOfClrName t.FullName with
-            | ValueSome k -> Some(TConstValue.Integral(k, 0L))
+            | ValueSome k -> Some(TConstValue.Integral(IntValue.zero k))
             | ValueNone ->
                 match t.FullName with
                 | "System.Boolean" -> Some(TConstValue.Bool false)
@@ -139,22 +139,21 @@ module private MetadataMapping =
                 | _ -> None
 
     /// Boxed `RawDefaultValue` → `TConstValue`. The box's runtime type is the only kind
-    /// witness metadata gives, so each arm spells its own `IntKind`; widening to `bits`
-    /// sign-extends the signed cases, zero-extends the unsigned (`uint64` reinterprets).
+    /// witness metadata gives.
     let private constOfBoxed (v: obj) : TConstValue option =
-        let inline integral (k: IntKind) (bits: int64) = Some(TConstValue.Integral(k, bits))
+        let inline integral (n: IntValue) = Some(TConstValue.Integral n)
 
         match v with
         | :? bool as b -> Some(TConstValue.Bool b)
         | :? char as c -> Some(TConstValue.Char c)
-        | :? sbyte as n -> integral IntKind.SByte (int64 n)
-        | :? byte as n -> integral IntKind.Byte (int64 n)
-        | :? int16 as n -> integral IntKind.Int16 (int64 n)
-        | :? uint16 as n -> integral IntKind.UInt16 (int64 n)
-        | :? int as n -> integral IntKind.Int32 (int64 n)
-        | :? uint32 as n -> integral IntKind.UInt32 (int64 n)
-        | :? int64 as n -> integral IntKind.Int64 n
-        | :? uint64 as n -> integral IntKind.UInt64 (int64 n)
+        | :? sbyte as n -> integral (IntValue.SByte n)
+        | :? byte as n -> integral (IntValue.Byte n)
+        | :? int16 as n -> integral (IntValue.Int16 n)
+        | :? uint16 as n -> integral (IntValue.UInt16 n)
+        | :? int as n -> integral (IntValue.Int32 n)
+        | :? uint32 as n -> integral (IntValue.UInt32 n)
+        | :? int64 as n -> integral (IntValue.Int64 n)
+        | :? uint64 as n -> integral (IntValue.UInt64 n)
         | :? single as f -> Some(TConstValue.Float32 f)
         | :? double as f -> Some(TConstValue.Float f)
         | :? string as s -> Some(TConstValue.String s)

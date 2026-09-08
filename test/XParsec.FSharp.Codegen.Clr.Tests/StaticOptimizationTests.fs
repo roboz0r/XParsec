@@ -35,8 +35,7 @@ let tests =
                                          Pattern = TPat.NamedSimple _
                                          Value = TExpr.Lambda(_,
                                                               TExpr.StaticOptimization(clauses,
-                                                                                       TExpr.Const(TConstValue.Integral(IntKind.Int32,
-                                                                                                                        -1L),
+                                                                                       TExpr.Const(TConstValue.Integral(IntValue.Int32(-1)),
                                                                                                    _,
                                                                                                    _),
                                                                                        TyConst(key, _),
@@ -49,7 +48,7 @@ let tests =
                     match clauses with
                     | EqList [ {
                                    Constraints = EqList [ _ ]
-                                   Body = TExpr.Const(TConstValue.Integral(IntKind.Int32, 1L), _, _)
+                                   Body = TExpr.Const(TConstValue.Integral(IntValue.Int32 1), _, _)
                                }
                                _
                                _ ] -> ()

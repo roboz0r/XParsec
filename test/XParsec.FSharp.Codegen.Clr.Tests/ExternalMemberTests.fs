@@ -68,7 +68,7 @@ let private assertGetHashCodeFreezesCarryingItsKey (src: string) : unit =
     // access's object argument is the `Default` static access.
     match letValue tast with
     | Some(TExpr.App(TExpr.ExternalMember(ValueSome inner, ghKey, "GetHashCode", MemberStorage.Method, _, ghTy, _),
-                     TExpr.Const(TConstValue.Integral(IntKind.Int32, 5L), _, _),
+                     TExpr.Const(TConstValue.Integral(IntValue.Int32 5), _, _),
                      resultTy,
                      _)) ->
         match Unification.zonk ctx.Store ghTy with
@@ -444,9 +444,9 @@ let tests =
                 match tast.Decls with
                 | EqList [ TDecl.Let(
                                binding = {
-                                             Value = TExpr.Const(TConstValue.Integral(IntKind.Int32, bits), _, _)
+                                             Value = TExpr.Const(TConstValue.Integral(IntValue.Int32 n), _, _)
                                          }) ] ->
-                    Expect.equal bits (int64 System.Int32.MaxValue) "the declared constant is substituted"
+                    Expect.equal n System.Int32.MaxValue "the declared constant is substituted"
                 | other -> failtestf "expected `m` to elaborate to an Int32 constant, got %A" other
             }
 

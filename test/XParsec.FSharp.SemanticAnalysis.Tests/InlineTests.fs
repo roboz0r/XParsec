@@ -303,14 +303,14 @@ let tests =
 
                 match edge with
                 | TExpr.InlineCall(
-                    spec = spec; args = EqList [ TExpr.Const(TConstValue.Integral(IntKind.Int32, 41L), _, _) ]) ->
+                    spec = spec; args = EqList [ TExpr.Const(TConstValue.Integral(IntValue.Int32 41), _, _) ]) ->
                     // The argument is carried on the EDGE and is bound by the emit-time
                     // expansion, so the entry is `succ`'s body under the parameter it abstracts.
                     match entryValue tast spec with
                     | TExpr.Lambda(TPat.NamedSimple _,
                                    TExpr.InlineCall(
                                        args = EqList [ TExpr.Var _
-                                                       TExpr.Const(TConstValue.Integral(IntKind.Int32, 1L), _, _) ]),
+                                                       TExpr.Const(TConstValue.Integral(IntValue.Int32 1), _, _) ]),
                                    _,
                                    _) -> ()
                     | other -> failtestf "the entry is not `fun x -> x + 1` (with `+` as an edge): %A" other
@@ -327,7 +327,7 @@ let tests =
                 | TExpr.Lambda(TPat.NamedSimple(_, TyConst(k1, _), _, _),
                                TExpr.InlineCall(
                                    args = EqList [ TExpr.Var(_, TyConst(k2, _), _)
-                                                   TExpr.Const(TConstValue.Integral(IntKind.Int32, 1L), _, _) ]),
+                                                   TExpr.Const(TConstValue.Integral(IntValue.Int32 1), _, _) ]),
                                TyFun(TyConst(k3, _), TyConst(k4, _)),
                                _) when
                     [ k1; k2; k3; k4 ]
@@ -354,7 +354,7 @@ let tests =
                 | TExpr.Lambda(TPat.NamedSimple(kb, _, _, _),
                                TExpr.InlineCall(
                                    args = EqList [ TExpr.Var(kv, _, _)
-                                                   TExpr.Const(TConstValue.Integral(IntKind.Int32, 1L), _, _) ]),
+                                                   TExpr.Const(TConstValue.Integral(IntValue.Int32 1), _, _) ]),
                                _,
                                _) -> kb, kv
                 | other -> failtestf "unexpected succ body: %A" other
