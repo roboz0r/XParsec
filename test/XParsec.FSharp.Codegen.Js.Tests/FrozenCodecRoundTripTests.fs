@@ -260,17 +260,17 @@ let private collect () : Collected =
             FTKeyOf ftRecord
             FTIndexedAccess(ftRecord, ftLitStr)
             ftCond
-            FTTypar(TyparScope.Type tkList, 0)
-            FTTypar(TyparScope.Member tkList, 3)
+            FTTypar(TyparScope.Type tkList, 0<typeSlot>)
+            FTTypar(TyparScope.Member tkList, 3<typeSlot>)
             FTTypar(
                 TyparScope.ModuleFunction
                     {
                         Decl = ModuleContainer.InModule modKey
                         Name = "map"
                     },
-                1
+                1<typeSlot>
             )
-            FTTypar(TyparScope.LocalFunction(LocalBindingId 7), 2)
+            FTTypar(TyparScope.LocalFunction(LocalBindingId 7), 2<typeSlot>)
             // One per `UnknownReason` case: the row shape differs per case, so a missing
             // sample is a codec arm nothing round-trips.
             FTUnknown(UnknownReason.UndefinedName "Missing.Thing")

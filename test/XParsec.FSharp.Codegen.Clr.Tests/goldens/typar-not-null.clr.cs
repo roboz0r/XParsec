@@ -23,7 +23,7 @@ public static class Program
 		s = notNull("x");
 	}
 
-	public static T0 notNull<T0>(T0 x)
+	public static a notNull<a>(a x)
 	{
 		return x;
 	}

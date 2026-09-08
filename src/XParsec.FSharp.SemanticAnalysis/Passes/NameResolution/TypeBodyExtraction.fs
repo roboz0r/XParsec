@@ -89,16 +89,16 @@ module NameResolutionTypeBodyExtraction =
         | IdentOrOp.ParenOp(opName = OpName.SymbolicOp op) -> ValueSome(ctx.NameOf op, op)
         | _ -> ValueNone
 
-    /// `<'C, …>` after the member name — a member's own declared typars, in
-    /// source order. Skips anonymous typars.
-    let private memberTyparNames (ctx: PassContext) (tds: TyparDefns<SyntaxToken> voption) : string list =
+    /// `<'C, …>` after the member name — a member's own declared typars in source order.
+    /// Skips anonymous typars.
+    let private memberTypars (ctx: PassContext) (tds: TyparDefns<SyntaxToken> voption) : (string * TyparKind) list =
         match tds with
         | ValueNone -> []
         | ValueSome(TyparDefns(defns = ds)) ->
             [
-                for TyparDefn(typar = t) in ds do
+                for TyparDefn(attributes = attrs; typar = t) in ds do
                     match typarName ctx t with
-                    | ValueSome n -> yield n
+                    | ValueSome n -> yield n, kindOfSlot ctx attrs
                     | ValueNone -> ()
             ]
 
@@ -116,7 +116,7 @@ module NameResolutionTypeBodyExtraction =
         for n in classTypars do
             known.Add n |> ignore
 
-        for n in memberTyparNames ctx b.typarDefns do
+        for (n, _) in memberTypars ctx b.typarDefns do
             known.Add n |> ignore
 
         let seen = System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal)
@@ -233,11 +233,12 @@ module NameResolutionTypeBodyExtraction =
         // A generic method's own `<'C>` typars (`member this.Map<'C> …`), then its
         // *implicit* ones, a `'U` appearing only in a param/return annotation. Both get
         // prototype TyVars; a property takes no implicit ones.
-        let explicit = memberTyparNames ctx b.typarDefns
+        let explicit = memberTypars ctx b.typarDefns
 
+        // An implicit typar is drawn from a type position, never a `[<Measure>]` declaration.
         let implicit =
             match ClassMemberKind.ofMemberKind kind with
-            | ClassMemberKind.Method -> implicitMemberTypars ctx typarNames b
+            | ClassMemberKind.Method -> [ for n in implicitMemberTypars ctx typarNames b -> n, TyparKind.Type ]
             | _ -> []
 
         // The count marks the leading `explicit` prefix of the seed: only those are
@@ -248,7 +249,7 @@ module NameResolutionTypeBodyExtraction =
             IsStatic = isStatic
             IsOverride = isOverride
             Site = mSite
-            SeedTypars = mkMethodTypars ctx.Store (explicit @ implicit)
+            SeedTypars = mkDeclaredTypars ctx.Store (explicit @ implicit)
             DeclaredTyparCount = List.length explicit
             ArgNames = Block.empty
         }
@@ -263,7 +264,7 @@ module NameResolutionTypeBodyExtraction =
         (kind: TMemberKind)
         (argNames: Block<string voption>)
         : MemberShape =
-        let explicit = memberTyparNames ctx tds
+        let explicit = memberTypars ctx tds
 
         {
             Name = mName
@@ -271,7 +272,7 @@ module NameResolutionTypeBodyExtraction =
             IsStatic = isStatic
             IsOverride = false
             Site = NodeSite.ofToken NodeKind.PatIdent mTok
-            SeedTypars = mkMethodTypars ctx.Store explicit
+            SeedTypars = mkDeclaredTypars ctx.Store explicit
             DeclaredTyparCount = List.length explicit
             ArgNames = argNames
         }

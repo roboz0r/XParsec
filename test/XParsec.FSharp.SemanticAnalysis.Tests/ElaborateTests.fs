@@ -17,18 +17,19 @@ let private declType (tast: TastFile) : SemType =
 
 
 /// The marker of `key`'s own typar `i`.
-let private declTypar (key: TypeKey) (i: int) : SemType = TyTypar(TyparScope.Type key, i)
+let private declTypar (key: TypeKey) (i: int) : SemType =
+    TyTypar(TyparScope.Type key, TyparIndex.typeSlot i)
 
 /// The marker of `m`'s own typar `i`, scoped by the class `m.ThisTy` resolves to.
 let private memberTypar (m: TTypeMember) (i: int) : SemType =
     match m.ThisTy with
-    | SemType.TyClass(key, _) -> TyTypar(TyparScope.Member key, i)
+    | SemType.TyClass(key, _) -> TyTypar(TyparScope.Member key, TyparIndex.typeSlot i)
     | other -> failtestf "expected a class self type, got %A" other
 
 /// Asserts `actual` is a module function's own typar `index`, whatever its binding key.
 let private expectFunctionTypar (index: int) (actual: SemType) (msg: string) : unit =
     match actual with
-    | TyTypar(TyparScope.ModuleFunction _, i) when i = index -> ()
+    | TyTypar(TyparScope.ModuleFunction _, i) when int i = index -> ()
     | other -> failtestf "%s: expected a module function typar %d, got %A" msg index other
 
 [<Tests>]
@@ -491,7 +492,7 @@ let interfaceTests =
 
                         Expect.equal
                             m.Signature
-                            (TyFun(declTypar td.TypeKey 0, TyTypar(TyparScope.Member td.TypeKey, 0)))
+                            (TyFun(declTypar td.TypeKey 0, TyTypar(TyparScope.Member td.TypeKey, 0<typeSlot>)))
                             "Map signature 'A -> 'B"
                     | other -> failtestf "expected one interface method, got %A" other
                 | other -> failtestf "expected single TDecl.Type, got %A" other
@@ -1623,8 +1624,8 @@ let moduleTupleBindingTests =
                             _,
                             _) ->
                     match fTy, gTy with
-                    | TyFun(TyTypar(TyparScope.ModuleFunction { Name = "f" } as fScope, 0), TyTypar(fScope', 0)),
-                      TyFun(TyTypar(TyparScope.ModuleFunction { Name = "g" } as gScope, 0), TyTypar(gScope', 0)) ->
+                    | TyFun(TyTypar(TyparScope.ModuleFunction { Name = "f" } as fScope, 0<_>), TyTypar(fScope', 0<_>)),
+                      TyFun(TyTypar(TyparScope.ModuleFunction { Name = "g" } as gScope, 0<_>), TyTypar(gScope', 0<_>)) ->
                         Expect.equal fScope fScope' "f's parameter and result share f's typar"
                         Expect.equal gScope gScope' "g's parameter and result share g's typar"
                         Expect.notEqual fScope gScope "f and g quantify under distinct scopes"

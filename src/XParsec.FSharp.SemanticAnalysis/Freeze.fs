@@ -14,14 +14,16 @@ module Freeze =
     /// Each quantified typar root mapped to its body-local binding's `LocalBindingId` and its
     /// index there. A non-generalised binding (the value restriction) keeps residual roots but
     /// has no scheme, so it contributes none.
-    let private schemeBoundVars (ctx: PassContext) : Dictionary<TyVarId, struct (LocalBindingId * int)> =
-        let map = Dictionary<TyVarId, struct (LocalBindingId * int)>()
+    let private schemeBoundVars (ctx: PassContext) : Dictionary<TyVarId, struct (LocalBindingId * int<typeSlot>)> =
+        let map = Dictionary<TyVarId, struct (LocalBindingId * int<typeSlot>)>()
 
         for KeyValue(_, entry) in ctx.Bindings.Scheme.AsDictionary() do
             match entry.Scheme with
             | ValueSome scheme ->
                 scheme.Quantified
-                |> Seq.iteri (fun i tv -> map.[(UnionFind.find ctx.Store tv).Id] <- struct (entry.Id, i))
+                |> Seq.iteri (fun i tv ->
+                    map.[(UnionFind.find ctx.Store tv).Id] <- struct (entry.Id, TyparIndex.typeSlot i)
+                )
             | ValueNone -> ()
 
         map
@@ -31,7 +33,7 @@ module Freeze =
     /// freezes to `FTUnknown UnresolvedTypar`, the recovery value after `ResolvedTypes` reports it.
     let private freezeTy
         (store: TypeStore)
-        (schemes: Dictionary<TyVarId, struct (LocalBindingId * int)>)
+        (schemes: Dictionary<TyVarId, struct (LocalBindingId * int<typeSlot>)>)
         (t: SemType)
         : FrozenType =
         let onVar (tv: TyVarId) : FrozenType =

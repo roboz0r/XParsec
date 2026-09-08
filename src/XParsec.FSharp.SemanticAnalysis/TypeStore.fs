@@ -332,15 +332,17 @@ module UnionFind =
 type TyparRoots(store: TypeStore) =
     let roots = ResizeArray<TyVarId voption>()
 
-    member _.At(index: int) : TyVarId =
-        while roots.Count <= index do
+    member _.At(index: int<typeSlot>) : TyVarId =
+        let i = int index
+
+        while roots.Count <= i do
             roots.Add ValueNone
 
-        match roots.[index] with
+        match roots.[i] with
         | ValueSome v -> v
         | ValueNone ->
             let v = store.NewTypeVar()
-            roots.[index] <- ValueSome v
+            roots.[i] <- ValueSome v
             v
 
     /// The cells minted so far, in index order.
@@ -359,8 +361,8 @@ type LocalTyparRoots(store: TypeStore) =
 
     member _.At(binding: LocalBindingId, index: int<typeSlot>) : TyVarId =
         match byBinding.TryGetValue binding with
-        | true, roots -> roots.At(int index)
+        | true, roots -> roots.At index
         | _ ->
             let roots = TyparRoots store
             byBinding.[binding] <- roots
-            roots.At(int index)
+            roots.At index

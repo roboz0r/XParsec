@@ -11,7 +11,7 @@ using System.Reflection;
 [assembly: AssemblyVersion("1.0.0.0")]
 public static class Program
 {
-	public static T0 onlyNull<T0>(T0 x)
+	public static a onlyNull<a>(a x)
 	{
 		return x;
 	}

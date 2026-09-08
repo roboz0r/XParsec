@@ -97,7 +97,7 @@ module FunctionScheme =
 
         let rec checkType (t: FrozenType) =
             match t with
-            | FTFunctionTypar i when i >= int arity ->
+            | FTFunctionTypar i when i >= arity ->
                 failwithf "FunctionScheme: constraint references method typar %d, arity %d" i arity
             | t -> FrozenType.iterChildren checkType t
 

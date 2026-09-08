@@ -138,7 +138,13 @@ module FrozenSignature =
             let acc = ResizeArray<ExternalMember>()
 
             let selfTy =
-                FTClass(declKey, Block.ofSeq [ for i in 0 .. int declArity - 1 -> FTTypar(TyparScope.Type declKey, i) ])
+                FTClass(
+                    declKey,
+                    Block.ofSeq
+                        [
+                            for i in 0 .. int declArity - 1 -> FTTypar(TyparScope.Type declKey, TyparIndex.typeSlot i)
+                        ]
+                )
 
             let addCtor (paramTys: Block<FrozenType>) =
                 let parameters = ExternalSignature.tupledParams paramTys

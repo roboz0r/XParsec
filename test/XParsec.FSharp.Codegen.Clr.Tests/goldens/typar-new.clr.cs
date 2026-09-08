@@ -26,7 +26,7 @@ public static class Program
 		c = construct(new Counter());
 	}
 
-	public static T0 construct<T0>(T0 x) where T0 : new()
+	public static a construct<a>(a x) where a : new()
 	{
 		return x;
 	}

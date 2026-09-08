@@ -645,7 +645,7 @@ let private fKey = SymbolKeyOps.bindingKeyOf (SymbolKeyOps.inNamespace "") "f"
 
 /// `f`'s typar `i`.
 let private fTypar (i: int) : FrozenType =
-    FTTypar(TyparScope.ModuleFunction fKey, i)
+    FTTypar(TyparScope.ModuleFunction fKey, TyparIndex.typeSlot i)
 
 /// `val f: 'a -> 'b -> 'b` — the `.fsi` appearance-order scheme (`'a` = index 0).
 let private fScheme: FrozenType = FTFun(fTypar 0, FTFun(fTypar 1, fTypar 1))

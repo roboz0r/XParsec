@@ -195,8 +195,8 @@ let tests =
 let memberKeyIdentity =
     let cKey = SymbolKeyOps.qualifiedTypeKeyOf "C" 1 // the OPEN `C<'T>`
     let ftInt: FrozenType = FTConst(RuntimeNames.intKey, Block.empty)
-    let declTypar: FrozenType = FTTypar(TyparScope.Type cKey, 0)
-    let methodTypar: FrozenType = FTTypar(TyparScope.Member cKey, 0)
+    let declTypar: FrozenType = FTTypar(TyparScope.Type cKey, 0<typeSlot>)
+    let methodTypar: FrozenType = FTTypar(TyparScope.Member cKey, 0<typeSlot>)
 
     let mk (argSig: FrozenType list) (methodTyparArity: int) : MemberKey =
         SymbolKeyOps.memberKeyOf cKey "M" (Block.ofList argSig) methodTyparArity MemberKind.Method

@@ -118,7 +118,10 @@ let tests =
 
             test "a constraint whose type references a method typar past the arity is refused" {
                 let target =
-                    FTTypar(TyparScope.ModuleFunction(SymbolKeyOps.bindingKeyOf (SymbolKeyOps.inNamespace "") "f"), 1)
+                    FTTypar(
+                        TyparScope.ModuleFunction(SymbolKeyOps.bindingKeyOf (SymbolKeyOps.inNamespace "") "f"),
+                        1<typeSlot>
+                    )
 
                 Expect.throws
                     (fun () -> schemeWith 1<typeSlot> (TyparConstraintKindG.Coercion target) |> ignore)
@@ -141,6 +144,24 @@ let tests =
                     )
                     "trait index past the arity"
             }
+
+            // The `Types` numbering is dense over the type-kinded typars alone.
+            test "a measure typar before a type typar leaves the constraint on Types.[0]" {
+                let pools =
+                    freezeFor
+                        "let mf<[<Measure>] 'u, 'a when 'a: equality> (y: 'a) = y
+"
+
+                let scheme = frozenSchemeOf pools "mf"
+
+                Expect.equal scheme.TyparArity 1<typeSlot> "one type slot"
+                Expect.equal scheme.Typars.MeasureArity 1<measureSlot> "the measure typar is a Measures entry"
+
+                Expect.equal
+                    (constraintsOf scheme.Typars)
+                    [ [ TyparConstraintKindG.Equality ] ]
+                    "the constraint sits on 'a"
+            }
         ]
 
 // A type declaration, a member and an abstract slot carry their own typars' constraints on the
@@ -154,6 +175,7 @@ type Holder<'a>() =
     member _.Same (x: 'a) (y: 'a) = x = y
     member _.Pick<'b when 'b: struct> (b: 'b) = b
     member _.Less x y = x < y
+    member _.Scaled<[<Measure>] 'u, 'b when 'b: struct> (b: 'b) = b
 
 type IShape =
     abstract Map<'c when 'c: not struct> : 'c -> 'c
@@ -199,6 +221,16 @@ let declTests =
                     (constraintsOf (memberOf td "Pick").MethodTypars)
                     [ [ TyparConstraintKindG.Struct ] ]
                     "method constraint"
+            }
+
+            // A member numbers its `Types` the same way a module `let` does.
+            test "a member's measure typar before a type typar leaves the constraint on Types.[0]" {
+                let typars =
+                    (memberOf (typeDeclOf (freezeFor declSource) "Holder") "Scaled").MethodTypars
+
+                Expect.equal typars.TypeArity 1<typeSlot> "one type slot"
+                Expect.equal typars.MeasureArity 1<measureSlot> "the measure typar is a Measures entry"
+                Expect.equal (constraintsOf typars) [ [ TyparConstraintKindG.Struct ] ] "the constraint sits on 'b"
             }
 
             test "a member's inferred constraint is on its own typar" {
@@ -281,7 +313,7 @@ let fscParityTests =
                 let scope =
                     TyparScope.ModuleFunction(SymbolKeyOps.bindingKeyOf (SymbolKeyOps.inNamespace "") "map")
 
-                let at (i: int) = FTTypar(scope, i)
+                let at (i: int) = FTTypar(scope, TyparIndex.typeSlot i)
 
                 let mapSeq =
                     match declTypeOf pools "map" with

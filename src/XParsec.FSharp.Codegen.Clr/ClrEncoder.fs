@@ -119,17 +119,17 @@ type internal ClrEncoder(env: ClrEnv) =
             match env.TyparSlots with
             | TyparSlots.Declared ->
                 match scope with
-                | TyparScope.Type _ -> te.GenericTypeParameter i
+                | TyparScope.Type _ -> te.GenericTypeParameter(int i)
                 | TyparScope.Member _
-                | TyparScope.ModuleFunction _ -> te.GenericMethodTypeParameter i
+                | TyparScope.ModuleFunction _ -> te.GenericMethodTypeParameter(int i)
                 | TyparScope.LocalFunction _ -> outsideFrame ()
             | TyparSlots.ClosureClass frame ->
                 match frame.TryOffset scope with
-                | ValueSome offset -> te.GenericTypeParameter(int offset + i)
+                | ValueSome offset -> te.GenericTypeParameter(int (offset + i))
                 | ValueNone -> outsideFrame ()
             | TyparSlots.LiftedMethod frame ->
                 match frame.TryOffset scope with
-                | ValueSome offset -> te.GenericMethodTypeParameter(int offset + i)
+                | ValueSome offset -> te.GenericMethodTypeParameter(int (offset + i))
                 | ValueNone -> outsideFrame ()
         // A tuple is a member of the `System.ValueTuple` struct family, a `VALUETYPE` generic
         // instantiation, and nests whatever does not fit one member, per the standard .NET scheme.
@@ -246,15 +246,17 @@ type internal ClrEncoder(env: ClrEnv) =
         let rec go (d: FrozenType) (a: FrozenType) =
             match d with
             | FTTypar(scope, i) ->
-                let slot =
+                let slots =
                     match scope with
                     | TyparScope.Type _ -> ValueSome decl
                     | TyparScope.Member _
                     | TyparScope.ModuleFunction _ -> ValueSome meth
                     | TyparScope.LocalFunction _ -> ValueNone
 
-                match slot with
-                | ValueSome slot when i >= 0 && i < slot.Length && slot.[i].IsNone -> slot.[i] <- ValueSome a
+                let slot = int i
+
+                match slots with
+                | ValueSome slots when slot < slots.Length && slots.[slot].IsNone -> slots.[slot] <- ValueSome a
                 | _ -> ()
             // Pairwise descent under a shared type constructor: a mismatch declines silently,
             // leaving the subtree's slots empty for the caller to detect.

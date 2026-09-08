@@ -93,8 +93,8 @@ let private samples: FrozenType list =
         // and member sorts, which reach the wire through a symbol reference instead.
         FTConst(nestedKey, Block.empty)
         FTFun(intTy, FTFun(stringTy, intTy))
-        FTTuple(Block.ofList [ intTy; stringTy; FTTypar(TyparScope.Type boxKey, 0) ])
-        FTRecord(boxKey, Block.singleton (FTTypar(TyparScope.Type boxKey, 0)))
+        FTTuple(Block.ofList [ intTy; stringTy; FTTypar(TyparScope.Type boxKey, 0<typeSlot>) ])
+        FTRecord(boxKey, Block.singleton (FTTypar(TyparScope.Type boxKey, 0<typeSlot>)))
         FTUnion(boxKey, Block.singleton stringTy)
         FTClass(nestedKey, Block.empty)
         FTEnum colourKey
@@ -102,20 +102,27 @@ let private samples: FrozenType list =
         FTLiteral(LiteralConst.String "GET")
         FTLiteral(LiteralConst.Int 42L)
         FrozenType.MkUnion [ FTLiteral(LiteralConst.String "ping"); FTLiteral(LiteralConst.String "pong") ]
-        FTKeyOf(FTTypar(TyparScope.Type boxKey, 0))
-        FTIndexedAccess(FTTypar(TyparScope.Type boxKey, 0), FTTypar(TyparScope.Member boxKey, 0))
+        FTKeyOf(FTTypar(TyparScope.Type boxKey, 0<typeSlot>))
+        FTIndexedAccess(FTTypar(TyparScope.Type boxKey, 0<typeSlot>), FTTypar(TyparScope.Member boxKey, 0<typeSlot>))
         FTConditional
             {
                 Check = intTy
-                Extends = FTIndexedAccess(FTTypar(TyparScope.Type boxKey, 0), FTTypar(TyparScope.Member boxKey, 0))
-                WhenTrue = FTTypar(TyparScope.Member boxKey, 0)
+                Extends =
+                    FTIndexedAccess(
+                        FTTypar(TyparScope.Type boxKey, 0<typeSlot>),
+                        FTTypar(TyparScope.Member boxKey, 0<typeSlot>)
+                    )
+                WhenTrue = FTTypar(TyparScope.Member boxKey, 0<typeSlot>)
                 WhenFalse = FrozenType.MkUnion []
             }
-        FTTypar(TyparScope.Type boxKey, 3)
-        FTTypar(TyparScope.Member boxKey, 2)
-        FTTypar(TyparScope.ModuleFunction(SymbolKeyOps.bindingKeyOf (SymbolKeyOps.inNamespace "Test") "map"), 1)
-        FTTypar(TyparScope.LocalFunction(LocalBindingId 0), 0)
-        FTTypar(TyparScope.LocalFunction(LocalBindingId 1), 2)
+        FTTypar(TyparScope.Type boxKey, 3<typeSlot>)
+        FTTypar(TyparScope.Member boxKey, 2<typeSlot>)
+        FTTypar(
+            TyparScope.ModuleFunction(SymbolKeyOps.bindingKeyOf (SymbolKeyOps.inNamespace "Test") "map"),
+            1<typeSlot>
+        )
+        FTTypar(TyparScope.LocalFunction(LocalBindingId 0), 0<typeSlot>)
+        FTTypar(TyparScope.LocalFunction(LocalBindingId 1), 2<typeSlot>)
         FTUnknown(UnknownReason.UndefinedName "Unresolved.Head")
         // A measured nominal: the measure is a leaf in argument position, its atoms keyed.
         FTConst(

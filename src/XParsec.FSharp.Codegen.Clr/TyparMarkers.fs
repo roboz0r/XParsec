@@ -10,7 +10,9 @@ module internal TyparMarkers =
     /// position `i` encodes as `!i`. This is the instantiation that names a generic type
     /// from inside its own bodies (`Box\`1<!0>`).
     let declaringMarkers (key: TypeKey) (count: int<typeSlot>) : FrozenType list =
-        [ for i in 0 .. int count - 1 -> FTTypar(TyparScope.Type key, i) ]
+        [
+            for i in 0 .. int count - 1 -> FTTypar(TyparScope.Type key, TyparIndex.typeSlot i)
+        ]
 
 /// One scope's typars in a `TyparFrame`.
 type FrameScope =
@@ -50,7 +52,7 @@ type TyparFrame =
     member x.Instantiation: FrozenType list =
         [
             for s in x.Scopes do
-                for i in 0 .. int s.Count - 1 -> FTTypar(s.Scope, i)
+                for i in 0 .. int s.Count - 1 -> FTTypar(s.Scope, TyparIndex.typeSlot i)
         ]
 
     /// The frame with `scope`'s typars appended.

@@ -231,7 +231,7 @@ separate change.
    with the gap quoted in the name. `fsc` orders typars by first appearance including the
    constraint clauses (`TFunc, T, U, S, E` for `StructSeq.map`, where this compiler gives
    `TFunc, S, E, T, U`), which needs the implicit typars' source positions at generalisation,
-   which `mkMethodQuantEnv` does not track; and two coercions on one typar to the same generic
+   which `mkMethodQuantTypars` does not track; and two coercions on one typar to the same generic
    interface unify their arguments under FS0064, where `addConstraintByKind` only dedupes
    structurally equal constraints.
 
@@ -265,8 +265,9 @@ separate change.
 
 6. **`MeasureAtom.Typar`.** Absorbed by `typar-slot-plan.md` step 3, which gives the atom a
    `measureSlot`-tagged index. `[<Measure>]` on a member or binding typar is read at
-   `mkMethodTypars` and at `Infer`'s binding-typar read, the two sites
-   `measure-resolution-plan.md` step 2 left type-kinded by construction. Measure-generic
+   `TypeBodyExtraction.memberTypars` and at `Infer`'s binding-typar read, the two sites
+   `measure-resolution-plan.md` step 2 left type-kinded by construction (done in step 2 of
+   `typar-slot-plan.md`). Measure-generic
    abbreviations (`type Meters<[<Measure>] 'u> = float<'u>`) leave `NotYetSupported`.
 
 7. **Import.** A foreign generic's constraints are read off its metadata into the typar's

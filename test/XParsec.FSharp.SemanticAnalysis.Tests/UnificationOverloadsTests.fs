@@ -9,11 +9,11 @@ open XParsec.FSharp.SemanticAnalysis.Tests.UnificationTestHelpers
 
 /// A member's own typar `i`, under a scope the trial matcher reads by kind alone.
 let private methodTypar (i: int) : FrozenType =
-    FTTypar(TyparScope.Member(SymbolKeyOps.qualifiedTypeKeyOf "T" 0), i)
+    FTTypar(TyparScope.Member(SymbolKeyOps.qualifiedTypeKeyOf "T" 0), TyparIndex.typeSlot i)
 
 /// The declaring type's typar `i`.
 let private declTypar (i: int) : FrozenType =
-    FTTypar(TyparScope.Type(SymbolKeyOps.qualifiedTypeKeyOf "Box" 1), i)
+    FTTypar(TyparScope.Type(SymbolKeyOps.qualifiedTypeKeyOf "Box" 1), TyparIndex.typeSlot i)
 
 [<Tests>]
 let tests =

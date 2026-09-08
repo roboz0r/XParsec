@@ -43,7 +43,7 @@ public static class Program
 		return x * 2;
 	}
 
-	public static T0 applySum<T0>(Fun<int, T0> f, int x, int y)
+	public static M0 applySum<M0>(Fun<int, M0> f, int x, int y)
 	{
 		return f.Invoke(x + y);
 	}

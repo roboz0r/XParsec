@@ -19,7 +19,7 @@ module FrozenTypeBridge =
     /// The assignment of types to a template's open typars. One value per instantiation
     /// event: templates instantiated through one value agree at every `(scope, index)`.
     type ITyparInstantiation =
-        abstract Typar: scope: TyparScope * index: int -> SemType
+        abstract Typar: scope: TyparScope * index: int<typeSlot> -> SemType
 
     [<RequireQualifiedAccess>]
     module MeasuredThaw =
@@ -136,7 +136,7 @@ module FrozenTypeBridge =
 
     /// A local typar arises only inside a decl's BODY (a body-local `let`'s own generalised
     /// scheme), so one in a SIGNATURE / type-shape template is a producer bug.
-    let localTyparInTemplate (binding: LocalBindingId) (k: int) : SemType =
+    let localTyparInTemplate (binding: LocalBindingId) (k: int<typeSlot>) : SemType =
         failwithf
             "FrozenTypeBridge.localTyparInTemplate: unexpected body-local typar %d of binding %O in a signature template"
             k
@@ -147,10 +147,10 @@ module FrozenTypeBridge =
 
         /// The instantiation dispatching each typar leaf to the handler for its scope.
         let ofScopes
-            (onType: TypeKey -> int -> SemType)
-            (onMember: TypeKey -> int -> SemType)
-            (onFunction: BindingKey -> int -> SemType)
-            (onLocal: LocalBindingId -> int -> SemType)
+            (onType: TypeKey -> int<typeSlot> -> SemType)
+            (onMember: TypeKey -> int<typeSlot> -> SemType)
+            (onFunction: BindingKey -> int<typeSlot> -> SemType)
+            (onLocal: LocalBindingId -> int<typeSlot> -> SemType)
             : ITyparInstantiation =
             { new ITyparInstantiation with
                 member _.Typar(scope, index) =
@@ -161,22 +161,22 @@ module FrozenTypeBridge =
                     | TyparScope.LocalFunction binding -> onLocal binding index
             }
 
-        let private marker (scope: TyparScope) (index: int) : SemType = TyTypar(scope, index)
+        let private marker (scope: TyparScope) (index: int<typeSlot>) : SemType = TyTypar(scope, index)
 
         /// A fresh `TyVar` per `(binding, index)`, memoised so repeated occurrences of one
         /// local typar share one cell.
-        let mintLocals (store: TypeStore) : LocalBindingId -> int -> SemType =
+        let mintLocals (store: TypeStore) : LocalBindingId -> int<typeSlot> -> SemType =
             let roots = LocalTyparRoots store
-            fun binding index -> TyVar(roots.At(binding, TyparIndex.typeSlot index))
+            fun binding index -> TyVar(roots.At(binding, index))
 
         /// A declaration's own typars from `args`: a type shape's (record field, union-case
         /// field, interface arg, base type, abbreviation body) or a module function's scheme.
         /// An index past `args` degrades to `TyUnknown UnknownReason.ArityMismatch`; a
         /// member's or a body-local typar in the template is a producer bug.
         let declaringOnly (args: SemType[]) : ITyparInstantiation =
-            let arg (index: int) =
-                if index < args.Length then
-                    args.[index]
+            let arg (index: int<typeSlot>) =
+                if int index < args.Length then
+                    args.[int index]
                 else
                     TyUnknown UnknownReason.ArityMismatch
 
@@ -191,9 +191,9 @@ module FrozenTypeBridge =
                 localTyparInTemplate
 
         /// A declaring index past `declaringArgs` in a member template is a provider bug.
-        let private declaringArg (policy: string) (declaringArgs: SemType[]) (i: int) : SemType =
-            if i < declaringArgs.Length then
-                declaringArgs.[i]
+        let private declaringArg (policy: string) (declaringArgs: SemType[]) (i: int<typeSlot>) : SemType =
+            if int i < declaringArgs.Length then
+                declaringArgs.[int i]
             else
                 failwithf
                     "TyparInstantiation.%s: declaring typar %d out of range for %d declaring args"
@@ -217,15 +217,15 @@ module FrozenTypeBridge =
         let atCallSite
             (store: TypeStore)
             (level: int)
-            (seed: (int * SemType) list)
+            (seed: (int<typeSlot> * SemType) list)
             (declaringArgs: SemType[])
             : ITyparInstantiation =
-            let cache = Dictionary<int, SemType>()
+            let cache = Dictionary<int<typeSlot>, SemType>()
 
             for (j, ty) in seed do
                 cache.[j] <- ty
 
-            let own (index: int) =
+            let own (index: int<typeSlot>) =
                 match cache.TryGetValue index with
                 | true, v -> v
                 | _ ->
@@ -269,8 +269,8 @@ module FrozenTypeBridge =
     let rec substituteDeclaring (declaringArgs: FrozenType[]) (template: FrozenType) : FrozenType =
         match template with
         | FTTypar(TyparScope.Type _, i) ->
-            if i < declaringArgs.Length then
-                declaringArgs.[i]
+            if int i < declaringArgs.Length then
+                declaringArgs.[int i]
             else
                 FTUnknown UnknownReason.ArityMismatch
         | FTTypar(scope, j) ->

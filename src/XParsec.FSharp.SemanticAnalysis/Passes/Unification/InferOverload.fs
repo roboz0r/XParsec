@@ -29,7 +29,7 @@ module UnificationInferOverload =
     /// every position), and caller-side free metavars keyed by union-find root id.
     type private TrialBindings =
         {
-            MethodTypars: Dictionary<int, SemType>
+            MethodTypars: Dictionary<int<typeSlot>, SemType>
             CallerVars: Dictionary<TyVarId, SemType>
         }
 
@@ -81,7 +81,7 @@ module UnificationInferOverload =
         (store: TypeStore)
         (canon: TypeKey -> TypeKey)
         (binds: TrialBindings)
-        (i: int)
+        (i: int<typeSlot>)
         (other: SemType)
         : bool =
         match binds.MethodTypars.TryGetValue i with
@@ -312,17 +312,19 @@ module UnificationInferOverload =
         : SemType list =
         flatParamsOf ctx.Store (instantiateMemberCall ctx (typeParams, args) m.EffectiveMethodTypars m.Type)
 
-    /// Positional `TyVar root → index` map for a typar list's PROTOTYPES, following any
-    /// committed `Link`. Used to freeze a member's parameter typars back to `FTTypar(scope, i)`.
-    let private frozenScopeEnv (store: TypeStore) (typars: Block<DeclaredTypar>) : Dictionary<TyVarId, int> =
-        let d = Dictionary<TyVarId, int>()
+    /// Each type-kinded prototype's zonked root mapped to its `Types` slot, which is how a
+    /// member's parameter typars freeze back to `FTTypar(scope, i)`.
+    let private frozenScopeEnv (store: TypeStore) (typars: Block<DeclaredTypar>) : Dictionary<TyVarId, int<typeSlot>> =
+        let d = Dictionary<TyVarId, int<typeSlot>>()
 
-        for i in 0 .. typars.Length - 1 do
-            match zonk store (TyVar typars.[i].TyVar) with
+        DeclaredTypar.typeKinded typars
+        |> Block.iteri (fun slot tp ->
+            match zonk store (TyVar tp.TyVar) with
             | TyVar root ->
                 if not (d.ContainsKey root) then
-                    d.[root] <- i
+                    d.[root] <- slot
             | _ -> ()
+        )
 
         d
 

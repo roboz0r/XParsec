@@ -59,17 +59,16 @@ module internal ElaborateTypars =
         (scope: TyparScope)
         (typars: Block<DeclaredTypar>)
         : (TyVarId * SemType) list =
-        let shape: TyparList = TyparList.unconstrained typars
+        let env = ResizeArray<TyVarId * SemType>()
 
-        [
-            for i in 0 .. typars.Length - 1 do
-                match shape.Order.[TyparIndex.sigSlot i] with
-                | TyparSlot.Type slot ->
-                    match Unification.zonk store (TyVar typars.[i].TyVar) with
-                    | TyVar root -> yield (root, TyTypar(scope, int slot))
-                    | _ -> ()
-                | TyparSlot.Measure _ -> ()
-        ]
+        DeclaredTypar.typeKinded typars
+        |> Block.iteri (fun slot tp ->
+            match Unification.zonk store (TyVar tp.TyVar) with
+            | TyVar root -> env.Add(root, TyTypar(scope, slot))
+            | _ -> ()
+        )
+
+        List.ofSeq env
 
     /// The constraints the store holds on `root`; a `Coercion` target stays `TyVar`-rooted
     /// for the deferred cut.
@@ -99,21 +98,10 @@ module internal ElaborateTypars =
             (fun tp -> constraintSetOf store tp.TyVar)
             (Block.ofArray (GeneralizedTypars.toArray roots))
 
-    /// A module function's own typars with their constraints, positionally named in the order
-    /// `env` quantifies them: entry `i` of a `mkMethodQuantEnv` result is `TyTypar(scope, i)`.
-    let quantEnvTyparList (store: TypeStore) (env: (TyVarId * SemType) list) : TyparListG<SemType> =
-        let roots: BlockM<TyVarId, typeSlot> = Block.ofList (env |> List.map fst)
-        TyparList.positionalWith (fun i -> constraintSetOf store roots.[i]) roots.Length
-
-    /// Quantify a module-`let`'s free type parameters into `TyTypar(scope, i)` in the F#
-    /// canonical order: `declared` typars first in source order (`<'b,'a>` stays `'b,'a`),
-    /// then the remaining free roots by first appearance, then the constraint-only typars.
-    let mkMethodQuantEnv
-        (store: TypeStore)
-        (scope: TyparScope)
-        (declared: DeclaredTypar list)
-        (declTy: SemType)
-        : (TyVarId * SemType) list =
+    /// A module-`let`'s quantified typars in the F# canonical order: `declared` typars first in
+    /// source order (`<'b,'a>` stays `'b,'a`), then the remaining free roots by first
+    /// appearance, then the constraint-only typars.
+    let mkMethodQuantTypars (store: TypeStore) (declared: DeclaredTypar list) (declTy: SemType) : GeneralizedTypars =
         // A declared typar that inference pinned to a concrete type (its root is `Link`ed)
         // is not a method typar; drop it. A free function has no enclosing class typars, so
         // the `fixedRoots` set passed below is empty.
@@ -141,6 +129,7 @@ module internal ElaborateTypars =
         let acc =
             ResizeArray<TyVarId>(GeneralizedTypars.toArray gt |> Array.map (fun tp -> tp.TyVar))
 
+        let canonicalCount = acc.Count
         let seen = System.Collections.Generic.HashSet<TyVarId>()
 
         for r in acc do
@@ -160,13 +149,13 @@ module internal ElaborateTypars =
 
             depIdx <- depIdx + 1
 
-        [ for i in 0 .. acc.Count - 1 -> acc.[i], TyTypar(scope, i) ]
+        GeneralizedTypars.appendInferred (acc.GetRange(canonicalCount, acc.Count - canonicalCount)) gt
 
     /// The env's typar roots in type-argument order: the declaring type's first, then the
     /// member's or module function's own, each by index. A thaw of a template frozen with this
     /// env recovers the same order.
     let quantifiedRoots (env: (TyVarId * SemType) list) : TyVarId[] =
-        let rank (target: SemType) : (int * int) voption =
+        let rank (target: SemType) : (int * int<typeSlot>) voption =
             match target with
             | TyTypar(TyparScope.Type _, i) -> ValueSome(0, i)
             | TyFunctionTypar j -> ValueSome(1, j)

@@ -49,8 +49,10 @@ module TastLower =
             match defT, actT with
             // `act` may itself be a typar: the enclosing context's own.
             | FTTypar(scope, i), act when isOwn scope ->
-                if i >= 0 && i < result.Length && result.[i].IsNone then
-                    result.[i] <- ValueSome act
+                let slot = int i
+
+                if slot < result.Length && result.[slot].IsNone then
+                    result.[slot] <- ValueSome act
             | FTFun(a1, r1), FTFun(a2, r2) ->
                 go a1 a2
                 go r1 r2
@@ -131,7 +133,7 @@ module TastLower =
 
             let rec mention (t: FrozenType) =
                 match t with
-                | FTFunctionTypar i -> constraintMentioned.Add i |> ignore
+                | FTFunctionTypar i -> constraintMentioned.Add(int i) |> ignore
                 | t -> FrozenType.iterChildren mention t
 
             for (_, target) in coercions do

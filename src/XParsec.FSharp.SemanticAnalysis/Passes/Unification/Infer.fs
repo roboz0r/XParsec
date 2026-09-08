@@ -314,21 +314,19 @@ module UnificationInfer =
             match b.typarDefns with
             | ValueSome(TyparDefns(defns = ds)) ->
                 [
-                    for TyparDefn(typar = t) in ds do
+                    for TyparDefn(attributes = attrs; typar = t) in ds do
                         match t with
                         | Typar.Named(ident = id)
                         | Typar.Static(ident = id) ->
                             let n = ctx.NameOf id
 
                             match ctx.Resolution.TyparScope.TryGetValue n with
-                            // A binding's own typars are type-kinded: `[<Measure>]` on one is
-                            // not yet modelled.
                             | true, tv ->
                                 yield
                                     {
                                         Name = n
                                         TyVar = tv
-                                        Kind = TyparKind.Type
+                                        Kind = NameResolutionTypeRegistration.kindOfSlot ctx attrs
                                     }
                             | _ -> ()
                         | Typar.Anon _ -> ()

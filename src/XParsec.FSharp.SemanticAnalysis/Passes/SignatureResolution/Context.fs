@@ -152,10 +152,6 @@ module SignatureResolutionContext =
                     | ValueNone -> ()
             ]
 
-    /// The explicit `<'a, 'b>` a signature declares, in source order.
-    let explicitTyparNames (ctx: PassContext) (tds: TyparDefns<SyntaxToken> voption) : string list =
-        explicitTypars ctx tds |> List.map fst
-
     /// Run `f` under a typar scope holding exactly `outer` then `own`, STRICT: every typar the
     /// signature writes was collected before entry, so one that still misses is undeclared.
     let underTypars (ctx: PassContext) (outer: Block<DeclaredTypar>) (own: Block<DeclaredTypar>) (f: unit -> 'a) : 'a =

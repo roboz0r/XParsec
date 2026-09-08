@@ -188,7 +188,7 @@ let tests =
                     (SymbolKeyOps.memberKeyOf
                         cKey
                         "Id"
-                        (Block.singleton (FTTypar(TyparScope.Member cKey, 0)))
+                        (Block.singleton (FTTypar(TyparScope.Member cKey, 0<typeSlot>)))
                         1
                         MemberKind.Method)
                     "Id's key survives the round trip"

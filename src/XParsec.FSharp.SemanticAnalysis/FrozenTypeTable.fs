@@ -150,7 +150,7 @@ type TypeRow =
     | KeyOf of ty: TypeId
     | IndexedAccess of objTy: TypeId * index: TypeId
     | Conditional of ConditionalRow
-    | Typar of scope: TyparScopeRow * index: int
+    | Typar of scope: TyparScopeRow * index: int<typeSlot>
     | Unknown of reason: UnknownReasonRow
     /// The term's normalised atoms in `MeasureTerm.Exponents` order.
     | Measure of atoms: Block<MeasureAtomRow>

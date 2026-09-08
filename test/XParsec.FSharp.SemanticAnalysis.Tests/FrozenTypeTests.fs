@@ -14,9 +14,12 @@ let private store = TypeStore()
 
 /// The scopes the samples' typars are written under.
 let private kScope = SymbolKeyOps.qualifiedTypeKeyOf "Test.Scope" 1
-let private d (i: int) : FrozenType = FTTypar(TyparScope.Type kScope, i)
 
-let private m (i: int) : FrozenType = FTTypar(TyparScope.Member kScope, i)
+let private d (i: int) : FrozenType =
+    FTTypar(TyparScope.Type kScope, TyparIndex.typeSlot i)
+
+let private m (i: int) : FrozenType =
+    FTTypar(TyparScope.Member kScope, TyparIndex.typeSlot i)
 
 /// A deterministic, depth-bounded enumeration of `FrozenType` constructors, nested, over a
 /// type's and a member's scope, but no local typar, whose `ofFrozen` image is a `TyVar` that
@@ -392,7 +395,7 @@ let iterChildren2FTOrTests =
     // A minimal mirror of the CLR encoder's open-typar recovery: record what each method-scope
     // `FTTypar` slot instantiates to as `iterChildren2` pairs children.
     let recoverMethodTypars (openT: FrozenType) (instT: FrozenType) =
-        let recovered = System.Collections.Generic.Dictionary<int, FrozenType>()
+        let recovered = System.Collections.Generic.Dictionary<int<typeSlot>, FrozenType>()
 
         let rec go (d: FrozenType) (a: FrozenType) =
             match d with
@@ -429,7 +432,7 @@ let iterChildren2FTOrTests =
                 Expect.equal recovered.Count 1 "exactly the one method typar is recovered"
 
                 Expect.equal
-                    recovered.[0]
+                    recovered.[0<typeSlot>]
                     (FTConst(RuntimeNames.stringKey, Block.empty))
                     "!!0 recovers to `string` via tyctor-keyed pairing, not the positional `int`"
             }

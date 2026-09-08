@@ -32,7 +32,7 @@ let tests =
 
                 Expect.equal
                     (methodGenericParamsOf bytes "Program" "onlyStruct")
-                    [ "T0", valueType ]
+                    [ "a", valueType ]
                     "struct ⇒ NotNullableValueType ||| DefaultConstructor"
             }
 
@@ -65,7 +65,7 @@ let tests =
 
                 Expect.equal
                     (methodGenericParamsOf bytes "Program" "nothing")
-                    [ "T0", referenceType ]
+                    [ "a", referenceType ]
                     "not struct ⇒ ReferenceType"
             }
 
@@ -75,7 +75,7 @@ let tests =
 
                 Expect.equal
                     (methodGenericParamsOf bytes "Program" "onlyRef")
-                    [ "T0", referenceType ]
+                    [ "a", referenceType ]
                     "not struct ⇒ ReferenceType"
             }
 
@@ -92,7 +92,7 @@ let tests =
 
                 Expect.equal
                     (methodGenericParamsOf bytes "Program" "construct")
-                    [ "T0", defaultCtor ]
+                    [ "a", defaultCtor ]
                     "new() ⇒ DefaultConstructor"
             }
 
@@ -109,7 +109,7 @@ let tests =
 
                 Expect.equal
                     (methodGenericParamsOf bytes "Program" "both")
-                    [ "T0", referenceType ||| defaultCtor; "T1", GenericParameterAttributes.None ]
+                    [ "a", referenceType ||| defaultCtor; "b", GenericParameterAttributes.None ]
                     "flags are per typar"
             }
 
@@ -126,12 +126,12 @@ let tests =
 
                 Expect.equal
                     (methodGenericParamsOf bytes "Program" "eq")
-                    [ "T0", GenericParameterAttributes.None ]
+                    [ "a", GenericParameterAttributes.None ]
                     "equality"
 
                 Expect.equal
                     (methodGenericParamsOf bytes "Program" "cmp")
-                    [ "T0", GenericParameterAttributes.None ]
+                    [ "a", GenericParameterAttributes.None ]
                     "comparison"
             }
 

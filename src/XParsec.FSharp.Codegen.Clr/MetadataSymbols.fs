@@ -55,7 +55,7 @@ module private MetadataMapping =
             | Some elem -> Some(FTConst(RuntimeNames.arrayKey (t.GetArrayRank()), Block.singleton elem))
             | None -> None
         elif t.IsGenericParameter then
-            let pos = t.GenericParameterPosition
+            let pos = TyparIndex.typeSlot t.GenericParameterPosition
 
             if isNull t.DeclaringMethod then
                 Some(FTTypar(TyparScope.Type(declTypeKey t.DeclaringType), pos))

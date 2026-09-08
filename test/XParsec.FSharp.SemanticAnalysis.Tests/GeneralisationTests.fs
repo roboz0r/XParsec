@@ -99,7 +99,7 @@ let tests =
                     ExternalSymbols.scheme
                         (SymbolKeyOps.inNamespace "")
                         "myId"
-                        (FTFun(FTTypar(scope, 0), FTTypar(scope, 0)))
+                        (FTFun(FTTypar(scope, 0<typeSlot>), FTTypar(scope, 0<typeSlot>)))
                         (FunctionScheme.unconstrained 1<typeSlot>)
 
                 // First-hit-wins: only `myId` comes from the stub; the `int`/`bool`

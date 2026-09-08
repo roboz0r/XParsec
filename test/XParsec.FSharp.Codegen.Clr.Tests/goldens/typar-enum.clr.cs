@@ -27,7 +27,7 @@ public static class Program
 		c = onlyEnum(Colour.Green);
 	}
 
-	public static T0 onlyEnum<T0>(T0 x)
+	public static a onlyEnum<a>(a x)
 	{
 		return x;
 	}

@@ -297,7 +297,7 @@ module FrozenCodecRows =
         | TypeRow.Typar(scope, index) ->
             w.Write 12uy
             writeTyparScopeRow w scope
-            w.Write index
+            w.Write(int index)
         | TypeRow.Unknown reason ->
             w.Write 14uy
             writeUnknownReasonRow w reason
@@ -360,7 +360,7 @@ module FrozenCodecRows =
                 }
         | 12uy ->
             let scope = readTyparScopeRow r
-            let index = r.ReadInt32()
+            let index = TyparIndex.typeSlot (r.ReadInt32())
             TypeRow.Typar(scope, index)
         | 14uy -> TypeRow.Unknown(readUnknownReasonRow r)
         | 15uy ->

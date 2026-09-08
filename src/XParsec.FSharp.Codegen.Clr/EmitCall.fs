@@ -221,8 +221,8 @@ module EmitCall =
                     List.iter2
                         (fun (a: TastAccessor.AppliedArg) (_, slotTys) ->
                             match closureValueType env a.Arg, slotTys with
-                            | ValueSome closureFt, [ FTFunctionTypar idx ] when idx >= 0 && idx < instArr.Length ->
-                                instArr.[idx] <- ValueSome closureFt
+                            | ValueSome closureFt, [ FTFunctionTypar idx ] when int idx < instArr.Length ->
+                                instArr.[int idx] <- ValueSome closureFt
                             | _ -> ()
                         )
                         leading

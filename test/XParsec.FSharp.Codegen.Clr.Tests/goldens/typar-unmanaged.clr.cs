@@ -102,7 +102,7 @@ public static class Program
 		t = onlyUnmanaged((1, 2));
 	}
 
-	public static T0 onlyUnmanaged<T0>(T0 x)
+	public static a onlyUnmanaged<a>(a x)
 	{
 		return x;
 	}

@@ -65,9 +65,7 @@ module internal UnificationInferExternalCall =
                         |> Array.exists (fun m ->
                             match List.tryItem i (memberParamTypes ctx declArgs m) with
                             | Some(TyFunctionTypar j) ->
-                                match
-                                    (ExternalSymbols.instantiateSignatureBounds ctx m declArgs).[TyparIndex.typeSlot j]
-                                with
+                                match (ExternalSymbols.instantiateSignatureBounds ctx m declArgs).[j] with
                                 | ValueSome bound ->
                                     match boundLiteralStrings ctx bound with
                                     | ValueSome set -> Set.contains s set
@@ -86,7 +84,7 @@ module internal UnificationInferExternalCall =
             else TyTuple(Block.ofSeq refined)
 
     /// At any structural depth of `t`, not just its outermost type constructor.
-    let private referencedMethodTypars (store: TypeStore) (t: SemType) : Set<int> =
+    let private referencedMethodTypars (store: TypeStore) (t: SemType) : Set<int<typeSlot>> =
         let mutable acc = Set.empty
 
         let rec walk t =
@@ -105,7 +103,7 @@ module internal UnificationInferExternalCall =
         (chosen: ExternalMember)
         (declArgs: SemType[])
         (facts: ConstArgFacts)
-        : (int * SemType) list =
+        : (int<typeSlot> * SemType) list =
         let paramTys = memberParamTypes ctx declArgs chosen |> List.toArray
 
         if facts.Length <> paramTys.Length then
@@ -121,14 +119,14 @@ module internal UnificationInferExternalCall =
                 |> Set.ofArray
 
             let bounds = ExternalSymbols.instantiateSignatureBounds ctx chosen declArgs
-            let seed = System.Collections.Generic.Dictionary<int, SemType>()
+            let seed = System.Collections.Generic.Dictionary<int<typeSlot>, SemType>()
 
             for i in 0 .. facts.Length - 1 do
                 match facts.[i] with
                 | ValueSome s ->
                     for j in referencedMethodTypars ctx.Store paramTys.[i] do
                         if not (Set.contains j bareTypars) && not (seed.ContainsKey j) then
-                            match bounds.[TyparIndex.typeSlot j] with
+                            match bounds.[j] with
                             | ValueSome bound ->
                                 match boundLiteralStrings ctx bound with
                                 | ValueSome set when Set.contains s set -> seed.[j] <- TyLiteral(LiteralConst.String s)

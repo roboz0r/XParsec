@@ -88,7 +88,7 @@ module InlineThaw =
                 (fun _ i -> TyVar(declaringRoots.At i))
                 (fun _ i -> TyVar(methodRoots.At i))
                 (fun _ i -> TyVar(methodRoots.At i))
-                (fun binding i -> TyVar(localRoots.At(binding, TyparIndex.typeSlot i)))
+                (fun binding i -> TyVar(localRoots.At(binding, i)))
 
         let thawed =
             TastConvert.decl (FrozenTypeBridge.instantiateWith thaw inst) (LexedFiles.tokenAt retained path) body.Decl

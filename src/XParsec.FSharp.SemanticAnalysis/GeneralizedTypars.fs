@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
+open Vesper
 
 module SemTypeWalk =
 
@@ -31,7 +32,8 @@ module SemTypeWalk =
 
 /// Typars in CANONICAL order: declared typars first in source order, then the remaining
 /// free roots in first-left-to-right-appearance order (`TyFun` domain before range; tuple
-/// and nominal args left-to-right). Array position IS the ABI method-typar index.
+/// and nominal args left-to-right). A type-kinded entry's position among the type-kinded
+/// entries is its ABI method-typar index; a measure-kinded entry occupies no `Types` slot.
 type GeneralizedTypars = private | GeneralizedTypars of DeclaredTypar[]
 
 module internal GeneralizedTypars =
@@ -85,9 +87,28 @@ module internal GeneralizedTypars =
 
         GeneralizedTypars(result.ToArray())
 
-    /// Each root paired with its `TyTypar` marker under `scope`, at its array position.
+    /// `entries` extended with `roots` as inferred type-kinded entries, each named `M<n>` for
+    /// its index in the result.
+    let appendInferred (roots: TyVarId seq) (GeneralizedTypars entries) : GeneralizedTypars =
+        let extra =
+            roots
+            |> Seq.mapi (fun i root ->
+                {
+                    Name = sprintf "M%d" (entries.Length + i)
+                    TyVar = root
+                    Kind = TyparKind.Type
+                }
+            )
+            |> Array.ofSeq
+
+        GeneralizedTypars(Array.append entries extra)
+
+    /// Each type-kinded root paired with its `TyTypar` marker under `scope`, at its `Types`
+    /// slot.
     let methodEnv (scope: TyparScope) (GeneralizedTypars roots) : (TyVarId * SemType) list =
-        [ for i in 0 .. roots.Length - 1 -> (roots.[i].TyVar, TyTypar(scope, i)) ]
+        DeclaredTypar.typeKinded (Block.ofArray roots)
+        |> Block.mapi (fun slot tp -> (tp.TyVar, TyTypar(scope, slot)))
+        |> Block.toList
 
     /// ORDER-PRESERVING root refresh: `f` returns an entry's CURRENT union-find / link
     /// representative, or `ValueNone` if it pinned to a concrete type. Those entries are

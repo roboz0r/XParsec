@@ -42,7 +42,7 @@ public static class Program
 		return (g@0(x), g@0("a"));
 	}
 
-	public static ((int, T0), (string, T0)) entangled<T0>(T0 x)
+	public static ((int, M0), (string, M0)) entangled<M0>(M0 x)
 	{
 		return (g@1(x, 1), g@1(x, "c"));
 	}

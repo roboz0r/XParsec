@@ -74,7 +74,7 @@ public static class Program
 		return (g@1(x), g@1("b"));
 	}
 
-	public static ((int, T0), (string, T0)) entangled<T0>(T0 x)
+	public static ((int, M0), (string, M0)) entangled<M0>(M0 x)
 	{
 		return (g@2(x, 1), g@2(x, "c"));
 	}

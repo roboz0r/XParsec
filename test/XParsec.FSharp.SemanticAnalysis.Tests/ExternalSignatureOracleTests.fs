@@ -26,10 +26,12 @@ let private oracleKey = SymbolKeyOps.qualifiedTypeKeyOf "Oracle.Decl" 1
 
 /// The declaring-typar template `FTTypar(Type _, i)`, which must instantiate to
 /// `groundArgs.[i]`.
-let private d (i: int) : FrozenType = FTTypar(TyparScope.Type oracleKey, i)
+let private d (i: int) : FrozenType =
+    FTTypar(TyparScope.Type oracleKey, TyparIndex.typeSlot i)
 
 /// A member's own typar `i`.
-let private m (i: int) : FrozenType = FTTypar(TyparScope.Member oracleKey, i)
+let private m (i: int) : FrozenType =
+    FTTypar(TyparScope.Member oracleKey, TyparIndex.typeSlot i)
 
 /// Name, declaring arity, template, and the `SemType` `instantiateDeclaring` must yield
 /// on `groundArgs`. None bake a method typar.

@@ -75,8 +75,8 @@ type ExternalTypeShape =
                 args
                 |> Block.forall (fun a ->
                     match a with
-                    | FTTypar(TyparScope.Type _, i) when i < arity && not seen.[i] ->
-                        seen.[i] <- true
+                    | FTTypar(TyparScope.Type _, i) when int i < arity && not seen.[int i] ->
+                        seen.[int i] <- true
                         true
                     | _ -> false
                 )
@@ -650,7 +650,7 @@ module ExternalSymbols =
     /// position is unsolvable by unification alone.
     let instantiateSignatureWith
         (thaw: IMeasuredThaw)
-        (seed: (int * SemType) list)
+        (seed: (int<typeSlot> * SemType) list)
         (m: ExternalMember)
         (declaringArgs: SemType[])
         (level: int)

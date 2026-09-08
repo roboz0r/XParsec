@@ -534,7 +534,7 @@ let tests =
                         Expect.equal iface.Args.Length 1 "IBox<'T> carries one type arg"
 
                         match iface.Args.[0] with
-                        | FTTypar(TyparScope.Type _, 0) -> ()
+                        | FTTypar(TyparScope.Type _, 0<_>) -> ()
                         | other -> failtestf "the interface arg is the declaring typar 'T; got %A" other
                     | other -> failtestf "expected exactly one published interface (IBox); got %A" other
                 | other -> failtestf "expected a Class shape for the struct; got %A" other
@@ -559,7 +559,7 @@ let tests =
                         Expect.equal iface.Args.Length 1 "IBar<'T> carries one type arg"
 
                         match iface.Args.[0] with
-                        | FTTypar(TyparScope.Type _, 0) -> ()
+                        | FTTypar(TyparScope.Type _, 0<_>) -> ()
                         | other -> failtestf "the interface arg is the declaring typar 'T; got %A" other
                     | other -> failtestf "expected exactly one published interface (IBar); got %A" other
                 | other -> failtestf "expected an Intrinsic shape carrying a class surface; got %A" other
@@ -929,7 +929,7 @@ let tests =
 
                     Expect.equal trait_.MemberName "op_Addition" "`(+)` is captured by its COMPILED name"
 
-                    let ownTypar = FTTypar(TyparScope.ModuleFunction sym.Key, 0)
+                    let ownTypar = FTTypar(TyparScope.ModuleFunction sym.Key, 0<typeSlot>)
 
                     Expect.equal
                         (Block.toList trait_.ArgTypes)
@@ -1022,7 +1022,7 @@ let tests =
 
                     Expect.equal
                         m.Signature.Return
-                        (FTTypar(TyparScope.Type m.Key.Decl, 0))
+                        (FTTypar(TyparScope.Type m.Key.Decl, 0<typeSlot>))
                         "the getter returns the element"
                 | other -> failtestf "expected one member; got %A" [ for m in other -> m.Name ]
             }
@@ -1076,7 +1076,7 @@ let tests =
 
                 match membersOf r "Box`1" with
                 | [ getter; setter ] ->
-                    let elemF = FTTypar(TyparScope.Type getter.Key.Decl, 0)
+                    let elemF = FTTypar(TyparScope.Type getter.Key.Decl, 0<typeSlot>)
 
                     Expect.equal getter.Name "get_Item" "the getter half"
                     Expect.equal setter.Name "set_Item" "the setter half"

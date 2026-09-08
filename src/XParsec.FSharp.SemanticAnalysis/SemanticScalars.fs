@@ -426,15 +426,18 @@ type DeclaredTypar =
 [<RequireQualifiedAccess>]
 module DeclaredTypar =
 
-    let typeArity (typars: Block<DeclaredTypar>) : int<typeSlot> =
-        typars
-        |> Block.fold
-            (fun n tp ->
-                match tp.Kind with
-                | TyparKind.Type -> n + 1<typeSlot>
-                | TyparKind.Measure -> n
-            )
-            0<typeSlot>
+    /// The type-kinded typars at their `Types` slots, in source order.
+    let typeKinded (typars: Block<DeclaredTypar>) : BlockM<DeclaredTypar, typeSlot> =
+        let acc = ResizeArray<DeclaredTypar>()
+
+        for tp in typars do
+            match tp.Kind with
+            | TyparKind.Type -> acc.Add tp
+            | TyparKind.Measure -> ()
+
+        Block.ofResizeArray acc
+
+    let typeArity (typars: Block<DeclaredTypar>) : int<typeSlot> = (typeKinded typars).Length
 
     let names (typars: Block<DeclaredTypar>) : Block<string> = typars |> Block.map (fun t -> t.Name)
 

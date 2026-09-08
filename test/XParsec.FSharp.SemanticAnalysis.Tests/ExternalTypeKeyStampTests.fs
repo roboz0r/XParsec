@@ -26,7 +26,10 @@ let private provider: IExternalSymbolProvider =
             b
             boxKey
             [
-                mkStaticProperty boxKey "Empty" (FTClass(boxKey, Block.ofList [ FTTypar(TyparScope.Type boxKey, 0) ]))
+                mkStaticProperty
+                    boxKey
+                    "Empty"
+                    (FTClass(boxKey, Block.ofList [ FTTypar(TyparScope.Type boxKey, 0<typeSlot>) ]))
             ]
 
         b.ImplicitOpens <- [ SymbolKeyOps.assemblyAutoOpen "Tests" ]

@@ -50,7 +50,7 @@ module FrozenType =
         | FTMeasure _ -> t
 
     /// Every `FTTypar` leaf replaced by `f scope index`.
-    let rec mapTypars (f: TyparScope -> int -> FrozenType) (t: FrozenType) : FrozenType =
+    let rec mapTypars (f: TyparScope -> int<typeSlot> -> FrozenType) (t: FrozenType) : FrozenType =
         match t with
         | FTTypar(scope, index) -> f scope index
         | t -> mapChildren (mapTypars f) t

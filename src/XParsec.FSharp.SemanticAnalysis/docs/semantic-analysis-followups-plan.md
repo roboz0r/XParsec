@@ -281,7 +281,7 @@ separate fields would delete the arithmetic and the comment at every site.
 
 ### `Elaborate/Typars.fs:86` — the dependent-typar fixpoint is duplicated in `InferGeneralize.generalise`
 
-`mkMethodQuantEnv`'s worklist (`:86-95`) and `InferGeneralize.generalise`'s (`InferGeneralize.fs:264-272`)
+`mkMethodQuantTypars`'s worklist and `InferGeneralize.generalise`'s (`InferGeneralize.fs:264-272`)
 are the same algorithm: walk the collected roots, fold each root's `Coercion` constraint targets
 back into the same `ResizeArray`, and let the array's growth drive the index to a fixpoint — so a
 constraint-only typar such as `'E` in `'S :> IStructSeq<'E>` is quantified. The two copies use

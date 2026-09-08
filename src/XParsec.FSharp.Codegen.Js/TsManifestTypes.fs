@@ -362,8 +362,8 @@ module internal TsManifestTranslate =
         match t with
         | Schema.TypeRef.Named(name, []) -> nominal name [||]
         | Schema.TypeRef.Named(name, args) -> nominal name (List.map (toFrozen ctx) args |> Array.ofList)
-        | Schema.TypeRef.Typar i -> FTTypar(typarScope ctx, i)
-        | Schema.TypeRef.MethodTypar i -> FTTypar(methodTyparScope ctx, i)
+        | Schema.TypeRef.Typar i -> FTTypar(typarScope ctx, TyparIndex.typeSlot i)
+        | Schema.TypeRef.MethodTypar i -> FTTypar(methodTyparScope ctx, TyparIndex.typeSlot i)
         | Schema.TypeRef.Fun(args, ret) ->
             List.foldBack (fun a acc -> FTFun(toFrozen ctx a, acc)) args (toFrozen ctx ret)
         | Schema.TypeRef.Tuple items -> FTTuple(Block.ofSeq (List.map (toFrozen ctx) items))

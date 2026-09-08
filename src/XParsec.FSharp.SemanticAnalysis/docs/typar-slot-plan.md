@@ -93,9 +93,9 @@ separate change.
 
    Landed ahead of this plan, from the step 4 review, so step 1's diff is about the tags:
    `ConstraintSetG.Kinds` (was `Constraints`); `TyparListG.TypeArity` / `HasTypeTypars` at
-   every CLR and front-end arity read; `ElaborateTypars.quantEnvTyparList`, so
-   `Elaborate.recordFunctionScheme` reads a `mkMethodQuantEnv` result by position instead of
-   re-deriving the index from its `TyTypar` markers; `OpenSignature.OpenMethodSignature`
+   every CLR and front-end arity read; `Elaborate.recordFunctionScheme` reading the quantified
+   typars by position instead of re-deriving the index from `TyTypar` markers (since step 2, it
+   freezes the `GeneralizedTypars` through `methodTyparList`, the member path); `OpenSignature.OpenMethodSignature`
    deleted, `CodegenSymbols.TryLookupOpenSignature` reading `sym.Scheme` and `sym.Generics`
    directly; `SignatureResolutionContext.memberTraitOf` out of `publishedScheme`;
    `TyparList.coercions` under `TastLower.solvePhantomTypars`; `GenericParamRow.metadataName`
@@ -128,8 +128,9 @@ separate change.
    signature's explicit typars are kinded (`SignatureResolutionContext.explicitTypars`,
    `mkDeclaredTypars`), so `val f<[<Measure>] 'u, 'a when 'a : equality>` publishes the
    constraint on type slot 0 and an SRTP support set naming `'u` is FS0703. A member's own
-   typars stay type-kinded (`mkMethodTypars`), because `InferOverload.frozenScopeEnv` and
-   `MemberKey.MethodTyparArity` still number by signature position. `translateConstraints`
+   typars stayed type-kinded until step 2 kinded them at `TypeBodyExtraction.memberTypars`,
+   because `InferOverload.frozenScopeEnv` and `MemberKey.MethodTyparArity` numbered by
+   signature position. `translateConstraints`
    takes the declared typar block and reports FS0703 for a `when` clause on a measure-kinded
    typar of a type declaration; the impl-side binding path (`Infer.inferBinding`) still kinds
    every binding typar `Type`. `mkDeclTyparEnv` walks `Order` and mints one
@@ -148,8 +149,26 @@ separate change.
    numbering of the rest stays dense. `ExternalSymbols.instantiateSymbol` already allocates
    one fresh variable per `Types` entry through a tagged `Block`.
 
-   Format version 13, because a `TypeRow.Typar` index that once meant a signature slot on a
+   Format version 18, because a `TypeRow.Typar` index that once meant a signature slot on a
    measure-generic type now means a type slot.
+
+   Landed from the step 2 review. The tag reaches `TypeRow.Typar`, `SemTypeWalks.mapTypars`,
+   `TyparRoots.At`, `Freeze.schemeBoundVars`, `InferOverload`'s `TrialBindings.MethodTypars`
+   and `frozenScopeEnv`, and `InferExternalCall`'s method-typar seed. The remaining `int`
+   erasures sit at the codec writer, `System.Reflection.Metadata`'s
+   `GenericTypeParameter` / `GenericMethodTypeParameter`, reflection's
+   `GenericParameterPosition`, the TypeScript manifest reader, and the mutable
+   recovery arrays (`TastLower.matchTyparsPartial`, `ClrEncoder`'s slot arrays,
+   `EmitCall`'s `instArr`), whose length is a key arity that step 5 re-tags.
+
+   `frozenScopeEnv`, `GeneralizedTypars.methodEnv` and `ElaborateTypars.mkDeclTyparEnv` all
+   number through `DeclaredTypar.typeKinded`, the one definition of which `Types` slot a
+   declared typar takes; `DeclaredTypar.typeArity` is its length. `Infer.inferBinding` and
+   `TypeBodyExtraction.memberTypars` kind a typar from its `[<Measure>]` attribute, so a module
+   `let` and a member number the same source the same way. `ElaborateTypars.mkMethodQuantTypars`
+   returns a `GeneralizedTypars` that `methodEnv` numbers and `methodTyparList` freezes, the
+   same path a member takes, so a measure-kinded typar reaches the frozen `TyparList`'s
+   `Measures` while taking no type slot. Its leaf waits on step 3.
 
 3. **`MeasureAtom.Typar`.** Absorbs `typar-scope-plan.md` step 6. `MeasureTerm`'s atom widens
    from `TypeKey` to `MeasureAtom = Named of TypeKey | Typar of scope: TyparScope * index:
@@ -208,7 +227,8 @@ separate change.
 - `FrozenConstraintTests`: `let f<[<Measure>] 'u, 'a when 'a : equality> (x: float<'u>)
   (y: 'a)` freezes the constraint on `Types.[0]`, and the same binding published from a
   `.fsi` agrees (`SignatureResolutionTests`). An SRTP trait naming a measure typar in its
-  support set is a diagnostic, quoted in the test name.
+  support set is a diagnostic, quoted in the test name. Step 2 pins the half without the
+  `float<'u>` parameter, which waits on step 3.
 - `GenericParamFlagsTests`: the measure-bearing record test's `'u` is used, `{ V: float<'u> }`,
   and the row count stays one. Its comment about `float<'u>` being unresolved is deleted.
 - `FrozenCodecRoundTripTests`: a `MeasureAtom.Typar` atom and every `TyparSlot` case
@@ -240,7 +260,7 @@ Before this document is deleted, each row is in code or in a test:
       boundary, at an `FTTypar` / `TyTypar` leaf, or at a key arity (step 1).
 - [x] `TypeArity` is the only CLR arity read; no `.Types.Length` or `.Types.IsEmpty` remains
       outside `SemanticScalars.fs` (step 1).
-- [ ] `FTTypar` and `TyTypar` carry `int<typeSlot>`, pinned by the measure-before-type
+- [x] `FTTypar` and `TyTypar` carry `int<typeSlot>`, pinned by the measure-before-type
       binding in `FrozenConstraintTests` (step 2).
 - [ ] `MeasureAtom.Typar` round-trips through the codec and `float<'u>` resolves in a field
       and a member, pinned in `MeasureResolutionTests` and `FrozenCodecRoundTripTests`

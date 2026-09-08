@@ -90,21 +90,23 @@ module Elaborate =
         | ValueSome scheme -> not (List.isEmpty scheme.Quantified)
         | ValueNone -> false
 
-    /// Records `boundVar`'s scheme: one positional typar per `quantEnv` entry, carrying the
-    /// constraints on the entry's root with each embedded type frozen over `quantEnv`, its
-    /// typars as `FTTypar(ModuleFunction _, i)`.
+    /// Records `boundVar`'s scheme: `typars` carrying the constraints on each root, every
+    /// embedded type frozen over `scope`'s env, its typars as `FTTypar(ModuleFunction _, i)`.
     let private recordFunctionScheme
         (ctx: PassContext)
         (boundVar: BoundVarKey)
-        (quantEnv: (TyVarId * SemType) list)
+        (scope: TyparScope)
+        (typars: GeneralizedTypars)
         : unit =
-        match quantEnv with
-        | [] -> ()
+        match GeneralizedTypars.count typars with
+        | 0 -> ()
         | _ ->
-            let freezeTarget (t: SemType) : FrozenType =
-                FrozenTypeBridge.freeze ctx.Store (remapDeclTypars ctx.Store quantEnv t)
+            let env = GeneralizedTypars.methodEnv scope typars
 
-            let typars = TyparList.map freezeTarget (quantEnvTyparList ctx.Store quantEnv)
+            let freezeTarget (t: SemType) : FrozenType =
+                FrozenTypeBridge.freeze ctx.Store (remapDeclTypars ctx.Store env t)
+
+            let typars = TyparList.map freezeTarget (methodTyparList ctx.Store typars)
             ctx.FunctionSchemes.Set(boundVar, FunctionScheme.ofTypars typars)
 
     /// The binding's exportable identity, keyed by the name its source writes and carrying
@@ -144,19 +146,18 @@ module Elaborate =
             ValueSome info.Key
         | _ -> ValueNone
 
-    /// The typars a module value at pattern node `patKey` quantifies under `scope`. A function
-    /// or `inline` binding always quantifies; a value binding only when generalised AND its
-    /// free typars sit inside a type constructor, because a bare `ldnull : !!0` does not verify.
-    let private valueQuantEnv
+    /// The typars a module value at pattern node `patKey` quantifies. A function or `inline`
+    /// binding always quantifies; a value binding only when generalised AND its free typars
+    /// sit inside a type constructor, because a bare `ldnull : !!0` does not verify.
+    let private valueQuantTypars
         (ctx: PassContext)
         (isInline: bool)
-        (scope: TyparScope)
         (declaredTypars: DeclaredTypar list)
         (patKey: NodeKey)
         (valueTy: SemType)
-        : (TyVarId * SemType) list =
+        : GeneralizedTypars =
         let quantify () =
-            mkMethodQuantEnv ctx.Store scope declaredTypars valueTy
+            mkMethodQuantTypars ctx.Store declaredTypars valueTy
 
         if isInline then
             quantify ()
@@ -165,17 +166,21 @@ module Elaborate =
             | TyFun _ -> quantify ()
             // A bare free var is value-restricted, so never a method typar.
             | TyVar _
-            | TyTypar _ -> []
+            | TyTypar _ -> GeneralizedTypars.empty
             | _ when schemeQuantifies ctx patKey -> quantify ()
-            | _ -> []
+            | _ -> GeneralizedTypars.empty
 
-    /// One value a module binding introduces, with the typars it quantifies.
+    /// One value a module binding introduces, with the typars it quantifies under `Scope`.
     type private QuantifiedValue =
         {
             BoundVar: BoundVarKey
             Tok: SyntaxToken
-            QuantEnv: (TyVarId * SemType) list
+            Scope: TyparScope
+            Typars: GeneralizedTypars
         }
+
+        member this.QuantEnv: (TyVarId * SemType) list =
+            GeneralizedTypars.methodEnv this.Scope this.Typars
 
     /// The values a module binding's pattern introduces: its one name, or every name of a
     /// tuple pattern, each under the scope `scopeOf` assigns to the name's token.
@@ -192,7 +197,8 @@ module Elaborate =
                 {
                     BoundVar = boundVar
                     Tok = tok
-                    QuantEnv = valueQuantEnv ctx isInline (scopeOf tok) declaredTypars key ty
+                    Scope = scopeOf tok
+                    Typars = valueQuantTypars ctx isInline declaredTypars key ty
                 }
             ]
         | _, TPat.Tuple(items, _, _) ->
@@ -295,7 +301,7 @@ module Elaborate =
             ValueNone
         else
             for v in values do
-                recordFunctionScheme ctx v.BoundVar v.QuantEnv
+                recordFunctionScheme ctx v.BoundVar v.Scope v.Typars
 
             ValueSome(m, quantEnv)
 

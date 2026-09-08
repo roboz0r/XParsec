@@ -29,7 +29,7 @@ public class Node
 }
 public static class Program
 {
-	public static T0 onlyNull<T0>(T0 x)
+	public static a onlyNull<a>(a x)
 	{
 		return x;
 	}

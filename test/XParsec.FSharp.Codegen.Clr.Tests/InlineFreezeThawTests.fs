@@ -47,7 +47,7 @@ let private distinctLeaves
 
 /// The distinct body-local leaves `FTTypar(LocalFunction binding, index)` of `tys`, in
 /// first-occurrence pre-order.
-let private localLeavesIn (tys: FrozenType list) : (LocalBindingId * int) list =
+let private localLeavesIn (tys: FrozenType list) : (LocalBindingId * int<typeSlot>) list =
     distinctLeaves
         FrozenType.iterChildren
         (fun t ->
@@ -193,7 +193,7 @@ let private kindOfUnit (ns: string) (moduleName: string) =
 /// The symbol's `TyparArity`: one past the highest typar index the template references.
 let rec private typarArity (ft: FrozenType) : int =
     match ft with
-    | FTTypar(_, i) -> i + 1
+    | FTTypar(_, i) -> int i + 1
     | t ->
         let mutable n = 0
         FrozenType.iterChildren (fun c -> n <- max n (typarArity c)) t
@@ -372,7 +372,7 @@ let tests =
                     (frozenTys
                      |> List.exists (fun t ->
                          match t with
-                         | FTFunctionTypar 0 -> true
+                         | FTFunctionTypar 0<_> -> true
                          | _ -> false
                      ))
                     "the constraint's typar is a frozen leaf, not a copied SemType cell"
@@ -417,7 +417,7 @@ let tests =
 
                 Expect.isEmpty
                     (localLeavesIn [ declTy ])
-                    "f's own type carries no local-typar residue, which is exactly why mkMethodQuantEnv cannot map it"
+                    "f's own type carries no local-typar residue, which is exactly why mkMethodQuantTypars cannot map it"
 
                 // The thaw mints on all three axes, so the expected count is every leaf the
                 // frozen decl carries, not just the local ones.

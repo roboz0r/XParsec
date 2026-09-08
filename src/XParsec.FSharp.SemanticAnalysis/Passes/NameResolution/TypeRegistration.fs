@@ -119,12 +119,6 @@ module NameResolutionTypeRegistration =
             }
         )
 
-    /// Mint a prototype TyVar per name, for a MEMBER's own `<'C>`, which this pass reads by
-    /// name alone. `[<Measure>]` on a member typar is not yet modelled, so they are all
-    /// type-kinded.
-    let mkMethodTypars (store: TypeStore) (names: string list) : Block<DeclaredTypar> =
-        mkDeclaredTypars store [ for n in names -> n, TyparKind.Type ]
-
     /// The container a TYPE declared in `c` sits in, under this file's module-naming rules.
     let localTypeContainer (ctx: PassContext) (c: DeclContainment<SyntaxToken>) : TypeContainer = ctx.TypeContainerOf c
 

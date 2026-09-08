@@ -911,7 +911,7 @@ let tests =
 
                     Expect.equal
                         (c.CtorParams.[0].Type)
-                        (TyTypar(TyparScope.Type typeDecl.TypeKey, 0))
+                        (TyTypar(TyparScope.Type typeDecl.TypeKey, 0<typeSlot>))
                         "ctor param type marker"
 
                     Expect.equal c.Members.Length 1 "one member"
@@ -919,7 +919,7 @@ let tests =
 
                     Expect.equal
                         (c.Members.[0].ReturnTy)
-                        (TyTypar(TyparScope.Type typeDecl.TypeKey, 0))
+                        (TyTypar(TyparScope.Type typeDecl.TypeKey, 0<typeSlot>))
                         "member returns the typar"
                 | other -> failtestf "expected TTypeKind.Class, got %A" other
 

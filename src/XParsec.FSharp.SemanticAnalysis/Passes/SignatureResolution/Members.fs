@@ -134,18 +134,23 @@ module SignatureResolutionMembers =
         (m: SigMember)
         : ExternalMember =
         classifyCurriedSigTypes ctx m.Signature
-        let explicit = explicitTyparNames ctx m.TyparDefns
+        let explicit = explicitTypars ctx m.TyparDefns
 
         let known =
             seq {
                 for tp in declTypars -> tp.Name
-                yield! explicit
+                for (n, _) in explicit -> n
             }
 
+        // An implicit typar is drawn from a type position, never a `[<Measure>]` declaration.
         let implicit =
-            implicitTyparNames ctx known m.TyparDefns (fun it -> CstTypeWalk.iterTypeCurriedSig it m.Signature)
+            [
+                for n in
+                    implicitTyparNames ctx known m.TyparDefns (fun it -> CstTypeWalk.iterTypeCurriedSig it m.Signature) ->
+                    n, TyparKind.Type
+            ]
 
-        let ownTypars = mkMethodTypars ctx.Store (explicit @ implicit)
+        let ownTypars = mkDeclaredTypars ctx.Store (explicit @ implicit)
         let declArity = DeclaredTypar.typeArity declTypars
         let methodArity = DeclaredTypar.typeArity ownTypars
 
