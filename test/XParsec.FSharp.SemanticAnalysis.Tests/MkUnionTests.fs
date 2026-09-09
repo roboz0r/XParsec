@@ -93,7 +93,7 @@ let tests =
             test "zonk collapses a union when a disjunct resolves to another" {
                 let store = TypeStore()
                 let tv = store.NewTypeVar()
-                store.SetLink(UnionFind.find store tv, ValueSome tString)
+                store.SetLink(UnionFind.find store tv, tString)
                 // `'a | string` with `'a ↦ string` — a raw pre-resolution union.
                 let u = rawOr [ TyVar tv; tString ]
                 Expect.equal (Unification.zonk store u) tString "('a | string)[a:=string] ≡ string"
@@ -102,7 +102,7 @@ let tests =
             test "zonk keeps distinct resolved disjuncts and re-canonicalises" {
                 let store = TypeStore()
                 let tv = store.NewTypeVar()
-                store.SetLink(UnionFind.find store tv, ValueSome tInt)
+                store.SetLink(UnionFind.find store tv, tInt)
                 let u = rawOr [ TyVar tv; tString ]
 
                 Expect.equal

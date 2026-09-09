@@ -64,7 +64,7 @@ module TypeLayout =
     let private literalShape (v: LiteralConst) : LayoutShape =
         LayoutShape.Primitive(RuntimeNames.literalBaseKey v)
 
-    /// Through the union-find Link chain, so a bound `TyVar` reaches the shape it stands for.
+    /// Through the union-find solution chain, so a bound `TyVar` reaches the shape it stands for.
     let shapeOf (store: TypeStore) (t: SemType) : LayoutShape =
         match UnionFind.zonkShallow store t with
         | TyConst(key, _) -> LayoutShape.Primitive key

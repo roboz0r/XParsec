@@ -33,7 +33,7 @@ module internal UnificationInferPat =
             let args, _ = freshNamedInstance ctx unionInfo.TypeParams
             let ty = TyUnion(unionInfo.TypeKey, args)
             let nodeTv = freshTv ctx key
-            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome ty)
+            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ty)
             ty
         | Pat.NamedSimple t & Resolves ResolvedStamps.tryExternalUnionCase ctx.Resolution.Resolved key uc ->
             // Nullary case of an *external* (referenced-package) union (`None`), stamped
@@ -45,7 +45,7 @@ module internal UnificationInferPat =
                 ctx.Report(tok, Kind.NullaryConstructorPattern(ctx.NameOf t, fields.Length))
 
             let nodeTv = freshTv ctx key
-            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome unionTy)
+            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, unionTy)
             unionTy
         | Pat.NamedSimple _ ->
             // `tvOf`, not `freshTv`: a let-rec sibling whose TyVar was already lazy-minted
@@ -64,7 +64,7 @@ module internal UnificationInferPat =
 
             let ty = TyEnum enumKey
             let nodeTv = freshTv ctx key
-            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome ty)
+            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ty)
             ty
         | Pat.Named(longIdent = li; argumentPats = args) when
             li.Idents.Length = 2
@@ -86,7 +86,7 @@ module internal UnificationInferPat =
 
             let ty = TyEnum einfo.TypeKey
             let nodeTv = freshTv ctx key
-            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome ty)
+            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ty)
             ty
         | Pat.Named(argumentPats = args) & Resolves ResolvedStamps.tryLocalUnionCase ctx.Resolution.Resolved key info ->
             // A case of a union declared in this file, by whichever path NameResolution
@@ -122,7 +122,7 @@ module internal UnificationInferPat =
                 inferPat ctx subPats.[j] |> ignore
 
             let nodeTv = freshTv ctx key
-            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome unionTy)
+            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, unionTy)
             unionTy
         | Pat.Named(longIdent = li; argumentPats = args) ->
             // No arm above matched the head: it is neither a union case nor an enum case. The
@@ -156,29 +156,29 @@ module internal UnificationInferPat =
 
             let listTy = listLiteralTy ctx tok elemTy
             let nodeTv = freshTv ctx key
-            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome listTy)
+            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, listTy)
             listTy
         | Pat.EnclosedBlock(pat = inner)
         | Pat.Attributed(pat = inner) ->
             let innerTy = inferPat ctx inner
             let nodeTv = freshTv ctx key
-            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome innerTy)
+            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, innerTy)
             innerTy
         | Pat.Tuple(patterns = pats) ->
             let elemTys = Block.ofSeq (seq { for p in pats -> inferPat ctx p })
             let tupleTy = TyTuple elemTys
             let nodeTv = freshTv ctx key
-            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome tupleTy)
+            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, tupleTy)
             tupleTy
         | Pat.Const c ->
             let constTy = inferConst ctx c
             let nodeTv = freshTv ctx key
-            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome constTy)
+            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, constTy)
             constTy
         | Pat.As(pat = inner) ->
             let innerTy = inferPat ctx inner
             let nodeTv = freshTv ctx key
-            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome innerTy)
+            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, innerTy)
             innerTy
         | Pat.Typed(pat = inner; typ = t) ->
             let innerTy = inferPat ctx inner
@@ -189,7 +189,7 @@ module internal UnificationInferPat =
             // queries the `NamedSimple`.
             ctx.MarkTypeDeclared(CstKeys.ofPat inner, annTy)
             let nodeTv = freshTv ctx key
-            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome annTy)
+            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, annTy)
             annTy
         | Pat.TypeTestAs(typ = t; pat = inner) ->
             // `:? T as x`: the inner bound variable `x` sees the tested type `T`; the pattern
@@ -214,7 +214,7 @@ module internal UnificationInferPat =
             let elemTy = TyVar(ctx.FreshTyVar())
             let listTy = listLiteralTy ctx tok elemTy
             let nodeTv = freshTv ctx key
-            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome listTy)
+            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, listTy)
             listTy
         | Pat.Cons(head = headPat; tail = tailPat) ->
             // `h :: t`: `h` is an element, `t` the same list type.
@@ -223,11 +223,11 @@ module internal UnificationInferPat =
             let tailTy = inferPat ctx tailPat
             unify ctx (CstKeys.firstTokenOfPat tailPat) tailTy listTy
             let nodeTv = freshTv ctx key
-            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome listTy)
+            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, listTy)
             listTy
         | Pat.EmptyBlock _ ->
             let nodeTv = freshTv ctx key
-            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome ctx.Intrinsics.Unit)
+            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ctx.Intrinsics.Unit)
             ctx.Intrinsics.Unit
         | Pat.Or(left = leftPat; right = rightPat) ->
             // Only the alternatives' overall types are unified, for scrutinee consistency.
@@ -237,7 +237,7 @@ module internal UnificationInferPat =
             let rightTy = inferPat ctx rightPat
             unify ctx tok leftTy rightTy
             let nodeTv = freshTv ctx key
-            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome leftTy)
+            ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, leftTy)
             leftTy
         | Pat.Record(fieldPats = fieldPats) ->
             let pairs =
@@ -281,7 +281,7 @@ module internal UnificationInferPat =
 
                 let recTy = TyRecord(recKey, args)
                 let nodeTv = freshTv ctx key
-                ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome recTy)
+                ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, recTy)
                 recTy
         | _ -> TyVar(freshTv ctx key)
 
@@ -320,5 +320,5 @@ module internal UnificationInferPat =
 
         let ty = TyUnion(unionInfo.TypeKey, args)
         let nodeTv = freshTv ctx key
-        ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome ty)
+        ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ty)
         ty

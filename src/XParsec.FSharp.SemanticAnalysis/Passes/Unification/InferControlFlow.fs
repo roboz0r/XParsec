@@ -345,7 +345,7 @@ module internal UnificationInferControlFlow =
         unify ctx tok endTy ctx.Intrinsics.Int
         let varKey = CstKeys.ofForToVar ident
         let varTv = freshTv ctx varKey
-        ctx.Store.SetLink(UnionFind.find ctx.Store varTv, ValueSome ctx.Intrinsics.Int)
+        ctx.Store.SetLink(UnionFind.find ctx.Store varTv, ctx.Intrinsics.Int)
         let bodyTy = infer ctx body
         unify ctx tok bodyTy ctx.Intrinsics.Unit
         ctx.Intrinsics.Unit

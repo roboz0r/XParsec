@@ -279,7 +279,7 @@ module UnificationInfer =
             | Expr.DynamicLookup(expr = objArg) -> inferDynamicLookup infer ctx node objArg
             | _ -> failwithf "infer: TODO %A" e
 
-        ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, ValueSome inferredTy)
+        ctx.Store.SetLink(UnionFind.find ctx.Store nodeTv, inferredTy)
         inferredTy
 
     and private inferLet
@@ -391,7 +391,7 @@ module UnificationInfer =
                     // stamp the annotation's format type onto the literal node.
                     match tryTypeFormatLiteral ctx bindTok b.expr annTy with
                     | ValueSome fmt ->
-                        ctx.Store.SetLink(UnionFind.find ctx.Store (freshTv ctx (CstKeys.ofExpr b.expr)), ValueSome fmt)
+                        ctx.Store.SetLink(UnionFind.find ctx.Store (freshTv ctx (CstKeys.ofExpr b.expr)), fmt)
 
                         annTy
                     | ValueNone ->

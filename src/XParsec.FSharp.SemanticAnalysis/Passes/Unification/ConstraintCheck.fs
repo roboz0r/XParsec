@@ -12,7 +12,7 @@ open UnificationSubsume
 module UnificationConstraintCheck =
 
     /// `Defer` is the not-yet verdict: the target is still free (or
-    /// compound-with-free-args). It stays on the TyVar and re-fires on the next `Link`.
+    /// compound-with-free-args). It stays on the TyVar and re-fires once the root is solved.
     type ConstraintOutcome =
         | Satisfied
         | Violated
@@ -119,7 +119,7 @@ module UnificationConstraintCheck =
     /// reference-null is erased at the ABI seam, so the verdict is the same on every target.
     let rec private admitsNull (ctx: PassContext) (t: SemType) : ConstraintOutcome =
         match resolveStep ctx.Store t with
-        // Not ground yet, so it states nothing either way: the next `Link` re-fires the check.
+        // Not ground yet, so it states nothing either way: solving the root re-fires the check.
         | TyVar _
         | TyUnknown _
         | TyTypar _
@@ -233,7 +233,7 @@ module UnificationConstraintCheck =
             | ValueSome(ExternalTypeShape.Enum { Underlying = underlying }) -> ValueSome(ofKey underlying)
             | _ -> ValueNone
 
-    /// Free TyVars return `Defer` so the next `Link` assignment re-fires the check; nested
+    /// Free TyVars return `Defer` so solving the root re-fires the check; nested
     /// compounds recurse compositionally.
     let rec checkConstraint (ctx: PassContext) (c: SemanticConstraint) (t: SemType) : ConstraintOutcome =
         // The type's stamped equality / comparison verdict overrides the field-walk: a

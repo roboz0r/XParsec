@@ -33,23 +33,26 @@ module internal UnificationInferLiterals =
         | Constant.MeasuredLiteral(value = t; measure = m) ->
             ctx.MeasuredTy(literalCarrier ctx t, translateMeasure ctx t m)
 
-    /// Reads `Units` straight off the root, never through `resolveStep`,
-    /// which would follow a measured TyVar through its `Link` to the bare
-    /// carrier and drop the measure.
+    /// The measure on a measured operand.
     let unitsOf (store: TypeStore) (t: SemType) : MeasureTerm voption =
-        match t with
-        | TyVar tv -> store.Units(UnionFind.find store tv)
+        match resolveStep store t with
+        | TyVar tv ->
+            match store.State(UnionFind.find store tv) with
+            | RootState.Measured(units, _) -> ValueSome units
+            | RootState.Free
+            | RootState.Linked _
+            | RootState.Measure _ -> ValueNone
         | _ -> ValueNone
 
-    /// A free variable (no Link) is returned as-is so a later unification can
-    /// pin it.
+    /// A measured operand's carrier, and any other type unchanged. A free root is returned
+    /// as-is so a later unification can pin it.
     let carrierOf (store: TypeStore) (t: SemType) : SemType =
         match resolveStep store t with
         | TyVar tv ->
             let root = UnionFind.find store tv
 
-            match store.Link root with
-            | ValueSome link -> link
+            match store.ErasedTarget root with
+            | ValueSome carrier -> carrier
             | ValueNone -> TyVar root.Id
         | other -> other
 

@@ -3,7 +3,8 @@ namespace XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
 
 // Whole-`SemType` questions asked THROUGH union-find. Each step zonks: pre-freeze a
-// type constructor is often reachable only through a Link, and a raw match would see a `TyVar`.
+// type constructor is often reachable only through a solved root, and a raw match would see a
+// `TyVar`.
 
 module SemTypeQuery =
 

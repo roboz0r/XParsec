@@ -15,16 +15,17 @@ module SemTypeWalk =
 
         walk t
 
-    /// Appends every still-free root reachable from `t`, FOLLOWING links: a `Link`ed root
-    /// is a measure / pinned carrier, not a typar, so recurse into its target instead of
-    /// collecting it.
+    /// Appends every still-free root reachable from `t`, following an alias or a measured
+    /// carrier into its target.
     let collectLinkedRoots (store: TypeStore) (acc: ResizeArray<TyVarId>) (seen: HashSet<TyVarId>) (t: SemType) : unit =
         let rec onVar (tv: TyVarId) =
             let root = UnionFind.find store tv
 
-            match store.Link root with
-            | ValueSome target -> iterSemTypeVars onVar target
-            | ValueNone ->
+            match store.State root with
+            | RootState.Linked target
+            | RootState.Measured(_, target) -> iterSemTypeVars onVar target
+            | RootState.Measure _ -> ()
+            | RootState.Free ->
                 if seen.Add root.Id then
                     acc.Add root.Id
 
@@ -71,11 +72,7 @@ module internal GeneralizedTypars =
         |> SemTypeWalk.iterSemTypeVars (fun tv ->
             let root = UnionFind.find store tv
 
-            if
-                (store.Link root).IsNone
-                && not (fixedRoots.Contains root.Id)
-                && seen.Add root.Id
-            then
+            if store.IsFree root && not (fixedRoots.Contains root.Id) && seen.Add root.Id then
                 // A registered source name (a real `'a`) wins; the `M%d` index bumps only
                 // when one is minted, so synthetic indices stay dense.
                 match knownNames.TryGetValue root.Id with

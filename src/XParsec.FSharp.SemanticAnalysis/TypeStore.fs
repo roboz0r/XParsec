@@ -118,6 +118,17 @@ type DischargeTable<'T when 'T: not struct>(combine: 'T list -> 'T list -> 'T li
 
         List.ofSeq acc
 
+/// What a representative resolves to.
+[<RequireQualifiedAccess>]
+type RootState =
+    | Free
+    | Linked of target: SemType
+    /// A measure filling a measure-kinded parameter slot. Unifies only with an equal measure.
+    | Measure of units: MeasureTerm
+    /// `carrier` measured by `units`: the one representation of `1.0<m>`, `float<m>` and a
+    /// thawed measured nominal.
+    | Measured of units: MeasureTerm * carrier: SemType
+
 /// The metavar arena for one file: it mints `TyVarId`s with dense, monotone ids and owns
 /// the id-indexed arrays behind them. Grow-only; ids are never reused, so a `TyVarId` is a
 /// stable array index.
@@ -129,10 +140,9 @@ type TypeStore() =
     let mutable parent: int[] = Array.empty
     let mutable rank: int[] = Array.empty
     // Authoritative ON THE ROOT (a `Rep` from `UnionFind.find`): Rémy level, the
-    // solution link, the measure carrier, and the quantified flag.
+    // resolution state, and the quantified flag.
     let mutable level: int[] = Array.empty
-    let mutable link: SemType voption[] = Array.empty
-    let mutable units: MeasureTerm voption[] = Array.empty
+    let mutable state: RootState[] = Array.empty
     let mutable quantified: bool[] = Array.empty
     // Write-once region id, NOT migrated on union, so it stays a per-node cell keyed by
     // raw `TyVarId`.
@@ -151,8 +161,7 @@ type TypeStore() =
             parent <- growStore parent capacity newCap 0
             rank <- growStore rank capacity newCap 0
             level <- growStore level capacity newCap 0
-            link <- growStore link capacity newCap ValueNone
-            units <- growStore units capacity newCap ValueNone
+            state <- growStore state capacity newCap RootState.Free
             quantified <- growStore quantified capacity newCap false
             region <- growStore region capacity newCap RegionId.Unknown
             capacity <- newCap
@@ -163,8 +172,7 @@ type TypeStore() =
         parent.[id] <- id
         rank.[id] <- 0
         level.[id] <- 0
-        link.[id] <- ValueNone
-        units.[id] <- ValueNone
+        state.[id] <- RootState.Free
         quantified.[id] <- false
         region.[id] <- RegionId.Unknown
         nextId <- nextId + 1
@@ -197,13 +205,22 @@ type TypeStore() =
     member _.Level(r: Rep) : int = level.[int r.Id]
     member _.SetLevel(r: Rep, v: int) : unit = level.[int r.Id] <- v
 
-    /// The solution / substitution reached from this root; `ValueNone` while free.
-    member _.Link(r: Rep) : SemType voption = link.[int r.Id]
-    member _.SetLink(r: Rep, v: SemType voption) : unit = link.[int r.Id] <- v
+    member _.State(r: Rep) : RootState = state.[int r.Id]
+    member _.SetState(r: Rep, v: RootState) : unit = state.[int r.Id] <- v
 
-    /// Measure constraint on the root when it is a numeric type; `ValueNone` otherwise.
-    member _.Units(r: Rep) : MeasureTerm voption = units.[int r.Id]
-    member _.SetUnits(r: Rep, v: MeasureTerm voption) : unit = units.[int r.Id] <- v
+    member _.IsFree(r: Rep) : bool = state.[int r.Id].IsFree
+
+    /// The type the root stands for with its measure erased: an alias target or a measured
+    /// root's carrier. `ValueNone` for a free root and a measure argument.
+    member _.ErasedTarget(r: Rep) : SemType voption =
+        match state.[int r.Id] with
+        | RootState.Linked target
+        | RootState.Measured(_, target) -> ValueSome target
+        | RootState.Free
+        | RootState.Measure _ -> ValueNone
+
+    member _.SetLink(r: Rep, target: SemType) : unit =
+        state.[int r.Id] <- RootState.Linked target
 
     /// True once some binding's `TypeScheme` quantifies this class. Such a class is a type
     /// PARAMETER of the enclosing signature, so a later pass that settles leftover inference
@@ -261,7 +278,7 @@ module UnionFind =
 
         Rep root
 
-    /// Merges the two classes only: `Link` / `Units` / payload are the caller's business.
+    /// Merges the two classes only: `State` and payload are the caller's business.
     /// The surviving root inherits the `min` of the two roots' levels, and is quantified
     /// when either root was.
     let union (store: TypeStore) (a: TyVarId) (b: TyVarId) : unit =
@@ -291,17 +308,19 @@ module UnionFind =
 
     let inSameClass (store: TypeStore) (a: TyVarId) (b: TyVarId) : bool = find store a = find store b
 
-    /// Follow union-find roots + `.Link` until the OUTERMOST type constructor is concrete;
-    /// nested type arguments are left untouched. A root carrying a `Units` measure stops
+    /// Follow union-find roots + `Linked` states until the OUTERMOST type constructor is
+    /// concrete; nested type arguments are left untouched. A measure-carrying root stops
     /// the follow, so the measure stays on the returned `TyVar`.
     let rec zonkShallow (store: TypeStore) (t: SemType) : SemType =
         match t with
         | TyVar tv ->
             let root = find store tv
 
-            match store.Link root with
-            | ValueSome target when (store.Units root).IsNone -> zonkShallow store target
-            | _ -> TyVar root.Id
+            match store.State root with
+            | RootState.Linked target -> zonkShallow store target
+            | RootState.Free
+            | RootState.Measure _
+            | RootState.Measured _ -> TyVar root.Id
         | _ -> t
 
     /// Fully resolve a SemType: walk all TyVar chains AND recurse into compound shapes. A
@@ -314,14 +333,14 @@ module UnionFind =
             | resolved -> zonk store resolved
         | t -> SemType.mapChildren (zonk store) t
 
-    /// `zonk` with measures erased: a measure-bearing root lowers to its carrier, so `1.0<m>`
-    /// resolves to `float`. Only a genuinely unlinked root survives as a `TyVar`.
+    /// `zonk` with measures erased: a measured root lowers to its carrier, so `1.0<m>`
+    /// resolves to `float`. A free root and a measure argument survive as a `TyVar`.
     let rec zonkErased (store: TypeStore) (t: SemType) : SemType =
         match t with
         | TyVar tv ->
             let root = find store tv
 
-            match store.Link root with
+            match store.ErasedTarget root with
             | ValueSome target -> zonkErased store target
             | ValueNone -> TyVar root.Id
         | t -> SemType.mapChildren (zonkErased store) t

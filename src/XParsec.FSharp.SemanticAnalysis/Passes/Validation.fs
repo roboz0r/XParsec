@@ -9,8 +9,8 @@ open XParsec.FSharp.SemanticAnalysis
 
 module Validation =
 
-    /// True if `t` has any reachable TyVar whose union-find root carries no `Link` and is
-    /// not in `quantified`. `let f (state: 'State) = let mutable acc = state` is legal because
+    /// True if `t` has any reachable TyVar whose union-find root is `Free` and is not in
+    /// `quantified`. `let f (state: 'State) = let mutable acc = state` is legal because
     /// `acc`'s root is unpinned but owned by `f`'s scheme; `let mutable r = []` is not.
     let rec private hasFreeTyVar
         (store: TypeStore)
@@ -21,9 +21,11 @@ module Validation =
         | TyVar tv ->
             let root = UnionFind.find store tv
 
-            match store.Link root with
-            | ValueSome target -> hasFreeTyVar store quantified target
-            | ValueNone -> not (quantified.Contains root.Id)
+            match store.State root with
+            | RootState.Linked target
+            | RootState.Measured(_, target) -> hasFreeTyVar store quantified target
+            | RootState.Measure _ -> false
+            | RootState.Free -> not (quantified.Contains root.Id)
         // A compound holds a free var iff any child does; leaves hold none.
         | t -> SemType.existsChild (hasFreeTyVar store quantified) t
 

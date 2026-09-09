@@ -43,8 +43,8 @@ let tests =
                     "the string overload wins"
 
                 Expect.equal
-                    (overloadCtx.Store.Link(UnionFind.find overloadCtx.Store freeTv))
-                    ValueNone
+                    (overloadCtx.Store.State(UnionFind.find overloadCtx.Store freeTv))
+                    RootState.Free
                     "the failed trial left the caller TyVar free"
             }
 

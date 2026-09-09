@@ -166,8 +166,8 @@ let tests =
                 Expect.isTrue accepted "the union slot accepts the value"
 
                 Expect.equal
-                    (ctx.Store.Link(UnionFind.find ctx.Store tv))
-                    ValueNone
+                    (ctx.Store.State(UnionFind.find ctx.Store tv))
+                    RootState.Free
                     "the actual's typar is left free (no pin)"
             }
 

@@ -143,7 +143,7 @@ module UnificationSubsume =
         | t -> SemType.existsChild (hasCarriedNode store) t
 
     /// Subtyping query distinct from `unify`: does a value of type `src` coerce to `tgt`? It
-    /// never mutates `Link` / `Constraints`, so a read-only `:?` site needs no undo trace.
+    /// never mutates `State` / `Constraints`, so a read-only `:?` site needs no undo trace.
     /// A `TyOr` operand resolves structurally, with its disjuncts folded first.
     let rec subsumes (ctx: PassContext) (src: SemType) (tgt: SemType) : SubsumeOutcome =
         match resolveStep ctx.Store src, resolveStep ctx.Store tgt with

@@ -5,6 +5,7 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.AssemblyFiles
 open XParsec.FSharp.SemanticAnalysis.AssemblyAnalysis
+open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 /// The frozen type of the file's one `let`, beside any type declarations.
@@ -1017,6 +1018,95 @@ module N =
                         Expect.isEmpty es (sprintf "expected no errors; diagnostics were %A" es)
 
                         Expect.equal (lastLetTypeClaim units) ("Tag", 0) "`Item` is the arity-0 `Tag`'s case"
+                    }
+                ]
+
+            // A measure argument (`Pair<m, int>`'s `m`) is a `RootState.Measure` root. No
+            // written program reaches `unify` with one against a type, because translation
+            // refuses a type in a measure slot (FS0705) and a measure in a type slot (FS0704),
+            // so the engine is driven directly.
+            testList
+                "a measure argument is a store state"
+                [
+                    let ctxOf () =
+                        UnificationTestHelpers.analyse "let x = 1"
+
+                    let metre = MeasureTerm.atom (SymbolKeyOps.typeKeyOf "" "m")
+                    let kilogram = MeasureTerm.atom (SymbolKeyOps.typeKeyOf "" "kg")
+                    let recordTy = TyRecord("R", Block.empty)
+
+                    let stateOf (ctx: PassContext) (ty: SemType) : RootState =
+                        match ty with
+                        | TyVar tv -> ctx.Store.State(UnionFind.find ctx.Store tv)
+                        | other -> failtestf "expected a TyVar, got %A" other
+
+                    let expectRefusedAsMeasure (ctx: PassContext) (measureArg: SemType) =
+                        Expect.equal
+                            (ctx.Diagnostics |> Seq.map (fun d -> d.Kind) |> List.ofSeq)
+                            [ Kind.TypeExpectedNotMeasure ]
+                            "the measure meeting a type reports FS0704"
+
+                        Expect.equal (stateOf ctx measureArg) (RootState.Measure metre) "the root stays a measure"
+
+                    test "a measure argument meeting a record reports rather than links" {
+                        let ctx = ctxOf ()
+                        let measureArg = ctx.MeasureTy metre
+                        UnificationEngine.unify ctx dummyTok measureArg recordTy
+                        expectRefusedAsMeasure ctx measureArg
+                    }
+
+                    test "a measure argument meeting a function type reports rather than links" {
+                        let ctx = ctxOf ()
+                        let measureArg = ctx.MeasureTy metre
+                        UnificationEngine.unify ctx dummyTok (TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)) measureArg
+                        expectRefusedAsMeasure ctx measureArg
+                    }
+
+                    test "a measure argument meeting a measured value reports rather than links" {
+                        let ctx = ctxOf ()
+                        let measureArg = ctx.MeasureTy metre
+                        let measured = ctx.MeasuredTy(BuiltinTypes.tyFloat, metre)
+                        UnificationEngine.unify ctx dummyTok measureArg measured
+                        expectRefusedAsMeasure ctx measureArg
+
+                        Expect.equal
+                            (stateOf ctx measured)
+                            (RootState.Measured(metre, BuiltinTypes.tyFloat))
+                            "the measured value keeps its own root"
+                    }
+
+                    test "two measure arguments of different measures report a measure mismatch" {
+                        let ctx = ctxOf ()
+                        let left = ctx.MeasureTy metre
+                        UnificationEngine.unify ctx dummyTok left (ctx.MeasureTy kilogram)
+
+                        Expect.equal
+                            (ctx.Diagnostics |> Seq.map (fun d -> d.Message) |> List.ofSeq)
+                            [ "Measure mismatch: <m> vs <kg>" ]
+                            "the two measures report"
+
+                        Expect.equal (stateOf ctx left) (RootState.Measure metre) "the left measure survives"
+                    }
+
+                    test "a free root meeting a measure argument becomes that measure" {
+                        let ctx = ctxOf ()
+                        let free = TyVar(ctx.FreshTyVar())
+                        UnificationEngine.unify ctx dummyTok free (ctx.MeasureTy metre)
+                        Expect.isEmpty ctx.Diagnostics "a free root adopts the measure"
+                        Expect.equal (stateOf ctx free) (RootState.Measure metre) "the class is a measure"
+                    }
+
+                    // The one source-reachable meeting: two measure arguments in one slot.
+                    test "a measure-generic record at two measures reports a measure mismatch" {
+                        expectUserErrorReportedAlone
+                            "Measure mismatch: <kg> vs <m>"
+                            "\
+[<Measure>] type m
+[<Measure>] type kg
+type Pair<[<Measure>] 'u, 'a> = { V: 'a; W: float<'u> }
+let first (p: Pair<m, int>) = p.V
+let second (q: Pair<kg, int>) = first q
+"
                     }
                 ]
         ]

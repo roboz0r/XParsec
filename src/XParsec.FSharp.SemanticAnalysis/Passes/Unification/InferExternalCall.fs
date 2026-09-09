@@ -193,7 +193,7 @@ module internal UnificationInferExternalCall =
 
         ctx.Resolution.ExternalAccess.Set(fnKey, ResolvedExternalMember.OfMember(chosen, memberSig))
 
-        ctx.Store.SetLink(UnionFind.find ctx.Store (freshTv ctx fnKey), ValueSome memberSig)
+        ctx.Store.SetLink(UnionFind.find ctx.Store (freshTv ctx fnKey), memberSig)
         let resultTy = TyVar(ctx.FreshTyVar())
 
         // An `obj` parameter absorbs a typar / value-type argument via the implicit box

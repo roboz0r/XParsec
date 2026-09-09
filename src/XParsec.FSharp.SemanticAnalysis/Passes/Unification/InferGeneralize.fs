@@ -13,7 +13,7 @@ module internal UnificationInferGeneralize =
 
     /// Visit every `TyVar` leaf of `t`, resolving it to its union-find `root` and invoking
     /// `onRoot`. A plain structural walk: it assumes `t` is already zonked and does *not*
-    /// follow `Link`s, so a caller needing the link/default graph walks it itself.
+    /// follow solutions, so a caller needing the solution/default graph walks it itself.
     let iterTypeVarRoots (store: TypeStore) (onRoot: Rep -> unit) (t: SemType) : unit =
         t |> SemTypeWalk.iterSemTypeVars (fun tv -> onRoot (UnionFind.find store tv))
 
@@ -68,7 +68,7 @@ module internal UnificationInferGeneralize =
                 |> iterTypeVarRoots
                     ctx.Store
                     (fun root ->
-                        if (ctx.Store.Link root).IsNone && not (roots.ContainsKey root.Id) then
+                        if ctx.Store.IsFree root && not (roots.ContainsKey root.Id) then
                             mint root.Id false
                     )
             )
@@ -152,7 +152,7 @@ module internal UnificationInferGeneralize =
             if not (List.isEmpty (store.Pda.Live root)) then
                 true
             else
-                match store.Link root with
+                match store.ErasedTarget root with
                 | ValueSome target -> hasPendingDotAccess store target
                 | ValueNone -> false
         // A compound carries pending dot access iff a child does; leaves hold none.
@@ -167,9 +167,12 @@ module internal UnificationInferGeneralize =
             | TyVar tv ->
                 let root = UnionFind.find store tv
 
-                match store.Link root with
-                | ValueSome target -> resolveTarget target
-                | ValueNone -> ValueNone
+                match store.State root with
+                | RootState.Linked target -> resolveTarget target
+                // A measured root is its own concrete target: linking to it keeps the measure.
+                | RootState.Measured _ -> ValueSome(TyVar root.Id)
+                | RootState.Free
+                | RootState.Measure _ -> ValueNone
             | _ -> ValueSome t
 
         let tryDefault (tv: TyVarId) : bool =
@@ -188,7 +191,7 @@ module internal UnificationInferGeneralize =
                         // Occurs guard: a structural target (`^T1 list`) can resolve to a
                         // `concrete` transitively containing `tv`, and linking through it
                         // would build an infinite type.
-                        store.SetLink(root, ValueSome concrete)
+                        store.SetLink(root, concrete)
                         fired <- true
                     | ValueSome _ -> () // resolved but occurs-unsafe, so permanently dead
                     | ValueNone -> anyDeferrable <- true // target still free, so retry next pass
@@ -209,7 +212,7 @@ module internal UnificationInferGeneralize =
             for tv in candidates do
                 let root = UnionFind.find store tv
 
-                if (store.Link root).IsNone && not (store.Defaults.IsEmpty root) then
+                if store.IsFree root && not (store.Defaults.IsEmpty root) then
                     if tryDefault tv then
                         changed <- true
 
@@ -232,7 +235,7 @@ module internal UnificationInferGeneralize =
                     if visited.Add root.Id then
                         if
                             store.Level root > outerLevel
-                            && (store.Link root).IsNone
+                            && store.IsFree root
                             && not (store.Defaults.IsEmpty root)
                         then
                             acc.Add root.Id
@@ -242,7 +245,7 @@ module internal UnificationInferGeneralize =
                             for target in store.Defaults.Items root do
                                 go target
 
-                        match store.Link root with
+                        match store.ErasedTarget root with
                         | ValueSome target -> go target
                         | ValueNone -> ()
                 | t -> SemType.iterChildren go t
@@ -279,9 +282,11 @@ module internal UnificationInferGeneralize =
                     let root = UnionFind.find ctx.Store tv
 
                     if seen.Add root.Id then
-                        match ctx.Store.Link root with
-                        | ValueSome target -> walk target
-                        | ValueNone ->
+                        match ctx.Store.State root with
+                        | RootState.Linked target
+                        | RootState.Measured(_, target) -> walk target
+                        | RootState.Measure _ -> ()
+                        | RootState.Free ->
                             match tryListLiteralElem ctx root.Id with
                             | ValueSome elemTy when ctx.Store.Level root > outerLevel ->
                                 match zonk ctx.Store elemTy with
@@ -290,7 +295,7 @@ module internal UnificationInferGeneralize =
                                     // container free and let it reach the whole-file sweep,
                                     // which reports each literal once, at its own token.
                                     if ctx.ConsListInScope then
-                                        ctx.Store.SetLink(root, ValueSome(RuntimeNames.consListTy elemTy))
+                                        ctx.Store.SetLink(root, RuntimeNames.consListTy elemTy)
                                 | _ -> ctx.Store.SetLevel(root, outerLevel)
                             | _ -> ()
                 | t -> SemType.iterChildren walk t
@@ -306,14 +311,8 @@ module internal UnificationInferGeneralize =
         let quantified = ResizeArray<TyVarId>()
         let seen = HashSet<TyVarId>()
 
-        // A root carrying a measure term is a measure ARGUMENT, which freezes to `FTMeasure`.
         let addRoot (root: Rep) =
-            if
-                store.Level root > outerLevel
-                && (store.Link root).IsNone
-                && (store.Units root).IsNone
-                && seen.Add(root.Id)
-            then
+            if store.Level root > outerLevel && store.IsFree root && seen.Add(root.Id) then
                 quantified.Add(root.Id)
 
         zonkedTy |> iterTypeVarRoots store addRoot

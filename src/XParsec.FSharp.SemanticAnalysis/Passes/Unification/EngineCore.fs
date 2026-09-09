@@ -12,23 +12,15 @@ open XParsec.FSharp.SemanticAnalysis
 /// + member instantiation, and the nominal subtype walks.
 module UnificationEngineCore =
 
-    /// One level deep, so full resolution means calling recursively. Stops at a measure-bearing
-    /// root: following `Link` through to the bare carrier would drop the measure.
-    let resolveStep (store: TypeStore) (t: SemType) : SemType =
-        match t with
-        | TyVar tv ->
-            let root = UnionFind.find store tv
-
-            match store.Link root with
-            | ValueSome t' when (store.Units root).IsNone -> t'
-            | _ -> TyVar root.Id
-        | _ -> t
+    /// `UnionFind.zonkShallow`: the outermost constructor resolved. A returned `TyVar` is a
+    /// `Free`, `Measure` or `Measured` root.
+    let resolveStep (store: TypeStore) (t: SemType) : SemType = UnionFind.zonkShallow store t
 
     /// Drop the `null` member from every anonymous union in `t`, collapsing a resulting
     /// singleton: `obj | null` → `obj`, the same `System.Object` slot on the CLR ABI.
     let rec stripReferenceNull (store: TypeStore) (t: SemType) : SemType =
-        // Resolve at each node: an annotated `objnull` param can arrive behind a `TyVar`
-        // Link, and `mapChildren` treats a `TyVar` as a leaf, so a raw walk misses the union.
+        // Resolve at each node: an annotated `objnull` param can arrive behind a solved
+        // `TyVar`, and `mapChildren` treats a `TyVar` as a leaf, so a raw walk misses the union.
         match resolveStep store t with
         | TyOr ds ->
             ds.Disjuncts
@@ -63,8 +55,8 @@ module UnificationEngineCore =
         | many -> TyTuple(Block.ofList many)
 
     /// One walk, two jobs. Occurs check: does `target` appear inside `t`, which would cycle
-    /// Link pointers and make zonk loop (`let rec f x = f`)? And, since linking `target` to
-    /// `t` co-scopes them, lower every level above `target`'s.
+    /// the solution pointers and make zonk loop (`let rec f x = f`)? And, since linking
+    /// `target` to `t` co-scopes them, lower every level above `target`'s.
     let rec occursAndAdjust (store: TypeStore) (target: Rep) (t: SemType) : bool =
         match resolveStep store t with
         | TyVar tv ->
@@ -79,27 +71,24 @@ module UnificationEngineCore =
                 false
         | t -> SemType.existsChild (occursAndAdjust store target) t
 
-    /// Two non-equal measures emit a diagnostic; one of them is kept on the
-    /// survivor so further unifications against it stay coherent.
-    let mergeUnits
-        (ctx: PassContext)
-        (tok: SyntaxToken)
-        (newRoot: Rep)
-        (unitsA: MeasureTerm voption)
-        (unitsB: MeasureTerm voption)
-        : unit =
-        match unitsA, unitsB with
-        | ValueNone, ValueNone -> ()
-        | ValueSome m, ValueNone
-        | ValueNone, ValueSome m -> ctx.Store.SetUnits(newRoot, ValueSome m)
-        | ValueSome m1, ValueSome m2 when m1.Equals(m2) -> ctx.Store.SetUnits(newRoot, ValueSome m1)
-        | ValueSome m1, ValueSome m2 ->
-            ctx.Store.SetUnits(newRoot, ValueSome m1)
-
+    /// The measure shared by two measure-carrying roots once unified. A mismatch reports
+    /// `MeasureMismatch` and keeps `m1`.
+    let mergeUnits (ctx: PassContext) (tok: SyntaxToken) (m1: MeasureTerm) (m2: MeasureTerm) : MeasureTerm =
+        if not (m1.Equals m2) then
             ctx.Report(tok, Kind.MeasureMismatch(string m1, string m2))
 
+        m1
+
+    /// The surviving representative of the two classes, holding both payloads. The state of
+    /// the survivor is the caller's business.
+    let joinClasses (store: TypeStore) (r1: Rep) (r2: Rep) : Rep =
+        UnionFind.union store r1.Id r2.Id
+        let newRoot = UnionFind.find store r1.Id
+        store.MergePayloads(newRoot, (if newRoot = r1 then r2 else r1))
+        newRoot
+
     /// Replace TyVar roots that key `subst` with their target, recursing into compound
-    /// shapes. A non-key TyVar resolves through its `Link`, else stays as its own root.
+    /// shapes. A non-key TyVar resolves through its alias, else stays as its own root.
     let rec substituteWith (store: TypeStore) (subst: Dictionary<TyVarId, SemType>) (t: SemType) : SemType =
         match t with
         | TyVar tv ->
@@ -109,11 +98,13 @@ module UnificationEngineCore =
             | true, target -> target
             | false, _ ->
                 // A registry field / case-arg type is a *placeholder* TyVar, never itself a
-                // `subst` key (keys are the declared type's `TypeParams`), so follow `Link`
-                // to reach one. Measure-bearing roots stop.
-                match store.Link root with
-                | ValueSome target when (store.Units root).IsNone -> substituteWith store subst target
-                | _ -> TyVar root.Id
+                // `subst` key (keys are the declared type's `TypeParams`), so follow an alias
+                // to reach one. A measure-carrying root stops.
+                match store.State root with
+                | RootState.Linked target -> substituteWith store subst target
+                | RootState.Free
+                | RootState.Measure _
+                | RootState.Measured _ -> TyVar root.Id
         | t -> SemType.mapChildren (substituteWith store subst) t
 
     /// Empty when the lengths don't match, so an arity mismatch leaves the field types
@@ -164,7 +155,7 @@ module UnificationEngineCore =
         for tp in methodTypars do
             let root = UnionFind.find ctx.Store tp.TyVar
 
-            if (ctx.Store.Link root).IsNone && not (subst.ContainsKey root.Id) then
+            if ctx.Store.IsFree root && not (subst.ContainsKey root.Id) then
                 let fresh = ctx.NewTypeVar()
                 ctx.Store.SetLevel(UnionFind.find ctx.Store fresh, ctx.CurrentLevel)
                 subst.[root.Id] <- TyVar fresh
@@ -673,7 +664,7 @@ module UnificationEngineCore =
         | TyIndexedAccess _
         | TyConditional _ -> "type expression"
 
-    /// Walk a `SemType` through TyVar Links to surface a nominal shape and report which
+    /// Walk a `SemType` through solved roots to surface a nominal shape and report which
     /// kind it is.
     let rec tryResolveNominal (store: TypeStore) (t: SemType) : (NominalKind * TypeKey * Block<SemType>) voption =
         match t with
@@ -681,7 +672,7 @@ module UnificationEngineCore =
         | TyClass(n, args) -> ValueSome(NominalKind.Class, n, args)
         | TyUnion(n, args) -> ValueSome(NominalKind.Union, n, args)
         | TyVar tv ->
-            match store.Link(UnionFind.find store tv) with
+            match store.ErasedTarget(UnionFind.find store tv) with
             | ValueSome target -> tryResolveNominal store target
             | ValueNone -> ValueNone
         | _ -> ValueNone

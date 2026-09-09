@@ -92,7 +92,7 @@ module Unification =
             |> List.truncate mInfo.DeclaredTyparCount
             |> List.choose (fun tp ->
                 match rootOf tp.TyVar with
-                | ValueSome r when (ctx.Store.Link r).IsNone -> Some { tp with TyVar = r.Id }
+                | ValueSome r when ctx.Store.IsFree r -> Some { tp with TyVar = r.Id }
                 | _ -> None
             )
 
@@ -253,7 +253,7 @@ module Unification =
 
             let selfArgs = Block.ofSeq (seq { for tp in fc.Decl.TypeParams -> TyVar tp.TyVar })
 
-            ctx.Store.SetLink(UnionFind.find ctx.Store thisTv, ValueSome(fc.MkSelfType selfArgs))
+            ctx.Store.SetLink(UnionFind.find ctx.Store thisTv, fc.MkSelfType selfArgs)
             ctx.Bindings.TypeVar.Set(fc.ThisKey, thisTv)
 
             let inferMemberBinding (mKey: NodeKey) (b: Binding<SyntaxToken>) =
@@ -351,7 +351,7 @@ module Unification =
                         | _ -> ()
 
                         let sigTy = mkSigTy ()
-                        ctx.Store.SetLink(root, ValueSome sigTy)
+                        ctx.Store.SetLink(root, sigTy)
 
                         // An abstract method has no body to infer, so mint its
                         // canonical ABI order from the elaborated signature.
@@ -392,7 +392,7 @@ module Unification =
                             match fc.Decl.Members |> Array.tryFind (fun m -> m.DeclSite.Key = mKey) with
                             | Some mInfo ->
                                 match mInfo.Type with
-                                | TyVar tv -> ctx.Store.SetLink(UnionFind.find ctx.Store tv, ValueSome resultTy)
+                                | TyVar tv -> ctx.Store.SetLink(UnionFind.find ctx.Store tv, resultTy)
                                 | _ -> ()
                             | None -> ()
                         finally
@@ -792,13 +792,15 @@ module Unification =
         for lit in ctx.ListLiterals do
             let root = UnionFind.find ctx.Store lit.Var
 
-            match ctx.Store.Link root with
-            | ValueSome target ->
+            match ctx.Store.State root with
+            | RootState.Linked target
+            | RootState.Measured(_, target) ->
                 match zonk ctx.Store target with
                 | TyRecord(_, args) when args.Length = 1 -> unify ctx lit.Tok args.[0] lit.Elem
                 | TyUnion(_, args) when args.Length = 1 -> unify ctx lit.Tok args.[0] lit.Elem
                 | _ -> ()
-            | ValueNone ->
+            | RootState.Measure _ -> ()
+            | RootState.Free ->
                 if ctx.ConsListInScope then
                     unify ctx lit.Tok (TyVar root.Id) (RuntimeNames.consListTy lit.Elem)
                 else
@@ -814,7 +816,7 @@ module Unification =
         for lit in ctx.NullLiterals do
             let root = UnionFind.find ctx.Store lit.Var
 
-            if (ctx.Store.Link root).IsNone && not (ctx.Store.Quantified root) then
+            if ctx.Store.IsFree root && not (ctx.Store.Quantified root) then
                 unify ctx lit.Tok (TyVar root.Id) BuiltinTypes.tyObj
 
     /// For a class, union or record: `EqualitySupport = Custom` ⇒ it must implement the

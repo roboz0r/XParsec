@@ -5,14 +5,13 @@ open XParsec.FSharp.Parser
 
 // Post: ctx.Diagnostics carries an Error per TDecl whose TAST still references an unresolved
 //       TyVar, because after generalisation every reachable TyVar should bottom out in a concrete
-//       shape via Link chains, or be a quantified typar of the enclosing generalised `let`.
+//       shape via its solution, or be a quantified typar of the enclosing generalised `let`.
 
 module ResolvedTypes =
 
     /// Walk `t` adding to `acc` any free TyVar root not in `allowed`. A root is free exactly
     /// when `Freeze` would lower it to `FTUnknown UnresolvedTypar`; a measured root is
-    /// resolved when its carrier is, and a measure argument, which carries a term and no
-    /// carrier, freezes to `FTMeasure`.
+    /// resolved when its carrier is, and a measure argument freezes to `FTMeasure`.
     let private addFreeRoots
         (store: TypeStore)
         (allowed: HashSet<TyVarId>)
@@ -22,7 +21,7 @@ module ResolvedTypes =
         let rec go t =
             match t with
             | TyVar root ->
-                if not (allowed.Contains root) && (store.Units(UnionFind.find store root)).IsNone then
+                if not (allowed.Contains root) && store.IsFree(UnionFind.find store root) then
                     acc.Add root |> ignore
             | t -> SemType.iterChildren go t
 

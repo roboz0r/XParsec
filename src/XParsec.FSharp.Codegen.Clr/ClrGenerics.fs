@@ -21,20 +21,24 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
     let declared (build: unit -> 'a) : 'a = enc.Declared build
     let encodeDeclared te t = enc.EncodeDeclaredType(te, t)
 
-    let genericClassTypeSpec (key: TypeKey) (args: FrozenType list) : EntityHandle =
-        let shape = genericClasses.[key]
+    /// The `TypeSpec` instantiating the generic user type `key` over the type-slot arguments
+    /// of the signature-order `args`.
+    let userTypeSpec (key: TypeKey) (typarCount: int<typeSlot>) (args: FrozenType list) : EntityHandle =
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
         // A `[<Struct>]` value type must carry the `VALUETYPE` tag, else the GENERICINST
         // encodes as `CLASS` and the loader faults "value type mismatch" when
         // constructing or dispatching on a generic struct.
         let isVt = userValueTypes.Contains key
-        let g = te.GenericInstantiation(userTypes.[key], int shape.Typars.Length, isVt)
+        let g = te.GenericInstantiation(userTypes.[key], int typarCount, isVt)
 
-        for a in args do
+        for a in FrozenType.typeSlotArgs (Block.ofList args) do
             encodeType (g.AddArgument()) a
 
         toEntity (ctx.TypeSpec tsB)
+
+    let genericClassTypeSpec (key: TypeKey) (args: FrozenType list) : EntityHandle =
+        userTypeSpec key genericClasses.[key].Typars.Length args
 
     let genericClassMemberRef (key: TypeKey) (args: FrozenType list) (which: ClassMember) : EntityHandle =
         let shape = genericClasses.[key]
@@ -87,17 +91,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
             | ValueNone -> failwithf "ClrProvider: generic class '%A' has no field '%s'" key fieldName
 
     let genericUnionTypeSpec (key: TypeKey) (args: FrozenType list) : EntityHandle =
-        let shape = genericUnions.[key]
-        let tsB = BlobBuilder()
-        let te = BlobEncoder(tsB).TypeSpecificationSignature()
-
-        let g =
-            te.GenericInstantiation(userTypes.[key], int shape.Typars.Length, userValueTypes.Contains key)
-
-        for a in args do
-            encodeType (g.AddArgument()) a
-
-        toEntity (ctx.TypeSpec tsB)
+        userTypeSpec key genericUnions.[key].Typars.Length args
 
     let genericUnionMemberRef (key: TypeKey) (args: FrozenType list) (which: UnionMember) : EntityHandle =
         let shape = genericUnions.[key]
@@ -202,17 +196,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
             toEntity (ctx.MemberRef(parent, caseName, s))
 
     let genericRecordTypeSpec (key: TypeKey) (args: FrozenType list) : EntityHandle =
-        let shape = genericRecords.[key]
-        let tsB = BlobBuilder()
-        let te = BlobEncoder(tsB).TypeSpecificationSignature()
-
-        let g =
-            te.GenericInstantiation(userTypes.[key], int shape.Typars.Length, userValueTypes.Contains key)
-
-        for a in args do
-            encodeType (g.AddArgument()) a
-
-        toEntity (ctx.TypeSpec tsB)
+        userTypeSpec key genericRecords.[key].Typars.Length args
 
     /// The field of the generic record `key` with source name `fieldName`. Its `Ty` uses the
     /// record's own `!i` markers.
@@ -252,8 +236,8 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
             let name = TAccessorRole.methodName role fieldName
             toEntity (ctx.MemberRef(parent, name, declared (fun () -> enc.RecordAccessorSignature(role, f.Ty))))
 
-    /// The parent `TypeSpec` of a generic user type, whichever family declares it. Every
-    /// family's registry is keyed by the nominal `TypeKey`, so the key alone picks the arm.
+    /// The parent `TypeSpec` of a generic user type, whichever family declares it,
+    /// instantiated over the type-slot arguments of the signature-order `args`.
     let genericTypeSpec (key: TypeKey) (args: FrozenType list) : EntityHandle =
         if genericUnions.ContainsKey key then
             genericUnionTypeSpec key args

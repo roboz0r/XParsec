@@ -273,6 +273,6 @@ module internal UnificationClassCtors =
         | ValueSome inh ->
             let baseTv = ctx.NewTypeVar()
             ctx.Store.SetLevel(UnionFind.find ctx.Store baseTv, ctx.CurrentLevel)
-            ctx.Store.SetLink(UnionFind.find ctx.Store baseTv, ValueSome(BaseParent.ty inh.Parent))
+            ctx.Store.SetLink(UnionFind.find ctx.Store baseTv, BaseParent.ty inh.Parent)
             ctx.Bindings.TypeVar.Set(BoundVarKey.identity info.BaseKey, baseTv)
         | ValueNone -> ()

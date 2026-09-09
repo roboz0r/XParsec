@@ -32,24 +32,14 @@ let private declType (tast: TastFile) : SemType =
 let private hasMeasureMismatch (tast: TastFile) =
     tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "Measure mismatch")
 
-/// Read the (carrier, measure) from a measure-bearing `TyVar`, via `UnionFind.find`
-/// so a stale non-root pointer still reaches the authoritative Link/Units.
+/// Read the (carrier, measure) from a measured `TyVar`, via `UnionFind.find` so a stale
+/// non-root pointer still reaches the authoritative state.
 let private measuredOf (store: TypeStore) (ty: SemType) : SemType * MeasureTerm =
     match ty with
     | TyVar tv ->
-        let root = UnionFind.find store tv
-
-        let carrier =
-            match store.Link root with
-            | ValueSome c -> c
-            | ValueNone -> failwithf "expected TyVar with Link, got %A" ty
-
-        let units =
-            match store.Units root with
-            | ValueSome u -> u
-            | ValueNone -> failwithf "expected TyVar with Units, got %A" ty
-
-        carrier, units
+        match store.State(UnionFind.find store tv) with
+        | RootState.Measured(units, carrier) -> carrier, units
+        | other -> failwithf "expected a measured TyVar, got %A in state %A" ty other
     | _ -> failwithf "expected TyVar, got %A" ty
 
 /// The prelude carries no `namespace` or `module` header, so each measure keys under the

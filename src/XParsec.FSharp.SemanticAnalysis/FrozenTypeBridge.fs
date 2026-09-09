@@ -9,8 +9,8 @@ open Vesper
 [<AutoOpen>]
 module FrozenTypeBridge =
 
-    /// The thaw of a frozen measured nominal into `Store`: a measured `TyVar` whose `Link` is
-    /// the abbreviation `key` expanded over `typeArgs` and whose `Units` is the term.
+    /// The thaw of a frozen measured nominal into `Store`: a `TyVar` whose carrier is the
+    /// abbreviation `key` expanded over `typeArgs`, measured by `units`.
     type IMeasuredThaw =
         abstract Store: TypeStore
         abstract Measured: key: TypeKey * typeArgs: BlockM<SemType, typeSlot> * units: MeasureTerm -> SemType
@@ -82,23 +82,24 @@ module FrozenTypeBridge =
     let toFrozen (ty: SemType) : FrozenType =
         toFrozenWith (fun tv -> failwithf "FrozenType.toFrozen: cannot freeze SemType: %A" (TyVar tv)) ty
 
-    /// Freeze after a deep zonk. A measure-bearing root freezes to its carrier's arity-1
-    /// claim over the term; `onVar` freezes every root still unlinked after the zonk.
+    /// Freeze after a deep zonk. A measure argument freezes to `FTMeasure`, a measured root
+    /// to its carrier's arity-1 claim over the term; `onVar` freezes every root still free
+    /// after the zonk.
     let freezeWith (store: TypeStore) (onVar: TyVarId -> FrozenType) (ty: SemType) : FrozenType =
         let onRoot (tv: TyVarId) : FrozenType =
             let root = UnionFind.find store tv
 
-            match store.Units root, store.Link root with
-            // A measure filling a measure-kinded parameter slot: a term with no carrier.
-            | ValueSome units, ValueNone -> FTMeasure units
-            | ValueSome units, ValueSome carrier ->
+            match store.State root with
+            | RootState.Measure units -> FTMeasure units
+            | RootState.Measured(units, carrier) ->
                 match UnionFind.zonk store carrier with
                 | TyConst(key, BlockEmpty) -> FTConst(measuredClaimKey key, Block.singleton (FTMeasure units))
                 // The recovery type of a reported reference, already diagnosed at the source.
                 | TyUnknown reason -> FTUnknown reason
                 | other ->
                     failwithf "FrozenTypeBridge.freezeWith: a measure <%O> over a non-primitive carrier %A" units other
-            | _ -> onVar tv
+            | RootState.Linked target -> failwithf "FrozenTypeBridge.freezeWith: a zonked root linked to %A" target
+            | RootState.Free -> onVar tv
 
         UnionFind.zonk store ty |> toFrozenWith onRoot
 

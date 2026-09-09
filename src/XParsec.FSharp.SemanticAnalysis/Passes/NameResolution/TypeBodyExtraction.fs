@@ -41,7 +41,7 @@ module NameResolutionTypeBodyExtraction =
                 let declared = annotation |> ValueOption.map (translateType ctx)
 
                 match declared with
-                | ValueSome t -> ctx.Store.SetLink(UnionFind.find ctx.Store tv, ValueSome t)
+                | ValueSome t -> ctx.Store.SetLink(UnionFind.find ctx.Store tv, t)
                 | ValueNone -> ()
 
                 results.Add(ClassCtorParamInfo(ctx.NameOf site.Tok, TyVar tv, declared, site))

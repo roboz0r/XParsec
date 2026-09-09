@@ -327,6 +327,67 @@ separate change.
    move onto the kind. Verify with a program unifying a measure argument against a record
    and against a function type, each pinned to report rather than link.
 
+   Landed from the step 6 review. `RootState` in `TypeStore.fs` is the root's kind: `Free`,
+   `Linked of target`, `Measure of units` and `Measured of units * carrier`, replacing the
+   `Link` and `Units` arrays; `PassContext.MeasureTy` and `MeasuredTy` mint the two measure
+   states, `TypeStore.SetLink` takes a bare `SemType`, and `TypeStore.IsFree` is the one
+   "still a type variable" test, and `TypeStore.ErasedTarget` the one "type behind the
+   root with its measure erased" projection (an alias target or a measured carrier), which
+   `zonkErased` and the nominal / dot-access / validation walks recurse through. `resolveStep`
+   is `UnionFind.zonkShallow`, so a `TyVar` reaching `unify`'s arms is never `Linked`;
+   `substituteWith` follows `Linked` alone, and a `Measure` root is a leaf everywhere. A
+   reader that treats a free root and a measure argument differently matches `RootState`
+   totally. `GeneralizedTypars.canonical` had read a measure argument as a free root and
+   quantified it as an inferred type-kinded typar, which is what hid the `FTMeasure` from
+   the CLR encoder; `ClrGenerics.userTypeSpec` is the one user `TypeSpec` builder and
+   projects `FrozenType.typeSlotArgs` like `encodeNominal`. `TypeRefVerdict.IsMeasure` is
+   the one FS0704 classifier, applied in `translateTypeRef` before the verdict is applied
+   and in `readTypeArgs` for a lone measure name in a type slot.
+
+   `unify`'s `TyVar, TyVar` arm merges on the state pair: a measure argument meeting a
+   measured value or, in the `TyVar, other` arm, any type reports FS0704 and leaves the
+   classes apart; two measure arguments merge through `mergeUnits`, which is now
+   `MeasureTerm -> MeasureTerm -> MeasureTerm`; a measured value meeting a type unifies its
+   carrier against the type instead of overwriting it. `Translate.readTypeArgs` reports
+   FS0704 for a lone measure name in a type slot (the parser spells `Box<m>`'s `m` as a type
+   argument) and recovers the whole reference, so `let x: float<m> = 1.0<m>` over a local
+   `type float<'a>` reports once, as fsc does. Pinned in `MeasureResolutionTests`, "a
+   measure argument is a store state": the engine is driven directly, because translation
+   refuses every written measure-meets-type program before `unify` sees it.
+
+7. **The CLR backend's type arguments are a `Block`.** `FrozenNominal.Args` is a
+   `Block<FrozenType>` and `FrozenType.typeSlotArgs` takes one, but the CLR backend passes
+   a nominal's type arguments as `FrozenType list`. `EmitLower.keyAndTyArgs` converts the
+   `Block` to a list at the top of the emitter, the list threads through
+   `ClrProvider.GenericMemberRef` / `GenericClosureMemberRef`, `ClrGenerics.userTypeSpec`
+   and the `genericXxxMemberRef` builders, `ClrExternalMembers.externalRecordCtor`,
+   `externalUnionFactory`, `externalCaseSpec`, `externalUnionCaseTest`,
+   `externalUnionCaseType` and the member-resolution entry points, `ClrEncoder.externalTypeSpec`
+   and `methodSpec`, and each consumer converts back with `Block.ofList` to project the
+   type slots. `TyparMarkers.declaringMarkers` builds a list that four of its seven callers
+   immediately wrap in `Block.ofList`. A list is never iterated as a stack here, so the
+   shape is wrong at both ends.
+
+   Scope is the type-argument position only. A parameter list, a local signature and a
+   closure's capture list (`paramTys`, `locals`, `captures`, `CaptureSigs`) are a different
+   concept and stay as they are.
+
+   Fix, additively as the working agreement prescribes for a widely used type: change
+   `declaringMarkers` to return a `Block` and give every type-argument parameter the
+   `Block<FrozenType>` type from `keyAndTyArgs` down to `typeSlotArgs`, deleting each
+   `Block.toList` / `Block.ofList` pair as the two ends meet. `ICodegenProvider`'s members
+   that carry type arguments (`TryEmitUnionCons`, `TryEmitRecordCons`, `UserGenericMemberRef`,
+   `UserClosureMemberRef`, `ExternalUnionCaseTest`, `ExternalUnionCaseType` and
+   `StaticFnMethodSpec`) change signature with the chain; the JS backend and
+   `Codegen.Common` carry no `FrozenType list` type arguments and are untouched. Score the
+   change by
+   the conversions deleted: none should remain between `FrozenNominal.Args` and
+   `typeSlotArgs`.
+
+   Verify with the CLR conformance goldens byte-identical and `Codegen.Clr.Tests` green; a
+   grep for `FrozenType list` in `Codegen.Clr` then names only parameter, local and capture
+   lists.
+
    Not started.
 
 ## Verify
@@ -382,5 +443,8 @@ Before this document is deleted, each row is in code or in a test:
       whose `Written` case is an abbreviation's signature count, with no cast between them;
       `MemberKey.MethodTyparArity` is the type count (step 5).
 - [x] `typar-scope-plan.md` step 6 is struck and points here.
-- [ ] A measure argument root is a kind the store states, and `unify` reports a measure
+- [x] A measure argument root is a kind the store states, and `unify` reports a measure
       meeting a type rather than linking it (step 6).
+- [ ] A nominal's type arguments reach `FrozenType.typeSlotArgs` as the `Block` that
+      `FrozenNominal.Args` holds, with no list conversion between; `FrozenType list` in
+      `Codegen.Clr` names only parameter, local and capture lists (step 7).

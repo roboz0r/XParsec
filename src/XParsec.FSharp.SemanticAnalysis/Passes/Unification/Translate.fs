@@ -437,9 +437,8 @@ module internal UnificationTranslate =
             ctx.Resolution.ResolvedType.Set(site.Key, key)
             ValueSome(TyEnum key)
         | TypeDeclKind.Class -> ValueSome(TyClass(key, args))
-        // A measure is not a type, so a reference in TYPE position is FS0704; the recovery
-        // type keeps the rest of inference off it.
-        | TypeDeclKind.Measure -> ValueSome(errorTy ctx site.Tok Kind.TypeExpectedNotMeasure)
+        // `translateTypeRef` reports a measure verdict (FS0704) before applying it.
+        | TypeDeclKind.Measure -> failwithf "resolveClaimedType: measure '%A' reached type application" key
 
     /// The `SemType` a WRITTEN type reference translates to: the verdict NameResolution stamped
     /// at `site`, applied to the written `args`. A claim at another arity (FS0033, reported when
@@ -486,6 +485,7 @@ module internal UnificationTranslate =
                     | _ -> errorTy ctx site.Tok (Kind.NotYetSupported "a type with several measure parameters")
 
         match ctx.Resolution.TypeRefVerdicts.TryGetValue site.Key with
+        | ValueSome verdict when verdict.IsMeasure -> errorTy ctx site.Tok Kind.TypeExpectedNotMeasure
         | ValueSome(TypeRefVerdict.LocalType claim) ->
             apply
                 claim.Typars
@@ -497,9 +497,6 @@ module internal UnificationTranslate =
                 )
         | ValueSome(TypeRefVerdict.LocalTypeAtOtherArity _)
         | ValueSome(TypeRefVerdict.ExternalTypeAtOtherArity _) -> TyVar(ctx.FreshTyVar())
-        // A measure is not a type, so a reference in TYPE position is FS0704.
-        | ValueSome(TypeRefVerdict.ExternalType(_, ExternalTypeShape.Measure _)) ->
-            errorTy ctx site.Tok Kind.TypeExpectedNotMeasure
         | ValueSome(TypeRefVerdict.ExternalType(key, shape)) ->
             apply
                 shape.Typars
@@ -542,9 +539,27 @@ module internal UnificationTranslate =
         (typars: TyparList)
         (args: ImmutableArray<TypeArg<SyntaxToken>>)
         : Block<TypeArgRead> voption =
+        /// The token of a lone name in a type slot that resolves to a measure: the parser
+        /// spells `Box<m>` as a type argument, so the kind is read off the verdict.
+        let measureNameTok (argTy: Type<SyntaxToken>) : SyntaxToken voption =
+            match argTy with
+            | Type.NamedType li ->
+                let typeRef = CstKeys.namedTypeRef li
+
+                if (NameResolutionTypeRefStamp.classifyTypeRef ctx typeRef).IsMeasure then
+                    ValueSome typeRef.Site.Tok
+                else
+                    ValueNone
+            | _ -> ValueNone
+
         let readArg (kind: TyparKind) (arg: TypeArg<SyntaxToken>) : TypeArgRead voption =
             match kind, arg with
-            | TyparKind.Type, TypeArg.Type argTy -> ValueSome(TypeArgRead.Type(translateType ctx argTy))
+            | TyparKind.Type, TypeArg.Type argTy ->
+                match measureNameTok argTy with
+                | ValueSome tok ->
+                    ctx.Report(tok, Kind.TypeExpectedNotMeasure)
+                    ValueNone
+                | ValueNone -> ValueSome(TypeArgRead.Type(translateType ctx argTy))
             | TyparKind.Type, TypeArg.Measure m ->
                 ctx.Report(CstKeys.firstTokenOfMeasure m, Kind.TypeExpectedNotMeasure)
                 ValueNone

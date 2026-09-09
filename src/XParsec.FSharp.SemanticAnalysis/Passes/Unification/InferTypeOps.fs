@@ -208,7 +208,7 @@ module internal UnificationInferTypeOps =
         // node and skip `infer`, because inferring would pin the node's TyVar to `string`.
         match tryTypeFormatLiteral ctx node.Tok inner annTy with
         | ValueSome fmt ->
-            ctx.Store.SetLink(UnionFind.find ctx.Store (freshTv ctx (CstKeys.ofExpr inner)), ValueSome fmt)
+            ctx.Store.SetLink(UnionFind.find ctx.Store (freshTv ctx (CstKeys.ofExpr inner)), fmt)
             annTy
         | ValueNone ->
             let innerTy = infer ctx inner

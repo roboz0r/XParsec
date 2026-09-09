@@ -91,7 +91,7 @@ module UnificationInferOverload =
             true
 
     /// A free caller metavar: `matchTypes`'s shallow `zonk` already consulted the shared graph, so
-    /// a committed `Link` never reaches here and only `binds.CallerVars` is left. Bound ⇒
+    /// a solved root never reaches here and only `binds.CallerVars` is left. Bound ⇒
     /// recurse; unseen ⇒ record it. Two vars already unified in the graph need no new binding.
     and private matchVar
         (store: TypeStore)
@@ -200,7 +200,8 @@ module UnificationInferOverload =
 
         // A generic candidate's OWN where-constraints (its typars' `ConstraintSet`s)
         // are NOT verified here: they are stamped on the fresh TyVars at the commit seam and
-        // fire on the first `Link`, so a violated constraint surfaces as a commit error instead.
+        // fire when the root is first solved, so a violated constraint surfaces as a commit
+        // error instead.
         match filterTier false with
         // Exact-match tier: a single structural survivor wins with no betterness reasoning
         // (`Show(int)` / `Show(string)` needs no specificity).

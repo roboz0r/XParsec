@@ -140,7 +140,7 @@ module UnificationEngine =
 
     /// A Vesper RECORD satisfies an EXTERNAL interface parameter by WIDTH: every required
     /// (non-optional) value member must be supplied by a same-named record field whose
-    /// type coerces in. Pure read (no `Link`), so it is safe as a guard.
+    /// type coerces in. Pure read, solving no root, so it is safe as a guard.
     let private tryStructuralWiden (ctx: PassContext) (actual: SemType) (expected: SemType) : bool =
         match resolveStep ctx.Store expected with
         | TyClass(ikey, iargs) ->
@@ -214,6 +214,11 @@ module UnificationEngine =
                     else
                         Absorption.NotAbsorbing
 
+    /// `unify` resolves both operands, so a matched `TyVar` root is `Free`, `Measure` or
+    /// `Measured`.
+    let private linkedAfterResolve (target: SemType) : 'a =
+        failwithf "unify: a resolved TyVar root is linked to %A" target
+
     let rec unify (ctx: PassContext) (tok: SyntaxToken) (a: SemType) (b: SemType) =
         let a = resolveStep ctx.Store a
         let b = resolveStep ctx.Store b
@@ -224,8 +229,8 @@ module UnificationEngine =
         // instead of linking a var to an inert carrier.
         | FoldedCarrier ctx folded, _ -> unify ctx tok folded b
         | _, FoldedCarrier ctx folded -> unify ctx tok a folded
-        // A position with no type unifies with nothing: no Link, so one broken one can't
-        // cascade. Only the two reasons a contract bakes report, and `ReportOnce` collapses
+        // A position with no type unifies with nothing: no root is solved, so one broken
+        // position can't cascade. Only the two reasons a contract bakes report, and `ReportOnce` collapses
         // each to ONE message per file, however many positions and uses meet it.
         | TyUnknown reason, _
         | _, TyUnknown reason ->
@@ -285,52 +290,57 @@ module UnificationEngine =
         | TyVar tv1, TyVar tv2 ->
             let r1 = UnionFind.find ctx.Store tv1
             let r2 = UnionFind.find ctx.Store tv2
-            let unitsA = ctx.Store.Units r1
-            let unitsB = ctx.Store.Units r2
-            let linkA = ctx.Store.Link r1
-            let linkB = ctx.Store.Link r2
-            UnionFind.union ctx.Store r1.Id r2.Id
-            let newRoot = UnionFind.find ctx.Store r1.Id
 
-            let merged = if newRoot = r1 then r2 else r1
-
-            // Fold the loser's deferred-constraint payload into the surviving
-            // representative, because payload lives only under the rep id.
-            ctx.Store.MergePayloads(newRoot, merged)
-            mergeUnits ctx tok newRoot unitsA unitsB
-
-            match linkA, linkB with
-            | ValueNone, ValueNone -> ()
-            | ValueSome t, ValueNone
-            | ValueNone, ValueSome t ->
-                ctx.Store.SetLink(newRoot, ValueSome t)
-                dischargeAll ctx tok newRoot t
-            | ValueSome a, ValueSome b ->
-                ctx.Store.SetLink(newRoot, linkA)
-                unify ctx tok a b
-                dischargeAll ctx tok newRoot a
+            match ctx.Store.State r1, ctx.Store.State r2 with
+            | RootState.Linked target, _
+            | _, RootState.Linked target -> linkedAfterResolve target
+            // Refused without a join, so the two classes stay apart.
+            | RootState.Measure _, RootState.Measured _
+            | RootState.Measured _, RootState.Measure _ -> ctx.Report(tok, Kind.TypeExpectedNotMeasure)
+            | RootState.Free, RootState.Free -> joinClasses ctx.Store r1 r2 |> ignore
+            | RootState.Free, (RootState.Measure _ as state)
+            | (RootState.Measure _ as state), RootState.Free -> ctx.Store.SetState(joinClasses ctx.Store r1 r2, state)
+            | RootState.Free, (RootState.Measured(_, carrier) as state)
+            | (RootState.Measured(_, carrier) as state), RootState.Free ->
+                let newRoot = joinClasses ctx.Store r1 r2
+                ctx.Store.SetState(newRoot, state)
+                dischargeAll ctx tok newRoot carrier
+            | RootState.Measure m1, RootState.Measure m2 ->
+                ctx.Store.SetState(joinClasses ctx.Store r1 r2, RootState.Measure(mergeUnits ctx tok m1 m2))
+            | RootState.Measured(m1, c1), RootState.Measured(m2, c2) ->
+                let newRoot = joinClasses ctx.Store r1 r2
+                ctx.Store.SetState(newRoot, RootState.Measured(mergeUnits ctx tok m1 m2, c1))
+                unify ctx tok c1 c2
+                dischargeAll ctx tok newRoot c1
         | TyVar tv, other
         | other, TyVar tv ->
             let root = UnionFind.find ctx.Store tv
 
-            if occursAndAdjust ctx.Store root other then
-                ctx.Report(
-                    tok,
-                    Kind.Message(
-                        sprintf
-                            "Occurs check: cannot construct infinite type %A = %A"
-                            (zonk ctx.Store (TyVar root.Id))
-                            (zonk ctx.Store other)
-                    )
-                )
-            else
-                match ctx.Store.Units root, other with
-                | ValueSome m, TyConst _ when not m.IsDimensionless ->
-                    ctx.Report(tok, Kind.DimensionlessMeasureMismatch(string m))
+            match ctx.Store.State root with
+            | RootState.Linked target -> linkedAfterResolve target
+            // Refused without a link, so the root stays a measure.
+            | RootState.Measure _ -> ctx.Report(tok, Kind.TypeExpectedNotMeasure)
+            | RootState.Measured(m, carrier) ->
+                match other with
+                | TyConst _ when not m.IsDimensionless -> ctx.Report(tok, Kind.DimensionlessMeasureMismatch(string m))
                 | _ -> ()
 
-                ctx.Store.SetLink(root, ValueSome other)
+                unify ctx tok carrier other
                 dischargeAll ctx tok root other
+            | RootState.Free ->
+                if occursAndAdjust ctx.Store root other then
+                    ctx.Report(
+                        tok,
+                        Kind.Message(
+                            sprintf
+                                "Occurs check: cannot construct infinite type %A = %A"
+                                (zonk ctx.Store (TyVar root.Id))
+                                (zonk ctx.Store other)
+                        )
+                    )
+                else
+                    ctx.Store.SetLink(root, other)
+                    dischargeAll ctx tok root other
         // `unify` is symmetric, so neither side can be named the expected one here. A seam
         // that knows which is written (`(e : T)`) reports its own directional message.
         | _ -> ctx.Report(tok, Kind.Message(sprintf "Type mismatch: %s vs %s" (shown ctx.Store a) (shown ctx.Store b)))
@@ -367,7 +377,7 @@ module UnificationEngine =
         dischargeConstraints ctx tok root t
         dischargeSrtpTraits ctx tok root t
 
-    /// Resolve the dot-access constraints parked on a TyVar now its `Link` has settled.
+    /// Resolve the dot-access constraints parked on a TyVar now its target has settled.
     /// When the object argument is generic its arg list substitutes for the declared typars, so
     /// `(b : Box<int>).Value` resolves to `int`, not `Box`'s prototype `'a`.
     and private dischargePendingDotAccess (ctx: PassContext) (root: Rep) (linkTarget: SemType) : unit =
@@ -376,7 +386,7 @@ module UnificationEngine =
         if not (List.isEmpty pending) then
             // Every resolving branch discharges the whole snapshot up front, so a
             // reentrant discharge (the `unify`s below) sees it gone. Only `NotNominal`
-            // leaves the accesses parked for a later `Link`.
+            // leaves the accesses parked for a later solution.
             let solveAll () =
                 for d in pending do
                     ctx.Store.Pda.Solve d
@@ -429,7 +439,7 @@ module UnificationEngine =
 
     /// On-unified callback for type-parameter constraints. Satisfied constraints are
     /// dropped; deferred ones remain on the root, and a compound `Defer` also copies the
-    /// constraint onto each still-free arg so a Link on any of them re-evaluates the rule.
+    /// constraint onto each still-free arg so solving any of them re-evaluates the rule.
     and private dischargeConstraints (ctx: PassContext) (tok: SyntaxToken) (root: Rep) (linkTarget: SemType) : unit =
         if ctx.Store.Constraints.IsEmpty root then
             ()

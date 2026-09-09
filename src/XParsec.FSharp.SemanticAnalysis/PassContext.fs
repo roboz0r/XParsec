@@ -226,6 +226,17 @@ type TypeRefVerdict =
     /// Nothing in scope at the use site, and no external type of that spelling.
     | UnknownType
 
+    /// True for a measure declaration, local or external. A reference in type position is
+    /// FS0704.
+    member this.IsMeasure: bool =
+        match this with
+        | LocalType claim -> claim.Kind = TypeDeclKind.Measure
+        | ExternalType(_, ExternalTypeShape.Measure _) -> true
+        | ExternalType _
+        | LocalTypeAtOtherArity _
+        | ExternalTypeAtOtherArity _
+        | UnknownType -> false
+
 /// What a written attribute's type-ref resolved to. Recorded at the first resolution of the
 /// site, so repeated reads of the same declaration's attributes diagnose once.
 [<Struct; RequireQualifiedAccess>]
@@ -582,7 +593,7 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
     member this.IsInferenceHole(tv: TyVarId) : bool = this.inferenceHoles.Contains tv
 
     /// Whether `ty` carries any `_` hole: `Box<int>` false, `Box<_>` true even with `_` pinned
-    /// to `int`, because the walk follows a var's `Link` for structure but STOPS at a hole.
+    /// to `int`, because the walk follows a var's solution for structure but STOPS at a hole.
     member this.HasInferenceHoleIn(ty: SemType) : bool =
         let seen = HashSet<TyVarId>()
 
@@ -593,7 +604,7 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
                 if not (seen.Add tv) then
                     false
                 else
-                    match this.Store.Link(UnionFind.find this.Store tv) with
+                    match this.Store.ErasedTarget(UnionFind.find this.Store tv) with
                     | ValueSome inner -> walk inner
                     | ValueNone -> false
             | TyClass(_, args)
@@ -630,20 +641,16 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
         this.Store.SetLevel(UnionFind.find this.Store tv, this.CurrentLevel)
         tv
 
-    /// `IMeasuredThaw.Measure`: a fresh metavar carrying `units` and no carrier.
+    /// A fresh metavar in the `RootState.Measure units` state.
     member this.MeasureTy(units: MeasureTerm) : SemType =
         let tv = this.FreshTyVar()
-        this.Store.SetUnits(UnionFind.find this.Store tv, ValueSome units)
+        this.Store.SetState(UnionFind.find this.Store tv, RootState.Measure units)
         TyVar tv
 
-    /// `carrier` measured by `units`: a fresh metavar whose `Link` is the carrier and whose
-    /// `Units` are the term, the one representation of `1.0<m>`, `float<m>` and a thawed
-    /// measured nominal.
+    /// A fresh metavar in the `RootState.Measured(units, carrier)` state.
     member this.MeasuredTy(carrier: SemType, units: MeasureTerm) : SemType =
         let tv = this.FreshTyVar()
-        let root = UnionFind.find this.Store tv
-        this.Store.SetLink(root, ValueSome carrier)
-        this.Store.SetUnits(root, ValueSome units)
+        this.Store.SetState(UnionFind.find this.Store tv, RootState.Measured(units, carrier))
         TyVar tv
 
     /// The thaw of a frozen measured nominal: `key` is an abbreviation of a referenced contract

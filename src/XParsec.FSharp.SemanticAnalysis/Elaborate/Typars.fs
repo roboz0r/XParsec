@@ -102,12 +102,11 @@ module internal ElaborateTypars =
     /// source order (`<'b,'a>` stays `'b,'a`), then the remaining free roots by first
     /// appearance, then the constraint-only typars.
     let mkMethodQuantTypars (store: TypeStore) (declared: DeclaredTypar list) (declTy: SemType) : GeneralizedTypars =
-        // A declared typar that inference pinned to a concrete type (its root is `Link`ed)
-        // is not a method typar; drop it. A free function has no enclosing class typars, so
-        // the `fixedRoots` set passed below is empty.
+        // A declared typar that inference pinned to a concrete type is not a method typar;
+        // drop it. A free function has no enclosing class typars, so the `fixedRoots` set
+        // passed below is empty.
         let declaredFree =
-            declared
-            |> List.filter (fun tp -> (store.Link(UnionFind.find store tp.TyVar)).IsNone)
+            declared |> List.filter (fun tp -> store.IsFree(UnionFind.find store tp.TyVar))
 
         let zonked = Unification.zonk store declTy
 

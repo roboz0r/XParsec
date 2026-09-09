@@ -272,7 +272,7 @@ module internal UnificationInferApp =
 
                             // Stamp the function node so Elaborate threads the
                             // curried result type through the App chain.
-                            ctx.Store.SetLink(UnionFind.find ctx.Store (freshTv ctx fnKey), ValueSome fnTy)
+                            ctx.Store.SetLink(UnionFind.find ctx.Store (freshTv ctx fnKey), fnTy)
 
                             let mutable currTy = fnTy
 
@@ -284,7 +284,7 @@ module internal UnificationInferApp =
                                         // The format literal types as the PrintfFormat, not `string`.
                                         ctx.Store.SetLink(
                                             UnionFind.find ctx.Store (freshTv ctx (CstKeys.ofExpr a)),
-                                            ValueSome fmtTy
+                                            fmtTy
                                         )
 
                                         fmtTy
