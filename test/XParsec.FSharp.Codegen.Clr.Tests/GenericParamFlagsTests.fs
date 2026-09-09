@@ -8,14 +8,13 @@ open XParsec.FSharp.Codegen.Clr.Tests.MetadataStructure
 
 // The flag bits of a `GenericParam` row, one owner kind per test: a module function, a
 // type declaration, a member's own typar and an interface slot's. Equality, comparison
-// and nullness have no CLI encoding and leave the row at `None`.
+// and `not null` have no CLI encoding and leave the row at `None`. Each expected encoding
+// is `fsc`'s, read off FSharp.Core's metadata and an `fsi`-compiled probe.
 
 let private bytesOf (name: string) (lines: string list) : byte[] =
     Codegen.toBytes (compileSource name (String.concat "\n" lines))
 
-let private valueType =
-    GenericParameterAttributes.NotNullableValueTypeConstraint
-    ||| GenericParameterAttributes.DefaultConstructorConstraint
+let private valueType = GenericParameterAttributes.NotNullableValueTypeConstraint
 
 let private referenceType = GenericParameterAttributes.ReferenceTypeConstraint
 
@@ -26,14 +25,60 @@ let tests =
     testList
         "GenericParam flags"
         [
-            test "`struct` on a module function is the value-type pair" {
+            test "`struct` on a module function is the value-type bit" {
                 let bytes =
                     bytesOf "GpStruct" [ "let onlyStruct<'a when 'a: struct> (x: 'a) = x"; "let i = onlyStruct 42" ]
 
                 Expect.equal
                     (methodGenericParamsOf bytes "Program" "onlyStruct")
                     [ "a", valueType ]
-                    "struct ⇒ NotNullableValueType ||| DefaultConstructor"
+                    "struct ⇒ NotNullableValueType"
+            }
+
+            test "`struct` and `new()` on one typar are the two value-type bits" {
+                let bytes =
+                    bytesOf
+                        "GpStructNew"
+                        [
+                            "let onlyStructNew<'a when 'a: struct and 'a: (new: unit -> 'a)> (x: 'a) = x"
+                            "let i = onlyStructNew 42"
+                        ]
+
+                Expect.equal
+                    (methodGenericParamsOf bytes "Program" "onlyStructNew")
+                    [ "a", valueType ||| defaultCtor ]
+                    "struct and new() ⇒ NotNullableValueType ||| DefaultConstructor"
+            }
+
+            test "`null` on a module function is the reference-type bit" {
+                let bytes =
+                    bytesOf
+                        "GpNull"
+                        [
+                            "let onlyNull<'a when 'a: null> (x: 'a) = x"
+                            "let f (s: string | null) = onlyNull s"
+                            "ignore f"
+                        ]
+
+                Expect.equal
+                    (methodGenericParamsOf bytes "Program" "onlyNull")
+                    [ "a", referenceType ]
+                    "null ⇒ ReferenceType"
+            }
+
+            test "`not null` has no flag bits" {
+                let bytes =
+                    bytesOf
+                        "GpNotNull"
+                        [
+                            "let onlyNotNull<'a when 'a: not null> (x: 'a) = x"
+                            "let s = onlyNotNull \"x\""
+                        ]
+
+                Expect.equal
+                    (methodGenericParamsOf bytes "Program" "onlyNotNull")
+                    [ "a", GenericParameterAttributes.None ]
+                    "not null"
             }
 
             // The `MapSeq<...>(source, f)` call instantiates `MapSeq`'s constraints over `map`'s own

@@ -244,25 +244,45 @@ separate change.
    model is in `typar-scope.md` (*Leaves*, *Slot numbering*, *Measure arguments*). Format
    version 22; step 5's rows index a type slot.
 
-5. **`GenericParamConstraint` rows.** No code in `src/` emits one. The table is added to the
-   assembler with its row-order prediction, the same prefix-sum discipline as every other
-   table there. Rows are read off the typar's `ConstraintSet`, so a row's typar is the record
-   it hangs off. The `System.Delegate` row reads the kind alone, so it does not wait on
-   `delegates-plan.md`. Encoding per constraint, each confirmed against a decompiled `fsc`
-   output before it is committed to:
+5. **`GenericParamConstraint` rows.** Landed. `GenericParamRow.Constraints` carries the
+   coercion targets read off the typar's `ConstraintSet`, and the assembler's finalise pass
+   adds each row directly after its `GenericParam` row, so the table needs no row-order
+   prediction: `AddGenericParameter` returns the owner handle, and adding in `GenericParam`
+   order keeps the constraint table sorted by owner as SRM validates. A target resolves
+   through `ClrEncoder.TypeDefOrRefOf`, shared with `InterfaceImpl`, under
+   `TyparSlots.Declared`: a bare nominal is its `TypeDef` / `TypeRef`, an instantiation a
+   `TypeSpec` whose sibling typars spell `!i` / `!!j`. `'a :> obj` adds no row, as `fsc`
+   writes it. Pinned in `GenericParamConstraintTests` through the `MetadataStructure` readers
+   `typeGenericParamConstraintsOf` / `methodGenericParamConstraintsOf`, which decode a
+   `TypeSpec` target to its IL spelling (`` System.IComparable`1<!!0> ``).
+
+   The encoding per constraint is `fsc`'s, read off FSharp.Core's metadata
+   (`Option.ofNullable`, `Operators.using`, `Operators.isNull`, `NativePtr.stackalloc`,
+   `FSharpEvent`2`) and an `fsi`-compiled probe of each clause in isolation. Three rows of
+   the table as first drafted were not what `fsc` writes and were corrected: a plain `struct`
+   is the value-type bit alone (the `DefaultConstructorConstraint` and the `System.ValueType`
+   row on `ofNullable` come from `Nullable<'T>`'s imported constraints), `null` is the
+   reference-type bit, and `enum<_>` / `delegate<_,_>` add no row.
 
    | Source constraint | CLI encoding |
    | --- | --- |
-   | `'a : struct` | `NotNullableValueTypeConstraint ||| DefaultConstructorConstraint` + a `GenericParamConstraint` to `System.ValueType` |
+   | `'a : struct` | `NotNullableValueTypeConstraint` |
    | `'a : not struct` | `ReferenceTypeConstraint` |
+   | `'a : null` | `ReferenceTypeConstraint` |
+   | `'a : not null` | none; nullability attributes are the only carrier, step 9 |
    | `'a : (new : unit -> 'a)` | `DefaultConstructorConstraint` |
    | `'a :> Ty` | `GenericParamConstraint` to `Ty`, class or interface alike |
-   | `'a : enum<'u>` | `GenericParamConstraint` to `System.Enum` |
-   | `'a : delegate<_,_>` | `GenericParamConstraint` to `System.Delegate` |
-   | `'a : unmanaged` | value-type flags + `IsUnmanagedAttribute` on the parameter |
-   | `'a : null` / `not null` | none; nullability attributes are the only carrier, step 9 |
+   | `'a : enum<'u>` | none |
+   | `'a : delegate<_,_>` | none |
+   | `'a : unmanaged` | `NotNullableValueTypeConstraint` + a `GenericParamConstraint` to `System.ValueType modreq(UnmanagedType)` + `IsUnmanagedAttribute` on the parameter, step 9 |
    | `'a : equality` / `comparison` | none; F# has no CLI encoding for these either |
    | SRTP member trait | none; an `inline` binding resolves it at the splice |
+
+   Carried in the same diff: `CstTypeWalk.iterTypeMemberSig` stamps an abstract slot's own
+   typar constraints (`abstract Only<'a when 'a :> IShape> : 'a -> 'a`), which reached
+   `Unification.linkAbstractSlot` unstamped. A closure class's and a lifted local's rows stay
+   positional and unconstrained, where `fsc` copies the enclosing constraints onto the
+   closure class; nothing consumes those rows yet.
 
 6. **`MeasureAtom.Typar`.** Landed under step 4a. The atom carries a `measureSlot`-tagged
    index and is minted at translation from the live `ScopedTypar` scope. `[<Measure>]` on a
@@ -294,9 +314,10 @@ separate change.
 Assert `GenericParam` flags and `GenericParamConstraint` rows through the `MetadataStructure`
 helpers, per `Codegen.Clr`'s `CLAUDE.md` preference for metadata over reflection. The
 `typar-*-violated.fs` programs pin front-end rejection and keep their exact diagnostics. The
-`typar-struct`, `typar-struct-record`, `typar-not-struct` and `typar-new` goldens render
-`where T0 : struct`, `where T0 : class` and `where T0 : new()`, and step 5 adds the rows'
-rendering to them.
+`typar-struct`, `typar-struct-record`, `typar-not-struct`, `typar-new`, `typar-null` and
+`typar-null-allownull` goldens render `where T0 : struct`, `where T0 : class` and
+`where T0 : new()`; no conformance program writes a coercion constraint, so the rows'
+rendering is pinned by `GenericParamConstraintTests` alone.
 
 **Parity note.** `fsc` accepts `under L.A 3` for `'a : enum<'u>` on an `int64` enum, where
 this compiler reports a mismatch on `3`. Both solve `'u` to `int64`; `fsc` then widens the
@@ -334,8 +355,10 @@ Before this document is deleted, each row is in code or in a test:
 - [x] `TyparList.Order` is the only source of typar display order (`TyparListG.Names`);
       the CLR encoder indexes `Types` alone, pinned by a `[<Measure>]`-bearing type's
       `GenericParam` row count in `GenericParamFlagsTests` (step 4).
-- [ ] Every constraint kind in the encoding table has a `MetadataStructure` assertion or a
-      row stating why it has none.
+- [x] Every constraint kind in the encoding table has a `MetadataStructure` assertion or a
+      row stating why it has none: the flag bits in `GenericParamFlagsTests`, the rows and
+      the row-less kinds in `GenericParamConstraintTests`, `unmanaged` deferred to step 9
+      (step 5).
 - [x] The two `fsc` typar-order and FS0064 gaps have tests, `ptest` with the gap quoted in
       the name, in `FrozenConstraintTests` (step 4).
 - [x] A cross-file constrained generic is enforced, pinned by the two-file `'a : not struct`

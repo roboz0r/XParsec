@@ -286,6 +286,12 @@ type MetadataContext() =
         : GenericParameterHandle =
         mb.AddGenericParameter(owner, attrs, mb.GetOrAddString(name), index)
 
+    /// `constraintType` is a `TypeDef` / `TypeRef` / `TypeSpec`. Call directly after the
+    /// owner's `AddGenericParameter`: the `GenericParamConstraint` table must stay sorted
+    /// by owner.
+    member _.AddGenericParameterConstraint(owner: GenericParameterHandle, constraintType: EntityHandle) : unit =
+        mb.AddGenericParameterConstraint(owner, constraintType) |> ignore
+
     member _.Serialize(entryPoint: MethodDefinitionHandle) : BlobBuilder =
         let header = PEHeaderBuilder(imageCharacteristics = Characteristics.ExecutableImage)
         let root = MetadataRootBuilder(mb)

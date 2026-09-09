@@ -804,7 +804,7 @@ module internal NominalEmit =
                 if structural.Format then
                     provider.StructuralFormattableInterface
                 for (iface, _) in userInterfaces do
-                    provider.InterfaceHandleOf(FrozenNominal.ty iface)
+                    provider.TypeDefOrRefOf(FrozenNominal.ty iface)
             ]
 
         asm.AddTypeRowExtras(

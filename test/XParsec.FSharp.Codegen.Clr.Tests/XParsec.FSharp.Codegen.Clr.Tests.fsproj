@@ -114,6 +114,7 @@
     <Compile Include="SelfPackageIntrinsicsTests.fs" />
     <Compile Include="FieldVisibilitySweepTests.fs" />
     <Compile Include="GenericParamFlagsTests.fs" />
+    <Compile Include="GenericParamConstraintTests.fs" />
     <Compile Include="LiftedLocalTests.fs" />
 
     <Compile Include="Program.fs" />

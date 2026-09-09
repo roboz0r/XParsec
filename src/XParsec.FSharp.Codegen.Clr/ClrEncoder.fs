@@ -350,6 +350,18 @@ type internal ClrEncoder(env: ClrEnv) =
         encodeType te ty
         toEntity (ctx.TypeSpec tsB)
 
+    /// The `TypeDefOrRef` handle of a declared type position (`InterfaceImpl.Interface`, a
+    /// `GenericParamConstraint` target): a bare nominal's `TypeDef` / `TypeRef`, and a fresh
+    /// `TypeSpec` for every other type, encoded under `TyparSlots.Declared`.
+    member this.TypeDefOrRefOf(ty: FrozenType) : EntityHandle =
+        this.Declared(fun () ->
+            match ty with
+            | UnionToken(handle, _, args)
+            | RecordToken(handle, _, args)
+            | ClassToken(handle, _, args) when args.IsEmpty -> handle
+            | _ -> this.TypeSpecOf ty
+        )
+
     /// The `System.ValueTuple` handles for an N-tuple of `elemTys`, shared by construction and
     /// destructuring. The ctor / `Item` signatures spell the type's own `!0…`, so they are
     /// element-type-independent and only the parent `TypeSpec` carries the instantiation.

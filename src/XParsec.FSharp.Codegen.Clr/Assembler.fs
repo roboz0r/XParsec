@@ -1325,7 +1325,12 @@ type internal Assembler
         // validates: by the owner's `TypeOrMethodDef` coded index, then index.
         genericParams
         |> Seq.sortBy (fun e -> (CodedIndex.TypeOrMethodDef e.Owner, e.Index))
-        |> Seq.iter (fun e -> ctx.AddGenericParameter(e.Owner, e.Index, e.Row.Name, e.Row.Attrs) |> ignore)
+        |> Seq.iter (fun e ->
+            let handle = ctx.AddGenericParameter(e.Owner, e.Index, e.Row.Name, e.Row.Attrs)
+
+            for target in e.Row.Constraints do
+                ctx.AddGenericParameterConstraint(handle, provider.TypeDefOrRefOf target)
+        )
 
         let pe =
             if layout.EmitEntryPoint then

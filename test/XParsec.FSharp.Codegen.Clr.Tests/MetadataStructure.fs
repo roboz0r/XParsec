@@ -74,6 +74,13 @@ let private nameOf (md: MetadataReader) (h: TypeDefinitionHandle) : string =
 
     go h
 
+/// The `Ns.Name` spelling of a `TypeRef` row.
+let private typeRefName (md: MetadataReader) (h: TypeReferenceHandle) : string =
+    let tr = md.GetTypeReference h
+    let ns = md.GetString tr.Namespace
+    let n = md.GetString tr.Name
+    if ns = "" then n else ns + "." + n
+
 /// The `TypeDef` row of `typeName` by the `Ns.Outer+Inner` spelling. Raises when the
 /// assembly declares no such type.
 let private typeDefOf (md: MetadataReader) (typeName: string) : TypeDefinitionHandle =
@@ -421,11 +428,7 @@ let typeDecl (bytes: byte[]) (name: string) : TypeDecl voption =
             else
                 match b.Kind with
                 | HandleKind.TypeDefinition -> nameOf md (TypeDefinitionHandle.op_Explicit b: TypeDefinitionHandle)
-                | HandleKind.TypeReference ->
-                    let tr = md.GetTypeReference(TypeReferenceHandle.op_Explicit b: TypeReferenceHandle)
-                    let ns = md.GetString tr.Namespace
-                    let n = md.GetString tr.Name
-                    if ns = "" then n else ns + "." + n
+                | HandleKind.TypeReference -> typeRefName md (TypeReferenceHandle.op_Explicit b: TypeReferenceHandle)
                 | _ -> "<typespec>"
 
         ValueSome
@@ -554,6 +557,87 @@ let methodGenericParamsOf
     use pe = openPe bytes
     let md = pe.GetMetadataReader()
     genericParamsOf md ((methodDefOf md typeName methodName).GetGenericParameters())
+
+/// Renders a signature type as IL spells it: a nominal by its `Ns.Outer+Inner` name, a
+/// type's typar as `!i`, a method's as `!!j`, an instantiation as `` Ns.Name`n<args> ``.
+type private SignatureTypeNames(md: MetadataReader) =
+    /// The IL spelling of a `TypeDef`, `TypeRef` or `TypeSpec` handle.
+    member this.TypeDefOrRefName(h: EntityHandle) : string =
+        match h.Kind with
+        | HandleKind.TypeDefinition -> nameOf md (TypeDefinitionHandle.op_Explicit h: TypeDefinitionHandle)
+        | HandleKind.TypeReference -> typeRefName md (TypeReferenceHandle.op_Explicit h: TypeReferenceHandle)
+        | HandleKind.TypeSpecification ->
+            let ts =
+                md.GetTypeSpecification(TypeSpecificationHandle.op_Explicit h: TypeSpecificationHandle)
+
+            ts.DecodeSignature(this, ())
+        | kind -> failwithf "MetadataStructure: a TypeDefOrRef position holds a %A" kind
+
+    interface ISignatureTypeProvider<string, unit> with
+        member _.GetPrimitiveType(code) = string code
+        member _.GetTypeFromDefinition(_, h, _) = nameOf md h
+        member _.GetTypeFromReference(_, h, _) = typeRefName md h
+        member _.GetTypeFromSpecification(_, _, h, _) = "<typespec>"
+        member _.GetSZArrayType(elem) = elem + "[]"
+
+        member _.GetArrayType(elem, shape) =
+            elem + "[" + String(',', shape.Rank - 1) + "]"
+
+        member _.GetByReferenceType(elem) = elem + "&"
+        member _.GetPointerType(elem) = elem + "*"
+
+        member _.GetGenericInstantiation(generic, args) =
+            generic + "<" + String.Join(", ", args) + ">"
+
+        member _.GetGenericTypeParameter(_, i) = sprintf "!%d" i
+        member _.GetGenericMethodParameter(_, i) = sprintf "!!%d" i
+        member _.GetFunctionPointerType(_) = "<fnptr>"
+
+        member _.GetModifiedType(modifier, unmodified, isRequired) =
+            unmodified + (if isRequired then " modreq(" else " modopt(") + modifier + ")"
+
+        member _.GetPinnedType(elem) = elem + " pinned"
+
+/// The `GenericParamConstraint` rows of each parameter in `handles`, as `(name, targets)`
+/// in row order. A `TypeDef` / `TypeRef` target is its name, a `TypeSpec` target its
+/// decoded signature (`` System.IComparable`1<!!0> ``).
+let private genericParamConstraintsOf (md: MetadataReader) (handles: GenericParameterHandleCollection) =
+    let names = SignatureTypeNames md
+
+    [
+        for gh in handles ->
+            let gp = md.GetGenericParameter gh
+
+            md.GetString gp.Name,
+            [
+                for ch in gp.GetConstraints() -> names.TypeDefOrRefName (md.GetGenericParameterConstraint ch).Type
+            ]
+    ]
+
+/// The `GenericParamConstraint` rows of `typeName`'s parameters in index order as
+/// `(name, targets)`, by the `Ns.Outer+Inner` spelling. Raises when the assembly declares
+/// no such type.
+let typeGenericParamConstraintsOf (bytes: byte[]) (typeName: string) : (string * string list) list =
+    use pe = openPe bytes
+    let md = pe.GetMetadataReader()
+    genericParamConstraintsOf md ((md.GetTypeDefinition(typeDefOf md typeName)).GetGenericParameters())
+
+/// The `GenericParamConstraint` rows of the parameters of the method `methodName` on
+/// `typeName` in index order as `(name, targets)`, the first row where the name is
+/// overloaded. Raises when the type declares no such method.
+let methodGenericParamConstraintsOf
+    (bytes: byte[])
+    (typeName: string)
+    (methodName: string)
+    : (string * string list) list =
+    use pe = openPe bytes
+    let md = pe.GetMetadataReader()
+    genericParamConstraintsOf md ((methodDefOf md typeName methodName).GetGenericParameters())
+
+let genericParamConstraintRowCount (bytes: byte[]) : int =
+    use pe = openPe bytes
+    let md = pe.GetMetadataReader()
+    md.GetTableRowCount TableIndex.GenericParamConstraint
 
 /// How many `MemberRef` rows carry `name`. The table is appended to rather than
 /// deduplicated, so a count above one is a member ref minted more than once.

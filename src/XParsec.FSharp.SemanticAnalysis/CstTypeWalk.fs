@@ -115,7 +115,12 @@ module CstTypeWalk =
 
     and iterTypeMemberSig (it: TypeIter) (ms: MemberSig<SyntaxToken>) : unit =
         match ms with
-        | MemberSig.MethodOrPropSig(sign = cs)
+        | MemberSig.MethodOrPropSig(typarDefns = tds; sign = cs) ->
+            match tds with
+            | ValueSome(TyparDefns(constraints = ValueSome tcs)) -> iterTypeConstraints it tcs
+            | _ -> ()
+
+            iterTypeCurriedSig it cs
         | MemberSig.PropSig(sign = cs) -> iterTypeCurriedSig it cs
 
     and iterTypeCurriedSig (it: TypeIter) (cs: CurriedSig<SyntaxToken>) : unit =

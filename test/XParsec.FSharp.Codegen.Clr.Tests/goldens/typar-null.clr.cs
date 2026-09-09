@@ -11,7 +11,7 @@ using System.Reflection;
 [assembly: AssemblyVersion("1.0.0.0")]
 public static class Program
 {
-	public static a onlyNull<a>(a x)
+	public static a onlyNull<a>(a x) where a : class
 	{
 		return x;
 	}

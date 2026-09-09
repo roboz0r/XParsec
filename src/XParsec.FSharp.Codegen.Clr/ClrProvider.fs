@@ -180,17 +180,10 @@ type ClrProvider
     /// encoder resolves to the declaring type's `!i`.
     member _.TypeSpecOf(ty: FrozenType) : EntityHandle = enc.TypeSpecOf ty
 
-    /// The `InterfaceImpl.Interface` handle for a user class's implemented interface. A generic
-    /// interface (`IEnumerable<int>`) needs a `TypeSpec` carrying its instantiation; a non-generic
-    /// one (`IEnumerable`, `IComparable`) must reference its `TypeRef`/`TypeDef` directly.
-    member _.InterfaceHandleOf(ty: FrozenType) : EntityHandle =
-        match ty with
-        | FTClass(key, args) when args.IsEmpty ->
-            match env.ClassOrigin key with
-            | ClassOrigin.Local handle
-            | ClassOrigin.Foreign handle -> handle
-            | ClassOrigin.Unresolved -> enc.TypeSpecOf ty
-        | _ -> enc.TypeSpecOf ty
+    /// The `TypeDefOrRef` handle of a declared type position: an `InterfaceImpl.Interface`
+    /// or a `GenericParamConstraint` target. A bare nominal (`IComparable`) is its
+    /// `TypeDef` / `TypeRef`; every other type (`IEnumerable<int>`) is a `TypeSpec`.
+    member _.TypeDefOrRefOf(ty: FrozenType) : EntityHandle = enc.TypeDefOrRefOf ty
 
     /// The flat `instance resultTy Invoke(paramTys…)` signature of a `Fun`(N+1)` closure.
     member _.InvokeSignatureN(paramTys: Block<FrozenType>, resultTy: FrozenType) : BlobBuilder =
