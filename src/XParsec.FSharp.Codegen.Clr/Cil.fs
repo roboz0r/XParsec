@@ -2,6 +2,7 @@
 
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 
 // Depth tracking lives here: each `emit*` adjusts `Il` by its own stack effect,
@@ -293,7 +294,7 @@ module Cil =
     /// `maxStack` is the peak depth `Il` tracked while `emit` ran, so no separate pass
     /// computes it.
     let buildBody
-        (encodeLocals: FrozenType list -> StandaloneSignatureHandle)
+        (encodeLocals: Block<FrozenType> -> StandaloneSignatureHandle)
         (bodyStream: MethodBodyStreamEncoder)
         (emit: Il -> unit)
         : int =
@@ -307,6 +308,6 @@ module Cil =
             if il.Locals.Count = 0 then
                 Unchecked.defaultof<StandaloneSignatureHandle>
             else
-                encodeLocals (List.ofSeq il.Locals)
+                encodeLocals (Block.ofResizeArray il.Locals)
 
         bodyStream.AddMethodBody(enc, il.MaxStack, localSig)

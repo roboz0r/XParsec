@@ -18,7 +18,7 @@ module EmitConstruct =
     let buildNew (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let className = TastAccessor.exprNewClassName e
         let chosenCtor = TastAccessor.exprNewChosenCtor e
-        let args = TastAccessor.exprChildren e
+        let args = TastAccessor.exprChildrenBlock e
         let ty = TastAccessor.exprTy e
 
         let tyArgs =
@@ -29,7 +29,7 @@ module EmitConstruct =
         // Both ctor paths filter candidates by arity off these, then disambiguate a same-arity
         // set by type: the external one through `chosenCtor`, the local one through
         // `pickLocalCtor`.
-        let argTypes = [ for a in args -> typeOfExpr a ]
+        let argTypes = args |> Block.map typeOfExpr
 
         // A project-local class is the `FTClass` key that `env.Classes` knows; anything
         // else is an external ctor, resolved through the provider.
@@ -122,7 +122,7 @@ module EmitConstruct =
             let qualName = SymbolKeyOps.typeMetaName key
             // A record in a referenced assembly pushes in SOURCE order: the only such
             // shape supported is the one-field `Ref<'T>`, where the two coincide.
-            let fieldNames = [ for (n, _) in srcFields -> n ]
+            let fieldNames = Block.ofList [ for (n, _) in srcFields -> n ]
 
             match env.Provider.TryEmitRecordCons(key, tyArgs, fieldNames) with
             | ValueSome recipe ->

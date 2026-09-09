@@ -3,6 +3,7 @@ namespace XParsec.FSharp.Codegen.Clr
 open System.Reflection
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 
@@ -25,13 +26,13 @@ module internal AssemblerScaffold =
     /// `instance <ret> <name><'C…>(<params…>)` for an abstract interface method.
     let abstractMethodSignature (provider: ClrProvider) (m: Frozen.TAbstractMethod) : BlobBuilder =
         let _, retTy = uncurry m.Signature
-        let paramTys = List.map snd (abstractMethodParams m)
+        let paramTys = abstractMethodParams m |> Block.map snd
         let blob = BlobBuilder()
 
         BlobEncoder(blob)
             .MethodSignature(genericParameterCount = int m.MethodTypars.TypeArity, isInstanceMethod = true)
             .Parameters(
-                List.length paramTys,
+                paramTys.Length,
                 // `-> unit` encodes as genuine `void`, not the `unit`-as-`ValueTuple`
                 // value: an abstract slot is `callvirt`ed for effect, and a conforming
                 // impl must bind to a `void` slot.

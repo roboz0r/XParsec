@@ -105,6 +105,9 @@ module TastAccessor =
     let exprChildren (e: ExprId) : ExprId[] =
         TastPoolBuilder.exprChildren e.Pool e.Id |> Array.map (at e)
 
+    /// `exprChildren` as a `Block`.
+    let exprChildrenBlock (e: ExprId) : Block<ExprId> = exprChildren e |> Block.unsafeOfArray
+
     /// The immediate child *patterns* an expression owns directly, in source order. `ForTo`'s
     /// loop variable is a `BoundVarId`, so it is not among them.
     let exprPatChildren (e: ExprId) : PatId[] =

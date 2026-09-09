@@ -59,7 +59,7 @@ module EmitCall =
                 b.Add(ILInstr.Stloc slot)
 
                 elemTys
-                |> List.iteri (fun i ety ->
+                |> Block.iteri (fun i ety ->
                     actualTys.Add ety
                     b.Add(ILInstr.Ldloc slot)
                     EmitPattern.emitTupleItemLoad b refs i

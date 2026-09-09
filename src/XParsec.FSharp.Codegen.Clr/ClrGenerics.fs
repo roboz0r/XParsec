@@ -84,7 +84,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
             BlobEncoder(s)
                 .MethodSignature(isInstanceMethod = true)
                 .Parameters(
-                    List.length paramTys,
+                    paramTys.Length,
                     (fun (ret: ReturnTypeEncoder) -> ret.Void()),
                     (fun (pars: ParametersEncoder) ->
                         for p in paramTys do
@@ -268,7 +268,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         (metaName: string)
         (isStatic: bool)
         (methodTyparCount: int<typeSlot>)
-        (paramTys: FrozenType list)
+        (paramTys: Block<FrozenType>)
         (retTy: FrozenType)
         : EntityHandle =
         let parent = genericTypeSpec key args
@@ -277,7 +277,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
         BlobEncoder(s)
             .MethodSignature(genericParameterCount = int methodTyparCount, isInstanceMethod = not isStatic)
             .Parameters(
-                List.length paramTys,
+                paramTys.Length,
                 // A `unit`-returning member Def is emitted `void`, static and instance alike,
                 // so this MemberRef must encode `void` too or it misses the `MethodDef`
                 // (`MissingMethodException`).
@@ -328,7 +328,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
                 BlobEncoder(s)
                     .MethodSignature(isInstanceMethod = true)
                     .Parameters(
-                        List.length shape.CaptureSigs,
+                        shape.CaptureSigs.Length,
                         (fun (ret: ReturnTypeEncoder) -> ret.Void()),
                         (fun (pars: ParametersEncoder) ->
                             for c in shape.CaptureSigs do
@@ -338,11 +338,11 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
 
                 toEntity (ctx.MemberRef(parent, ".ctor", s))
             | ClosureMember.CaptureField idx ->
-                if idx < 0 || idx >= List.length shape.CaptureSigs then
+                if idx < 0 || idx >= shape.CaptureSigs.Length then
                     failwithf
                         "ClrProvider: generic closure '%s' has %d capture fields, asked for index %d"
                         name
-                        (List.length shape.CaptureSigs)
+                        shape.CaptureSigs.Length
                         idx
 
                 let captureTy = shape.CaptureSigs.[idx]

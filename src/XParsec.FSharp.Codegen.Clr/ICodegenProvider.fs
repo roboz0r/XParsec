@@ -170,7 +170,7 @@ type ClassMember =
     /// A secondary `instance void .ctor(p0, …)` keyed by its parameter signature —
     /// `paramTys` in declaration order, written in the type's declaring-typar markers.
     /// F# forbids two ctors of one signature, so the signature identifies the overload.
-    | SecondaryCtor of paramTys: FrozenType list
+    | SecondaryCtor of paramTys: Block<FrozenType>
     /// The backing field named `fieldName` for a primary-ctor parameter.
     | Field of fieldName: string
 
@@ -187,7 +187,7 @@ type UserMemberKind =
         metaName: string *
         isStatic: bool *
         methodTyparCount: int<typeSlot> *
-        paramTys: FrozenType list *
+        paramTys: Block<FrozenType> *
         retTy: FrozenType
 
 /// A `Vesper.Formatter` append member generic in the value: one open generic method, to be
@@ -347,7 +347,7 @@ type ICodegenProvider =
     /// recorded it, selecting that exact same-arity overload by identity; `ValueNone` falls
     /// back to the first arity match. `tyArgs` instantiate the constructed type.
     abstract TryEmitCtor:
-        key: TypeKey * chosen: SymbolKey voption * tyArgs: Block<FrozenType> * argTypes: FrozenType list ->
+        key: TypeKey * chosen: SymbolKey voption * tyArgs: Block<FrozenType> * argTypes: Block<FrozenType> ->
             CtorRecipe voption
 
     /// `tyArgs` are the union type's instantiation arguments; the field values are already
@@ -372,7 +372,8 @@ type ICodegenProvider =
     /// A `MemberRef` to a *referenced-assembly* record's `.ctor`, instantiated at `tyArgs`,
     /// for a record declared in another package (`Vesper.Ref\`1` in `Vesper.Core.dll`).
     /// `ValueNone` ⇒ the record is unknown here.
-    abstract TryEmitRecordCons: key: TypeKey * tyArgs: Block<FrozenType> * fieldNames: string list -> CtorRecipe voption
+    abstract TryEmitRecordCons:
+        key: TypeKey * tyArgs: Block<FrozenType> * fieldNames: Block<string> -> CtorRecipe voption
 
     /// The `MemberRef` of one accessor of one named field on a *referenced-assembly* record,
     /// instantiated at `tyArgs`. `ValueNone` ⇒ unknown record, or unknown field on a known one.
@@ -447,7 +448,7 @@ type ICodegenProvider =
 
     abstract FormatHandles: unit -> FormatHandles
 
-    abstract EncodeLocalSignature: locals: FrozenType list -> StandaloneSignatureHandle
+    abstract EncodeLocalSignature: locals: Block<FrozenType> -> StandaloneSignatureHandle
 
     /// `MemberRef` for the parameterless `.ctor()` of a HERITABLE external base class
     /// (`type X = (# class "System.Attribute" #)`) — what a derived primary `.ctor` chains
@@ -478,7 +479,7 @@ type ICodegenProvider =
     abstract TypeGetGenericTypeDefinition: EntityHandle
 
     /// The resolved `System.ValueTuple`n` handles for an N-tuple over `elemTys`.
-    abstract ValueTupleRefs: elemTys: FrozenType list -> ValueTupleHandles
+    abstract ValueTupleRefs: elemTys: Block<FrozenType> -> ValueTupleHandles
 
     /// How a *referenced-assembly / referenced-package* nominal type is laid out: the metadata
     /// layer's `Type.IsValueType` first, then the `[<Struct>]` the shape's declaration carries.

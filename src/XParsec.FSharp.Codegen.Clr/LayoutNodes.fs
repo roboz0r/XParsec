@@ -175,7 +175,7 @@ module internal LayoutNodes =
                 Name = m.Name
                 Kind = m.Kind
                 IsStatic = m.IsStatic
-                ParamTys = [ for (_, t) in m.Params -> t ]
+                ParamTys = m.Params |> Block.map snd
                 RetTy = m.ReturnTy
             }
         )
@@ -315,7 +315,7 @@ module internal LayoutNodes =
                                 Name = m.Name
                                 Kind = m.Kind
                                 IsStatic = m.IsStatic
-                                ParamTys = List.map snd (abstractMethodParams m)
+                                ParamTys = abstractMethodParams m |> Block.map snd
                                 RetTy = snd (uncurry m.Signature)
                             }
 
@@ -379,7 +379,7 @@ module internal LayoutNodes =
                                 Key = PropertyKey.RecordField(td.Key, f.Name)
                                 Name = f.Name
                                 IsInstance = true
-                                IndexTys = []
+                                IndexTys = Block.empty
                                 ValueTy = f.Type
                                 Getter = accessorOf TAccessorRole.Getter
                                 Setter = accessorOf TAccessorRole.Setter

@@ -38,7 +38,7 @@ let tests =
         [
             test "ValueTuple`2<int, string> resolves: non-nil TypeSpec, ctor, and two Item fields" {
                 let p = provider ()
-                let refs = p.ValueTupleRefs [ ftConst "int"; ftConst "string" ]
+                let refs = p.ValueTupleRefs(Block.ofList [ ftConst "int"; ftConst "string" ])
                 Expect.isFalse refs.TypeSpec.IsNil "TypeSpec handle is nil"
                 Expect.isFalse refs.Ctor.IsNil "ctor handle is nil"
                 Expect.equal refs.ItemFields.Length 2 "expected two Item fields"
@@ -49,19 +49,39 @@ let tests =
 
             test "arity 7 resolves with seven Item fields" {
                 let p = provider ()
-                let refs = p.ValueTupleRefs(List.replicate 7 (ftConst "int"))
+                let refs = p.ValueTupleRefs(Block.init 7 (fun _ -> ftConst "int"))
                 Expect.equal refs.ItemFields.Length 7 "expected seven Item fields"
                 Expect.isFalse refs.Ctor.IsNil "ctor handle is nil"
             }
 
             test "arity below 2 is rejected (the nullary unit case stays on its own path)" {
                 let p = provider ()
-                Expect.throws (fun () -> p.ValueTupleRefs [ ftConst "int" ] |> ignore) "arity 1 should throw"
+
+                Expect.throws
+                    (fun () -> p.ValueTupleRefs(Block.singleton (ftConst "int")) |> ignore)
+                    "arity 1 should throw"
+            }
+
+            test "equal element blocks share one handle bundle, so no duplicate metadata rows are minted" {
+                let p = provider ()
+
+                let elems () =
+                    Block.ofList [ ftConst "int"; ftConst "string" ]
+
+                let first = p.ValueTupleRefs(elems ())
+                let second = p.ValueTupleRefs(elems ())
+                Expect.equal second.TypeSpec first.TypeSpec "the second lookup minted a fresh TypeSpec row"
+                Expect.equal second.Ctor first.Ctor "the second lookup minted a fresh ctor MemberRef row"
+
+                Expect.notEqual
+                    (p.ValueTupleRefs(Block.ofList [ ftConst "string"; ftConst "int" ])).TypeSpec
+                    first.TypeSpec
+                    "a different element order shares a TypeSpec"
             }
 
             test "arity 8 resolves: 7 direct Item fields + a single-element Rest nesting" {
                 let p = provider ()
-                let refs = p.ValueTupleRefs(List.replicate 8 (ftConst "int"))
+                let refs = p.ValueTupleRefs(Block.init 8 (fun _ -> ftConst "int"))
                 Expect.equal refs.ItemFields.Length 7 "arity-8 stores 7 elements directly (slots 0–6)"
                 Expect.isTrue refs.Rest.IsSome "arity-8 carries a TRest nesting"
                 let rest = refs.Rest.Value
@@ -72,7 +92,7 @@ let tests =
 
             test "arity 15 double-nests (Rest of Rest): 7 + 7 + 1" {
                 let p = provider ()
-                let refs = p.ValueTupleRefs(List.replicate 15 (ftConst "int"))
+                let refs = p.ValueTupleRefs(Block.init 15 (fun _ -> ftConst "int"))
                 Expect.equal refs.ItemFields.Length 7 "level 1 stores the first 7 directly"
                 let lvl2 = refs.Rest.Value.Nested
                 Expect.equal lvl2.ItemFields.Length 7 "level 2 (first Rest) stores the next 7"

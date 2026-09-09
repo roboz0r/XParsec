@@ -64,7 +64,7 @@ module CompiledFns =
         /// A tupled group whose argument is a tuple *value*: N values read positionally
         /// (`N = elemTys.Length`). The CLR spills to a local and reads `ItemN`; the JS
         /// reads `v[j]`, spilling an impure value through an IIFE.
-        | TupleValue of value: TastAccessor.ExprId * elemTys: FrozenType list
+        | TupleValue of value: TastAccessor.ExprId * elemTys: Block<FrozenType>
 
     let private tupleElemsOf (a: TastAccessor.ExprId) : TastAccessor.ExprId list voption =
         match TastAccessor.exprKind a with
@@ -112,10 +112,10 @@ module CompiledFns =
                 | ArgGroupG.GSimple _ -> FlatStep.Arg a
                 | ArgGroupG.GTuple _ ->
                     match TastAccessor.exprKind a with
-                    | ExprShape.Tuple -> FlatStep.TupleLiteral(Block.ofArray (TastAccessor.exprChildren a))
+                    | ExprShape.Tuple -> FlatStep.TupleLiteral(TastAccessor.exprChildrenBlock a)
                     | _ ->
                         match TastAccessor.exprTy a with
-                        | FTTuple xs -> FlatStep.TupleValue(a, Block.toList xs)
+                        | FTTuple xs -> FlatStep.TupleValue(a, xs)
                         | other -> failwithf "flattenPlan: tuple-group argument is not a tuple type: %A" other
         ]
 

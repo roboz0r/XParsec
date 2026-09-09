@@ -440,6 +440,44 @@ separate change.
    lookup hashes a cons chain. Its element types come from `CompiledFns.FlatStep.TupleValue`
    in `Codegen.Common`, so that step moves to a `Block` first and the memo key follows.
 
+   Landed from the step 8 review. `ICodegenProvider`, every `ClrEncoder` signature builder
+   behind it, and the emitted-shape records (`EmittedMember.ParamTys`,
+   `EmittedClass.SecondaryCtors`, `GenericClosureShape.CaptureSigs`, `AccessorRow.ParamTys`,
+   `PropertySlot.IndexTys`) hold `Block<FrozenType>`, so a `Block` carries from
+   `TastAccessor.exprChildrenBlock` to the encoder. `FlatStep.TupleValue` carries the `Block` its
+   `FTTuple` node holds, and the `ValueTupleRefs` memo keys on it under the default comparer.
+
+   Five `FrozenType list` remain in `Codegen.Clr`, each at a list boundary:
+   `LayoutModel.uncurry`, `ClrEnv.uncurryTy` and `ClrRecipes.uncurryFrozen` return
+   `TastLower.peelFunDomains`' domains; `EmitCall.flattenGroupPushes` feeds
+   `TastLower.matchInstantiationPartial` and `matchScopeInstantiation`; and
+   `Unmanagedness.classify`'s `path` is a stack. `CompiledFns.FlatParams` keeps its `'T list`
+   segments, because `TastLower.compiledSegments` produces them.
+
+9. **The two accessors and the capture lists.** Step 8 added `TastAccessor.exprChildrenBlock`
+   beside the array-returning `exprChildren`, and the backends still project closure captures
+   through a list comprehension into every `Block` signature.
+
+   `exprChildren` returns `ExprId[]` from `TastPoolBuilder.exprChildren` mapped through a fresh
+   array, so `exprChildrenBlock` wraps it with `Block.unsafeOfArray` at no cost. Its callers
+   sit in `Codegen.Clr` (`EmitConstruct`, `EmitIntrinsic`, `EmitMatch`), `Codegen.Common`
+   (`CompiledFns.tupleElemsOf`, `InlineExpand`), `Codegen.Js` (`EmitJs`, `JsEmitHelpers`),
+   `TastLower`, and four test files, each iterating with `for`, indexing, or an `Array.*`
+   call that `Block` has an equivalent for. `exprChildren` becomes the `Block` accessor, and
+   `exprChildrenBlock` is deleted.
+
+   `Closure.Captures`, `LiftedLocal.Captures` and `LiftedLocalRef.Captures` are
+   `(BoundVarId * FrozenType) list`. `EmitClosures.freeVars` is their one producer, and it
+   accumulates a `ResizeArray` before `List.ofSeq`, so `Block.ofResizeArray` is the whole
+   change on that side. On the consumer side `Assembler`, `NominalRegistration` and the
+   `EmitClosures` lifted-capture dictionary read them, and the `Block.ofList [ for (_, ty) in
+   c.Captures -> ty ]` at `Assembler.fs` and `NominalRegistration.fs` becomes `Block.map snd`.
+
+   `Closure.ExtraParams` is `(BoundVarId * FrozenType * TastAccessor.PatId) list`, destructured
+   positionally at `Assembler.fs` and `Emit.fs`. It becomes a `Block` of a record carrying the
+   key, type and pattern, and the two `Assembler` comprehensions that splice `c.ParamTy` in
+   front of its types read the record's field.
+
    Not started.
 
 ## Verify
@@ -463,6 +501,8 @@ separate change.
   resolves, so the `TypeRef` and the `TypeDef` agree on `` `N ``; a cross-package reference to
   one loads (step 5), pinned in `MeasureResolutionTests` against a referenced package whose
   key carries the two counts apart.
+- `TupleTests`: two `ValueTupleRefs` lookups at equal element blocks share their handle
+  bundle, and a different element order does not.
 - The `typar-*` conformance programs and goldens are byte-identical after steps 1 and 2.
 
 ## Migration checklist
@@ -501,3 +541,9 @@ Before this document is deleted, each row is in code or in a test:
       `FrozenNominal.Args` holds, with no list conversion between; `FrozenType list` in
       `Codegen.Clr` names only parameter, local, capture and structural-element lists
       (step 7).
+- [x] `ICodegenProvider` carries no `FrozenType list` and no `string list`;
+      `FlatStep.TupleValue` and the `ValueTupleRefs` memo key are `Block`s, pinned in
+      `TupleTests` (step 8).
+- [ ] `TastAccessor.exprChildren` returns a `Block` and `exprChildrenBlock` is gone; the
+      closure and lifted-local `Captures` are `Block`s produced by `freeVars`, and
+      `Closure.ExtraParams` is a `Block` of records (step 9).

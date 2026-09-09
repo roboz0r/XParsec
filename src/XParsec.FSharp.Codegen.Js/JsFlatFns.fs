@@ -44,7 +44,7 @@ module JsFlatFns =
                 for el in elems do
                     flat.Add(build el)
             | CompiledFns.FlatStep.TupleValue(a, elemTys) ->
-                let n = List.length elemTys
+                let n = elemTys.Length
 
                 if isPureValue a then
                     let je = build a

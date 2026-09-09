@@ -11,8 +11,8 @@ open EmitLower
 /// `resolve*` lookups over it.
 module EmitResolve =
     /// `[a; b]` and `r` → `FTFun(a, FTFun(b, r))`.
-    let curriedFun (args: FrozenType list) (ret: FrozenType) : FrozenType =
-        List.foldBack (fun a acc -> FTFun(a, acc)) args ret
+    let curriedFun (args: Block<FrozenType>) (ret: FrozenType) : FrozenType =
+        Block.foldBack (fun a acc -> FTFun(a, acc)) args ret
 
     /// A member handle on a user type: the member's own `Def` token for a
     /// monomorphic type, or a `MemberRef` on the object argument's instantiated
@@ -29,17 +29,33 @@ module EmitResolve =
         | 0<_> -> monoHandle
         | _ -> provider.UserGenericMemberRef(key, tyArgs, kind)
 
-    /// A project-local class's constructors as `(declared parameter types, the member kind
-    /// reaching it, its handle)`: the emitted primary first when the class has one, then each
-    /// secondary in declaration order — the catalogue Unification ranks and
+    /// A constructor of a project-local class: its declared parameter types, the member kind
+    /// reaching it, and its handle.
+    type LocalCtor =
+        {
+            ParamTys: Block<FrozenType>
+            Kind: UserMemberKind
+            Handle: EntityHandle
+        }
+
+    /// A project-local class's constructors: the emitted primary first when the class has
+    /// one, then each secondary in declaration order — the catalogue Unification ranks and
     /// `FrozenSignature.ctorsOf` publishes.
-    let localCtors (c: EmittedClass) : (FrozenType list * UserMemberKind * EntityHandle) list =
+    let localCtors (c: EmittedClass) : LocalCtor list =
         [
             if c.HasPrimaryCtor then
-                [ for (_, _, t) in c.Fields -> t ], UserMemberKind.ClassMember ClassMember.Ctor, c.Ctor
+                {
+                    ParamTys = Block.ofList [ for f in c.Fields -> f.Ty ]
+                    Kind = UserMemberKind.ClassMember ClassMember.Ctor
+                    Handle = c.Ctor
+                }
 
-            for (_, paramTys, h) in c.SecondaryCtors do
-                paramTys, UserMemberKind.ClassMember(ClassMember.SecondaryCtor paramTys), h
+            for (paramTys, h) in c.SecondaryCtors do
+                {
+                    ParamTys = paramTys
+                    Kind = UserMemberKind.ClassMember(ClassMember.SecondaryCtor paramTys)
+                    Handle = h
+                }
         ]
 
     /// The constructor of `c` a construction selected: by ARITY, and where the class declares
@@ -50,21 +66,24 @@ module EmitResolve =
         (site: string)
         (c: EmittedClass)
         (tyArgs: Block<FrozenType>)
-        (argTypes: FrozenType list)
+        (argTypes: Block<FrozenType>)
         : UserMemberKind * EntityHandle =
-        let argCount = List.length argTypes
+        let argCount = argTypes.Length
 
-        match localCtors c |> List.filter (fun (ps, _, _) -> List.length ps = argCount) with
+        match localCtors c |> List.filter (fun ctor -> ctor.ParamTys.Length = argCount) with
         | [] -> failwithf "Emit: no constructor of arity %d on class '%s'" argCount site
-        | [ (_, kind, h) ] -> kind, h
+        | [ ctor ] -> ctor.Kind, ctor.Handle
         | sameArity ->
             let declaringArgs = FrozenType.typeSlotArgs tyArgs
 
-            let admits (ps: FrozenType list) =
-                List.forall2 (fun p a -> FrozenTypeBridge.substituteDeclaring declaringArgs p = a) ps argTypes
+            let admits (ctor: LocalCtor) =
+                Block.forall2
+                    (fun p a -> FrozenTypeBridge.substituteDeclaring declaringArgs p = a)
+                    ctor.ParamTys
+                    argTypes
 
-            match sameArity |> List.filter (fun (ps, _, _) -> admits ps) with
-            | [ (_, kind, h) ] -> kind, h
+            match sameArity |> List.filter admits with
+            | [ ctor ] -> ctor.Kind, ctor.Handle
             | _ ->
                 failwithf
                     "Emit: class '%s' declares %d constructors of arity %d, and argument types %A select none of them uniquely"
@@ -81,7 +100,7 @@ module EmitResolve =
         (env: EmitEnv)
         (m: EmittedMember)
         (declTyparArity: int<typeSlot>)
-        (argTys: FrozenType list)
+        (argTys: Block<FrozenType>)
         (resultTy: FrozenType)
         : Block<FrozenType> * Block<FrozenType> =
         let openT = curriedFun m.ParamTys m.RetTy
@@ -140,14 +159,14 @@ module EmitResolve =
     /// Pick the overload of `name` matching the call's argument types (ECMA-335 §I.10.2:
     /// overloading is by number + types of parameters). Candidates arrive own-members-first, so
     /// the FIRST equally-good match wins: `Set.Add` beats its same-signature interface impl.
-    let pickOverload (name: string) (candidates: Block<EmittedMember>) (argTys: FrozenType list) : EmittedMember =
+    let pickOverload (name: string) (candidates: Block<EmittedMember>) (argTys: Block<FrozenType>) : EmittedMember =
         match candidates.Length with
         | 0 -> failwithf "Emit: no emitted member '%s'" name
         | 1 -> candidates.[0]
         | _ ->
-            let arity = List.length argTys
+            let arity = argTys.Length
 
-            let sameArity = candidates |> Block.filter (fun m -> List.length m.ParamTys = arity)
+            let sameArity = candidates |> Block.filter (fun m -> m.ParamTys.Length = arity)
 
             match sameArity.Length with
             | 0 -> candidates.[0] // no candidate has this arity, so take the first and fail later
@@ -155,7 +174,7 @@ module EmitResolve =
             | _ ->
                 match
                     sameArity
-                    |> Block.tryFind (fun m -> List.forall2 paramAccepts m.ParamTys argTys)
+                    |> Block.tryFind (fun m -> Block.forall2 paramAccepts m.ParamTys argTys)
                 with
                 | ValueSome m -> m
                 | ValueNone -> sameArity.[0]
@@ -167,7 +186,7 @@ module EmitResolve =
         (env: EmitEnv)
         (objArgTy: FrozenNominal)
         (name: string)
-        (argTys: FrozenType list)
+        (argTys: Block<FrozenType>)
         : EntityHandle * EmittedMember =
         // Project-local types only.
         let key, tyArgs = objArgTy.Key, objArgTy.Args
@@ -255,7 +274,7 @@ module EmitResolve =
         (env: EmitEnv)
         (memberKey: SymbolKey)
         (declArgs: Block<FrozenType>)
-        (argTys: FrozenType list)
+        (argTys: Block<FrozenType>)
         : EntityHandle =
         // The emitted tables are keyed by `SymbolKey` directly, so the member key's `Decl`
         // and `Name` are the whole lookup and no class-name reverse index is needed.
@@ -376,8 +395,8 @@ module EmitResolve =
         match env.Classes.TryGetValue key with
         | true, c ->
             // Primary-ctor backing fields first, then explicit `val` instance fields.
-            match (c.Fields @ c.InstanceFields) |> List.tryFind (fun (n, _, _) -> n = fieldName) with
-            | Some(_, h, _) ->
+            match (c.Fields @ c.InstanceFields) |> List.tryFind (fun f -> f.Name = fieldName) with
+            | Some f ->
                 ValueSome(
                     memberRef
                         env.Provider
@@ -385,7 +404,7 @@ module EmitResolve =
                         key
                         tyArgs
                         (UserMemberKind.ClassMember(ClassMember.Field fieldName))
-                        h
+                        f.Handle
                 )
             | None -> failwithf "Emit: class '%A' has no field '%s'" key fieldName
         | false, _ -> ValueNone

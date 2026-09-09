@@ -47,7 +47,7 @@ module internal AbstractMemberShape =
     /// An abstract member's metadata parameters, in emitted slot order. A sole `unit`
     /// argument yields no slots; a sole tupled domain (`abstract Invoke : 'A * 'B -> 'C`)
     /// yields one slot per element. An unnamed slot takes `argName i`.
-    let abstractMethodParams (m: Frozen.TAbstractMethod) : (string * FrozenType) list =
+    let abstractMethodParams (m: Frozen.TAbstractMethod) : Block<string * FrozenType> =
         let paramTys, _ = uncurry m.Signature
 
         let named (names: Block<string voption>) (i: int) (ty: FrozenType) =
@@ -57,7 +57,7 @@ module internal AbstractMemberShape =
             | ValueNone -> argName i, ty
 
         match paramTys with
-        | [ single ] when isUnitTy single -> []
+        | [ single ] when isUnitTy single -> Block.empty
         | [ FTTuple elems ] when elems.Length >= 2 ->
             let names =
                 if m.ParamNames.Length = elems.Length then
@@ -65,8 +65,8 @@ module internal AbstractMemberShape =
                 else
                     Block.empty
 
-            elems |> Block.mapi (named names) |> Block.toList
-        | _ -> paramTys |> List.mapi (named m.ParamNames)
+            elems |> Block.mapi (named names)
+        | _ -> paramTys |> List.mapi (named m.ParamNames) |> Block.ofList
 
 [<AutoOpen>]
 module internal MethodAttrSets =
@@ -592,7 +592,7 @@ type internal AccessorRow =
         IsStatic: bool
         /// The accessor's own metadata parameters: a getter's parameters index the property;
         /// a setter's index it and carry the value last.
-        ParamTys: FrozenType list
+        ParamTys: Block<FrozenType>
         RetTy: FrozenType
     }
 
@@ -605,7 +605,7 @@ type internal PropertySlot =
         /// `HASTHIS` on the row's signature, which must agree with the accessors' own.
         IsInstance: bool
         /// An indexed property's index parameters; empty for a plain one.
-        IndexTys: FrozenType list
+        IndexTys: Block<FrozenType>
         ValueTy: FrozenType
         Getter: MethodKey voption
         Setter: MethodKey voption
@@ -642,9 +642,9 @@ module internal PropertySlot =
             let setterShape =
                 setter
                 |> ValueOption.map (fun s ->
-                    match List.rev s.ParamTys with
-                    | value :: revIndex -> List.rev revIndex, value
-                    | [] -> failwithf "Layout: property '%s' declares a setter taking no value" prop
+                    match s.ParamTys.Length with
+                    | 0 -> failwithf "Layout: property '%s' declares a setter taking no value" prop
+                    | n -> Block.truncate (n - 1) s.ParamTys, s.ParamTys.[n - 1]
                 )
 
             let indexTys, valueTy =

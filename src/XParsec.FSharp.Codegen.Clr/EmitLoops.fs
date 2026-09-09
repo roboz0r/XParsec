@@ -67,7 +67,7 @@ module EmitLoops =
 
         let m =
             match iface.Members.TryGetValue memberName with
-            | true, candidates -> pickOverload memberName candidates []
+            | true, candidates -> pickOverload memberName candidates Block.empty
             | false, _ -> failwithf "EmitLoops: interface '%A' has no emitted member '%s'" ifaceKey memberName
 
         EmitResolve.memberRef
@@ -245,7 +245,8 @@ module EmitLoops =
                 match getEnum with
                 | ForInGetEnumG.External geKey ->
                     env.Provider.ExternalMemberRef(geKey, false, false, FTFun(RuntimeNames.unitTy, enumeratorTy))
-                | ForInGetEnumG.Local -> fst (resolveInstanceMember env (nominalOfExpr source) "GetEnumerator" [])
+                | ForInGetEnumG.Local ->
+                    fst (resolveInstanceMember env (nominalOfExpr source) "GetEnumerator" Block.empty)
                 | ForInGetEnumG.ConstrainedInterface(ifaceKey, ifaceArgs) ->
                     constrainedSlot env ifaceKey ifaceArgs "GetEnumerator"
 
@@ -257,7 +258,8 @@ module EmitLoops =
                     // nominals, so `MoveNext` / `Current` resolve off the type's key.
                     let en = FrozenNominal.ofFrozen "a `for … in` enumerator" enumeratorTy
 
-                    fst (resolveInstanceMember env en "MoveNext" []), fst (resolveInstanceMember env en "Current" [])
+                    fst (resolveInstanceMember env en "MoveNext" Block.empty),
+                    fst (resolveInstanceMember env en "Current" Block.empty)
                 | ForInEnumMembersG.ConstrainedInterface(ifaceKey, ifaceArgs) ->
                     constrainedSlot env ifaceKey ifaceArgs "MoveNext", constrainedSlot env ifaceKey ifaceArgs "Current"
 

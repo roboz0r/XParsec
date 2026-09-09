@@ -32,11 +32,10 @@ type internal ClrEncoder(env: ClrEnv) =
     [<return: Struct>]
     let (|PrimitiveTypeId|_|) (key: TypeKey) = env.TryPrimitiveTypeId key
 
-    // `ValueTuple`n` handle bundles, cached by element-type list. Unlike `ctx.TypeRef` (which
+    // `ValueTuple`n` handle bundles, cached by element types. Unlike `ctx.TypeRef` (which
     // dedups its rows), `ctx.TypeSpec` / `ctx.MemberRef` add a fresh metadata row per call, so
     // without this even the two sites of one `let (a, b) = (1, 2)` would mint duplicate rows.
-    let valueTupleRefsCache =
-        Dictionary<FrozenType list, ValueTupleHandles>(HashIdentity.Structural)
+    let valueTupleRefsCache = Dictionary<Block<FrozenType>, ValueTupleHandles>()
 
     // Nominal token recognisers, one per flavour: the token that encodes `key`, and whether it
     // tags `VALUETYPE`.
@@ -299,9 +298,9 @@ type internal ClrEncoder(env: ClrEnv) =
 
             toEntity (ctx.TypeSpec tsB)
 
-    let encodeLocalSignature (locals: FrozenType list) : StandaloneSignatureHandle =
+    let encodeLocalSignature (locals: Block<FrozenType>) : StandaloneSignatureHandle =
         let blob = BlobBuilder()
-        let enc = BlobEncoder(blob).LocalVariableSignature(List.length locals)
+        let enc = BlobEncoder(blob).LocalVariableSignature(locals.Length)
 
         for t in locals do
             encodeType (enc.AddVariable().Type()) (t)
@@ -354,11 +353,11 @@ type internal ClrEncoder(env: ClrEnv) =
     /// The `System.ValueTuple` handles for an N-tuple of `elemTys`, shared by construction and
     /// destructuring. The ctor / `Item` signatures spell the type's own `!0…`, so they are
     /// element-type-independent and only the parent `TypeSpec` carries the instantiation.
-    member _.ValueTupleRefs(elemTys: FrozenType list) : ValueTupleHandles =
-        if not (ClrTuples.isTupleArity (List.length elemTys)) then
+    member _.ValueTupleRefs(elemTys: Block<FrozenType>) : ValueTupleHandles =
+        if not (ClrTuples.isTupleArity elemTys.Length) then
             failwithf
                 "ClrProvider: ValueTupleRefs needs arity ≥ 2, got %d (unit / 1-tuples are not tuple values)."
-                (List.length elemTys)
+                elemTys.Length
 
         match valueTupleRefsCache.TryGetValue elemTys with
         | true, cached -> cached
@@ -429,7 +428,7 @@ type internal ClrEncoder(env: ClrEnv) =
                     Rest = rest
                 }
 
-            let handles = build (List.toArray elemTys)
+            let handles = build (Block.toArray elemTys)
             valueTupleRefsCache.[elemTys] <- handles
             handles
 
@@ -437,13 +436,13 @@ type internal ClrEncoder(env: ClrEnv) =
 
     /// `instance void .ctor(fields…)` for a record / generic-type ctor. Field types carry their
     /// declaring typars as `FTTypar(Declaring, i)`, which the encoder resolves to `!i` directly.
-    member _.RecordCtorSignature(paramTys: FrozenType list) : BlobBuilder =
+    member _.RecordCtorSignature(paramTys: Block<FrozenType>) : BlobBuilder =
         let s = BlobBuilder()
 
         BlobEncoder(s)
             .MethodSignature(isInstanceMethod = true)
             .Parameters(
-                List.length paramTys,
+                paramTys.Length,
                 (fun (ret: ReturnTypeEncoder) -> ret.Void()),
                 (fun (pars: ParametersEncoder) ->
                     for p in paramTys do
@@ -457,14 +456,14 @@ type internal ClrEncoder(env: ClrEnv) =
     /// the declaring type's typars are spelled `FTTypar(Declaring, i)` (`!i`), the method's own
     /// `FTTypar(Method, i)` (`!!i`). `methodTyparCount` sets the `GENERIC` header count.
     member _.GenericMethodOnTypeSignature
-        (methodTyparCount: int<typeSlot>, paramTys: FrozenType list, retTy: FrozenType, isInstanceMethod: bool)
+        (methodTyparCount: int<typeSlot>, paramTys: Block<FrozenType>, retTy: FrozenType, isInstanceMethod: bool)
         : BlobBuilder =
         let s = BlobBuilder()
 
         BlobEncoder(s)
             .MethodSignature(genericParameterCount = int methodTyparCount, isInstanceMethod = isInstanceMethod)
             .Parameters(
-                List.length paramTys,
+                paramTys.Length,
                 (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) (retTy)),
                 (fun (pars: ParametersEncoder) ->
                     for p in paramTys do
@@ -478,14 +477,14 @@ type internal ClrEncoder(env: ClrEnv) =
     /// method (`Formatter.AppendFormatted<'T> : 'T -> unit`) must encode `void`, or a consumer's
     /// `unit → void` member-ref misses it (`MissingMethodException`). Body emitted in void mode.
     member _.GenericMethodOnTypeSignatureVoid
-        (methodTyparCount: int<typeSlot>, paramTys: FrozenType list, isInstanceMethod: bool)
+        (methodTyparCount: int<typeSlot>, paramTys: Block<FrozenType>, isInstanceMethod: bool)
         : BlobBuilder =
         let s = BlobBuilder()
 
         BlobEncoder(s)
             .MethodSignature(genericParameterCount = int methodTyparCount, isInstanceMethod = isInstanceMethod)
             .Parameters(
-                List.length paramTys,
+                paramTys.Length,
                 (fun (ret: ReturnTypeEncoder) -> ret.Void()),
                 (fun (pars: ParametersEncoder) ->
                     for p in paramTys do
@@ -505,14 +504,14 @@ type internal ClrEncoder(env: ClrEnv) =
         s
 
     member _.GenericStaticFnSignature
-        (typarCount: int<typeSlot>, paramTys: FrozenType list, retTy: FrozenType)
+        (typarCount: int<typeSlot>, paramTys: Block<FrozenType>, retTy: FrozenType)
         : BlobBuilder =
         let s = BlobBuilder()
 
         BlobEncoder(s)
             .MethodSignature(genericParameterCount = int typarCount, isInstanceMethod = false)
             .Parameters(
-                List.length paramTys,
+                paramTys.Length,
                 (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) (retTy)),
                 (fun (pars: ParametersEncoder) ->
                     for p in paramTys do
@@ -522,13 +521,13 @@ type internal ClrEncoder(env: ClrEnv) =
 
         s
 
-    member _.StaticMethodSignature(paramTys: FrozenType list, retTy: FrozenType) : BlobBuilder =
+    member _.StaticMethodSignature(paramTys: Block<FrozenType>, retTy: FrozenType) : BlobBuilder =
         let s = BlobBuilder()
 
         BlobEncoder(s)
             .MethodSignature(isInstanceMethod = false)
             .Parameters(
-                List.length paramTys,
+                paramTys.Length,
                 (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) (retTy)),
                 (fun (pars: ParametersEncoder) ->
                     for p in paramTys do
@@ -541,13 +540,13 @@ type internal ClrEncoder(env: ClrEnv) =
     /// `static void M(params…)` — a `unit`-returning module function / static member, encoding
     /// `void` rather than the `unit`-as-`ValueTuple` `StaticMethodSignature` emits, so it matches
     /// the `unit → void` member-ref convention. The body is emitted in void mode.
-    member _.StaticMethodSignatureVoid(paramTys: FrozenType list) : BlobBuilder =
+    member _.StaticMethodSignatureVoid(paramTys: Block<FrozenType>) : BlobBuilder =
         let s = BlobBuilder()
 
         BlobEncoder(s)
             .MethodSignature(isInstanceMethod = false)
             .Parameters(
-                List.length paramTys,
+                paramTys.Length,
                 (fun (ret: ReturnTypeEncoder) -> ret.Void()),
                 (fun (pars: ParametersEncoder) ->
                     for p in paramTys do
@@ -557,13 +556,13 @@ type internal ClrEncoder(env: ClrEnv) =
 
         s
 
-    member _.InstanceMethodSignature(paramTys: FrozenType list, retTy: FrozenType) : BlobBuilder =
+    member _.InstanceMethodSignature(paramTys: Block<FrozenType>, retTy: FrozenType) : BlobBuilder =
         let s = BlobBuilder()
 
         BlobEncoder(s)
             .MethodSignature(isInstanceMethod = true)
             .Parameters(
-                List.length paramTys,
+                paramTys.Length,
                 (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) (retTy)),
                 (fun (pars: ParametersEncoder) ->
                     for p in paramTys do
@@ -577,19 +576,19 @@ type internal ClrEncoder(env: ClrEnv) =
     /// `instance void set_X(FieldTy)` for a setter.
     member this.RecordAccessorSignature(role: TAccessorRole, fieldTy: FrozenType) : BlobBuilder =
         match role with
-        | TAccessorRole.Getter -> this.InstanceMethodSignature([], fieldTy)
-        | TAccessorRole.Setter -> this.InstanceMethodSignatureVoid [ fieldTy ]
+        | TAccessorRole.Getter -> this.InstanceMethodSignature(Block.empty, fieldTy)
+        | TAccessorRole.Setter -> this.InstanceMethodSignatureVoid(Block.singleton fieldTy)
 
     /// A `Property` row's signature: the `PROPERTY` calling convention over the value type,
     /// preceded by an indexed property's index parameters. `isInstance` sets `HASTHIS`, which
     /// must agree with the accessors' own signatures.
-    member _.PropertySignature(isInstance: bool, indexTys: FrozenType list, valueTy: FrozenType) : BlobBuilder =
+    member _.PropertySignature(isInstance: bool, indexTys: Block<FrozenType>, valueTy: FrozenType) : BlobBuilder =
         let s = BlobBuilder()
 
         BlobEncoder(s)
             .PropertySignature(isInstanceProperty = isInstance)
             .Parameters(
-                List.length indexTys,
+                indexTys.Length,
                 (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) valueTy),
                 (fun (pars: ParametersEncoder) ->
                     for p in indexTys do
@@ -602,13 +601,13 @@ type internal ClrEncoder(env: ClrEnv) =
     /// `instance void M(params…)`. A `unit`-returning method normally encodes its return as
     /// `System.ValueTuple`, but an interface-impl member on a `void` BCL slot must match it, or
     /// the runtime reports "does not have an implementation". Body emitted in void mode.
-    member _.InstanceMethodSignatureVoid(paramTys: FrozenType list) : BlobBuilder =
+    member _.InstanceMethodSignatureVoid(paramTys: Block<FrozenType>) : BlobBuilder =
         let s = BlobBuilder()
 
         BlobEncoder(s)
             .MethodSignature(isInstanceMethod = true)
             .Parameters(
-                List.length paramTys,
+                paramTys.Length,
                 (fun (ret: ReturnTypeEncoder) -> ret.Void()),
                 (fun (pars: ParametersEncoder) ->
                     for p in paramTys do
@@ -620,13 +619,13 @@ type internal ClrEncoder(env: ClrEnv) =
 
     /// `instance resultTy Invoke(paramTys…)` — a closure's flat `Invoke` override, one concrete
     /// parameter per entry: curried arity-1 (`Fun`2`) through flat arity-4 (`Fun`5`).
-    member _.InvokeSignatureN(paramTys: FrozenType list, resultTy: FrozenType) : BlobBuilder =
+    member _.InvokeSignatureN(paramTys: Block<FrozenType>, resultTy: FrozenType) : BlobBuilder =
         let msig = BlobBuilder()
 
         BlobEncoder(msig)
             .MethodSignature(isInstanceMethod = true)
             .Parameters(
-                List.length paramTys,
+                paramTys.Length,
                 (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) (resultTy)),
                 (fun (pars: ParametersEncoder) ->
                     for pty in paramTys do
@@ -637,13 +636,13 @@ type internal ClrEncoder(env: ClrEnv) =
         msig
 
     /// `instance void .ctor(captures…)` — one concrete parameter per captured value (in field order).
-    member _.ClosureCtorSignature(captures: FrozenType list) : BlobBuilder =
+    member _.ClosureCtorSignature(captures: Block<FrozenType>) : BlobBuilder =
         let msig = BlobBuilder()
 
         BlobEncoder(msig)
             .MethodSignature(isInstanceMethod = true)
             .Parameters(
-                List.length captures,
+                captures.Length,
                 (fun (ret: ReturnTypeEncoder) -> ret.Void()),
                 (fun (pars: ParametersEncoder) ->
                     for c in captures do

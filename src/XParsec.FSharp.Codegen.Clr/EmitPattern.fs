@@ -65,9 +65,9 @@ module EmitPattern =
                                 env.Slots.Count
                                 env.Args.Count
 
-    let tupleElemTys (ty: FrozenType) : FrozenType list =
+    let tupleElemTys (ty: FrozenType) : Block<FrozenType> =
         match ty with
-        | FTTuple xs -> Block.toList xs
+        | FTTuple xs -> xs
         | other -> failwithf "Emit: expected a tuple type, got: %A" other
 
     /// Read element `index` of a `ValueTuple` already on the stack. Arity ≤ 7 is one

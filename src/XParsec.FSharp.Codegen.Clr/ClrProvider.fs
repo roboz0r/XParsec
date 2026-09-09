@@ -130,10 +130,10 @@ type ClrProvider
                 Fields = Block.ofList fields
             }
 
-    member _.RecordCtorSignature(paramTys: FrozenType list) : BlobBuilder = enc.RecordCtorSignature(paramTys)
+    member _.RecordCtorSignature(paramTys: Block<FrozenType>) : BlobBuilder = enc.RecordCtorSignature(paramTys)
 
     member _.GenericMethodOnTypeSignature
-        (methodTyparCount: int<typeSlot>, paramTys: FrozenType list, retTy: FrozenType, isInstanceMethod: bool)
+        (methodTyparCount: int<typeSlot>, paramTys: Block<FrozenType>, retTy: FrozenType, isInstanceMethod: bool)
         : BlobBuilder =
         enc.GenericMethodOnTypeSignature(methodTyparCount, paramTys, retTy, isInstanceMethod)
 
@@ -144,36 +144,36 @@ type ClrProvider
     member _.GenericRecordSelfSpec(key: TypeKey) : EntityHandle = generics.GenericRecordSelfSpec key
 
     member _.GenericStaticFnSignature
-        (typarCount: int<typeSlot>, paramTys: FrozenType list, retTy: FrozenType)
+        (typarCount: int<typeSlot>, paramTys: Block<FrozenType>, retTy: FrozenType)
         : BlobBuilder =
         enc.GenericStaticFnSignature(typarCount, paramTys, retTy)
 
-    member _.StaticMethodSignature(paramTys: FrozenType list, retTy: FrozenType) : BlobBuilder =
+    member _.StaticMethodSignature(paramTys: Block<FrozenType>, retTy: FrozenType) : BlobBuilder =
         enc.StaticMethodSignature(paramTys, retTy)
 
-    member _.InstanceMethodSignature(paramTys: FrozenType list, retTy: FrozenType) : BlobBuilder =
+    member _.InstanceMethodSignature(paramTys: Block<FrozenType>, retTy: FrozenType) : BlobBuilder =
         enc.InstanceMethodSignature(paramTys, retTy)
 
-    member _.InstanceMethodSignatureVoid(paramTys: FrozenType list) : BlobBuilder =
+    member _.InstanceMethodSignatureVoid(paramTys: Block<FrozenType>) : BlobBuilder =
         enc.InstanceMethodSignatureVoid(paramTys)
 
     member _.RecordAccessorSignature(role: TAccessorRole, fieldTy: FrozenType) : BlobBuilder =
         enc.RecordAccessorSignature(role, fieldTy)
 
-    member _.PropertySignature(isInstance: bool, indexTys: FrozenType list, valueTy: FrozenType) : BlobBuilder =
+    member _.PropertySignature(isInstance: bool, indexTys: Block<FrozenType>, valueTy: FrozenType) : BlobBuilder =
         enc.PropertySignature(isInstance, indexTys, valueTy)
 
-    member _.StaticMethodSignatureVoid(paramTys: FrozenType list) : BlobBuilder =
+    member _.StaticMethodSignatureVoid(paramTys: Block<FrozenType>) : BlobBuilder =
         enc.StaticMethodSignatureVoid(paramTys)
 
     member _.GenericMethodOnTypeSignatureVoid
-        (methodTyparCount: int<typeSlot>, paramTys: FrozenType list, isInstanceMethod: bool)
+        (methodTyparCount: int<typeSlot>, paramTys: Block<FrozenType>, isInstanceMethod: bool)
         : BlobBuilder =
         enc.GenericMethodOnTypeSignatureVoid(methodTyparCount, paramTys, isInstanceMethod)
 
     member _.FunInterfaceSpec(a: FrozenType, b: FrozenType) : EntityHandle = recipes.FunInterfaceSpec(a, b)
 
-    member _.FlatFunInterfaceSpecN(tys: FrozenType list) : EntityHandle = recipes.FlatFunInterfaceSpecN(tys)
+    member _.FlatFunInterfaceSpecN(tys: Block<FrozenType>) : EntityHandle = recipes.FlatFunInterfaceSpecN(tys)
 
     /// A `TypeSpec`/`TypeRef` handle for an arbitrary external type. A user class's
     /// `interface IEnumerable<'T>` carries its `'T` as `FTTypar(Type _, i)`, which the
@@ -193,10 +193,10 @@ type ClrProvider
         | _ -> enc.TypeSpecOf ty
 
     /// The flat `instance resultTy Invoke(paramTys…)` signature of a `Fun`(N+1)` closure.
-    member _.InvokeSignatureN(paramTys: FrozenType list, resultTy: FrozenType) : BlobBuilder =
+    member _.InvokeSignatureN(paramTys: Block<FrozenType>, resultTy: FrozenType) : BlobBuilder =
         enc.InvokeSignatureN(paramTys, resultTy)
 
-    member _.ClosureCtorSignature(captures: FrozenType list) : BlobBuilder = enc.ClosureCtorSignature captures
+    member _.ClosureCtorSignature(captures: Block<FrozenType>) : BlobBuilder = enc.ClosureCtorSignature captures
 
     member _.FieldSignature(ty: FrozenType) : BlobBuilder = enc.FieldSignature ty
 
@@ -209,7 +209,7 @@ type ClrProvider
         (
             name: string,
             frame: TyparFrame,
-            captureSigs: FrozenType list,
+            captureSigs: Block<FrozenType>,
             paramTy: FrozenType,
             resultTy: FrozenType,
             defHandle: EntityHandle
@@ -251,7 +251,7 @@ type ClrProvider
     /// Resolve the `System.ValueTuple`n` family (parent `TypeSpec` + `.ctor` +
     /// `Item1…Itemn` field refs) for an N-tuple with the given element types.
     /// Arity 2–7; ≥8 throws.
-    member _.ValueTupleRefs(elemTys: FrozenType list) : ValueTupleHandles = enc.ValueTupleRefs elemTys
+    member _.ValueTupleRefs(elemTys: Block<FrozenType>) : ValueTupleHandles = enc.ValueTupleRefs elemTys
 
     /// The `System.HashCode` accumulator local type for a union's `GetHashCode`.
     member _.HashCodeType: FrozenType = FTConst(ClrSinkKeys.hashCode, Block.empty)

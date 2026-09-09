@@ -45,15 +45,13 @@ module internal AttributeRowPrep =
         else
             match classes.TryGetValue attr.Key with
             | true, c when c.TypeArity = 0<_> ->
-                let paramTys = Block.toList attr.Ctor.ArgSig
-
-                match EmitResolve.localCtors c |> List.tryFind (fun (ps, _, _) -> ps = paramTys) with
-                | Some(_, _, handle) -> AttributeCtorResolution.Ctor handle
+                match EmitResolve.localCtors c |> List.tryFind (fun ctor -> ctor.ParamTys = attr.Ctor.ArgSig) with
+                | Some ctor -> AttributeCtorResolution.Ctor ctor.Handle
                 | None ->
                     failwithf
                         "Emit: attribute class '%s' emits no constructor of parameter types %A, which the front end selected"
                         c.Name
-                        paramTys
+                        attr.Ctor.ArgSig
             | true, _ -> AttributeCtorResolution.Skipped SkippedAttributeRowReason.GenericAttributeClass
             | false, _ ->
                 match provider.TryExternalAttributeCtor attr.Ctor with

@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.Codegen.Clr
 
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 open AssemblerScaffold
 
@@ -166,7 +167,7 @@ module internal NominalRegistration =
                 provider.RegisterClosure(
                     c.Name,
                     c.Frame,
-                    c.Captures |> List.map (fun cap -> cap.Ty),
+                    Block.ofList [ for cap in c.Captures -> cap.Ty ],
                     c.ParamTy,
                     c.ResultTy,
                     toEntity (handles.TypeDefOf(TypeSlotKey.Closure c.Name))

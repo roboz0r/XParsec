@@ -363,7 +363,7 @@ module EmitJs =
             applyArgs
                 ctx
                 (Members.localFn ctx (TastAccessor.exprStaticMethodCallKey e) true false loc)
-                (Block.ofArray (TastAccessor.exprChildren e))
+                (TastAccessor.exprChildrenBlock e)
 
         // A member on an external type, reached WITHOUT being applied; the call forms fold at
         // the applied function off the same `MemberDispatch`. A STATIC member has no native

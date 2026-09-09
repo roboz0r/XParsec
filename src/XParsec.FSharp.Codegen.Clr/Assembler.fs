@@ -70,7 +70,7 @@ type internal Assembler
         ClrProvider(ctx, intrinsicBindings, references, symbols)
 
     let icodegen = provider :> ICodegenProvider
-    let encodeLocals (locals: FrozenType list) = icodegen.EncodeLocalSignature locals
+    let encodeLocals (locals: Block<FrozenType>) = icodegen.EncodeLocalSignature locals
 
     // The narrow emission-side view of the provider: type/member shapes only.
     let codegenSymbols = symbols
@@ -594,7 +594,7 @@ type internal Assembler
             methods
             |> List.iteri (fun i m ->
                 let slots = abstractMethodParams m
-                let paramTys = List.map snd slots
+                let paramTys = slots |> Block.map snd
                 let _, retTy = uncurry m.Signature
 
                 let handle = toEntity (this.MethodDef(MethodKey.InterfaceMethod(td.Key, i)))
@@ -603,7 +603,6 @@ type internal Assembler
                     {
                         Handle = handle
                         IsStatic = false
-                        ParamArity = List.length paramTys
                         // The IL method name (a property → its `get_<Name>` getter);
                         // the use-site table below stays keyed by the bare member name.
                         MetaName = memberMetaName m.Name m.Kind
@@ -622,7 +621,7 @@ type internal Assembler
                     {
                         Signature = abstractMethodSignature provider m
                         Body = PreparedBody.Abstract
-                        ParamNames = List.map fst slots
+                        ParamNames = [ for (n, _) in slots -> n ]
                         MethodTypars = GenericParamRow.ofTypars m.MethodTypars
                     }
                 )
@@ -664,7 +663,7 @@ type internal Assembler
             this.AddPrepared(
                 MethodKey.NominalCtor td.Key,
                 {
-                    Signature = provider.RecordCtorSignature [ fieldTy ]
+                    Signature = provider.RecordCtorSignature(Block.singleton fieldTy)
                     Body = ctorBody
                     ParamNames = [ "value" ]
                     MethodTypars = []
@@ -739,7 +738,7 @@ type internal Assembler
                 this.AddPrepared(
                     MethodKey.ClosureCtor c.Name,
                     {
-                        Signature = provider.ClosureCtorSignature(c.Captures |> List.map (fun cap -> cap.Ty))
+                        Signature = provider.ClosureCtorSignature(Block.ofList [ for cap in c.Captures -> cap.Ty ])
                         Body = ctorMethodBody
                         ParamNames = paramNames f.EmitCtx.Pool (c.Captures |> Seq.map (fun cap -> cap.Key))
                         MethodTypars = []
@@ -747,7 +746,14 @@ type internal Assembler
                 )
 
                 let invokeSignature, invokeParamNames =
-                    let paramTys = c.ParamTy :: (c.ExtraParams |> List.map (fun (_, ty, _) -> ty))
+                    let paramTys =
+                        Block.ofList
+                            [
+                                c.ParamTy
+                                for (_, ty, _) in c.ExtraParams do
+                                    ty
+                            ]
+
                     let paramKeys = c.ParamKey :: (c.ExtraParams |> List.map (fun (k, _, _) -> k))
                     provider.InvokeSignatureN(paramTys, c.ResultTy), paramNames f.EmitCtx.Pool paramKeys
 
@@ -791,8 +797,13 @@ type internal Assembler
                     | 1 -> provider.FunInterfaceSpec(c.ParamTy, c.ResultTy)
                     | _ ->
                         let tys =
-                            (c.ParamTy :: (c.ExtraParams |> List.map (fun (_, ty, _) -> ty)))
-                            @ [ c.ResultTy ]
+                            Block.ofList
+                                [
+                                    c.ParamTy
+                                    for (_, ty, _) in c.ExtraParams do
+                                        ty
+                                    c.ResultTy
+                                ]
 
                         provider.FlatFunInterfaceSpecN(tys)
 
@@ -837,8 +848,15 @@ type internal Assembler
 
             let prepare () =
                 let liftedBody = methodBody (Emit.buildLiftedLocal emitCtx ll)
-                let captureTys = ll.Captures |> List.map snd
-                let paramTys = captureTys @ (fn.Params.Flat |> List.map (fun p -> p.Ty))
+
+                let paramTys =
+                    Block.ofList
+                        [
+                            for (_, ty) in ll.Captures do
+                                ty
+                            for p in fn.Params.Flat do
+                                p.Ty
+                        ]
 
                 let signature =
                     if fn.ReturnsVoid then
@@ -880,7 +898,7 @@ type internal Assembler
 
             let staticBody = methodBody (Emit.buildStaticMethod emitCtx fn)
 
-            let paramTys = fn.Params.Flat |> List.map (fun p -> p.Ty)
+            let paramTys = Block.ofList [ for p in fn.Params.Flat -> p.Ty ]
 
             // A `unit`-returning module function encodes genuine CLR `void`.
             let signature =

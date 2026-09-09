@@ -63,11 +63,11 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
     /// The .NET-tupled argument slot opened back to one `FrozenType` per declared parameter.
     /// A length mismatch is a malformed provider entry, not a user-writable call.
-    let openParams (what: string) (argSigLen: int) (paramsT: FrozenType) : FrozenType list =
+    let openParams (what: string) (argSigLen: int) (paramsT: FrozenType) : Block<FrozenType> =
         match argSigLen, paramsT with
-        | 0, _ -> []
-        | 1, _ -> [ paramsT ]
-        | n, FTTuple elems when elems.Length = n -> Block.toList elems
+        | 0, _ -> Block.empty
+        | 1, _ -> Block.singleton paramsT
+        | n, FTTuple elems when elems.Length = n -> elems
         | _ -> failwithf "ClrProvider: %s declares %d parameters but its signature slot is %A" what argSigLen paramsT
 
     /// Mint the `MemberRef` for `sig_` on `parent`, taking the getter shape for a property.
@@ -94,7 +94,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             BlobEncoder(s)
                 .MethodSignature(genericParameterCount = int sig_.MethodTyparArity, isInstanceMethod = not isStatic)
                 .Parameters(
-                    List.length paramTys,
+                    paramTys.Length,
                     // A `System.Void` return surfaces as `FTUnit`, but encoding it as
                     // `FSharp.Core.Unit` mints a signature no external void method binds
                     // (`MissingMethodException`), so emit `void` (`IDisposable.Dispose`).
@@ -254,14 +254,14 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         | ValueSome(tref, fields) ->
             let parent = externalTypeSpec key tref args
 
-            let paramTys = [ for f in fields -> f.Frozen ]
+            let paramTys = Block.ofList [ for f in fields -> f.Frozen ]
 
             let s = BlobBuilder()
 
             BlobEncoder(s)
                 .MethodSignature(isInstanceMethod = true)
                 .Parameters(
-                    List.length paramTys,
+                    paramTys.Length,
                     (fun (ret: ReturnTypeEncoder) -> ret.Void()),
                     (fun (pars: ParametersEncoder) ->
                         for p in paramTys do
@@ -290,7 +290,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             | ValueSome case ->
                 let parent = externalTypeSpec key tref args
 
-                let paramTys = Block.toList case.FrozenFieldTypes
+                let paramTys = case.FrozenFieldTypes
 
                 let unionKey = SymbolKeyOps.qualifiedTypeKeyOf fullName arity
 
@@ -301,7 +301,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 BlobEncoder(s)
                     .MethodSignature(isInstanceMethod = false)
                     .Parameters(
-                        List.length paramTys,
+                        paramTys.Length,
                         (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) retTy),
                         (fun (pars: ParametersEncoder) ->
                             for p in paramTys do
@@ -309,7 +309,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                         )
                     )
 
-                ValueSome(toEntity (ctx.MemberRef(parent, caseName, s)), List.length paramTys)
+                ValueSome(toEntity (ctx.MemberRef(parent, caseName, s)), paramTys.Length)
 
     /// A referenced-package union's nested case type at `args`.
     let externalCaseSpec
@@ -426,9 +426,9 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         (key: TypeKey)
         (chosen: SymbolKey voption)
         (tyArgs: Block<FrozenType>)
-        (argTypes: FrozenType list)
+        (argTypes: Block<FrozenType>)
         : CtorRecipe voption =
-        match symbols.TryLookupCtor(key, chosen, List.length argTypes) with
+        match symbols.TryLookupCtor(key, chosen, argTypes.Length) with
         | ValueNone -> ValueNone
         | ValueSome chosenCtor ->
             // FOREIGN only: a class this compilation emits reaches its ctor through the emitted
@@ -450,7 +450,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 BlobEncoder(s)
                     .MethodSignature(isInstanceMethod = true)
                     .Parameters(
-                        List.length paramTys,
+                        paramTys.Length,
                         (fun (ret: ReturnTypeEncoder) -> ret.Void()),
                         (fun (pars: ParametersEncoder) ->
                             for p in paramTys do
@@ -463,7 +463,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 ValueSome
                     {
                         Handle = handle
-                        ArgCount = List.length paramTys
+                        ArgCount = paramTys.Length
                     }
 
     /// Mint the `MemberRef` for a referenced-assembly attribute class's constructor `ctor`, the
@@ -490,7 +490,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 BlobEncoder(s)
                     .MethodSignature(isInstanceMethod = true)
                     .Parameters(
-                        List.length paramTys,
+                        paramTys.Length,
                         (fun (ret: ReturnTypeEncoder) -> ret.Void()),
                         (fun (pars: ParametersEncoder) ->
                             for p in paramTys do

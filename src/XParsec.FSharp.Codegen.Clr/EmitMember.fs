@@ -110,7 +110,7 @@ module EmitMember =
         let objArgTy = typeOfExpr objArg
         // A member name carries no arity, so the display projection IS the emitted CLR name.
         let (DisplayName name) = SymbolKeyOps.simpleName key
-        let argTys = [ for a in args -> typeOfExpr a ]
+        let argTys = args |> Block.map typeOfExpr
 
         let ifaceKey = SymbolKeyOps.declTypeKeyOf "EmitMember: CallVia.Interface member" key
 
@@ -221,7 +221,7 @@ module EmitMember =
             // A property is never a generic method and takes no arguments, so the resolved
             // member metadata is unused and there are no overload args to match.
             let (DisplayName memberName) = SymbolKeyOps.simpleName key
-            let handle, _ = resolveInstanceMember env objArgNominal memberName []
+            let handle, _ = resolveInstanceMember env objArgNominal memberName Block.empty
             let objArgTy = FrozenNominal.ty objArgNominal
             // A property get is never `unit`-returning.
             emitInstanceMember recur env b via objArg objArgTy handle Block.empty CallResult.Value
@@ -239,7 +239,7 @@ module EmitMember =
         | CallVia.Interface ifaceArgs -> emitConstrainedInterfaceCall recur env b objArg key ifaceArgs args ty result
         | via ->
             let objArgNominal = nominalOfExpr objArg
-            let argTys = [ for a in args -> typeOfExpr a ]
+            let argTys = args |> Block.map typeOfExpr
 
             let (DisplayName memberName) = SymbolKeyOps.simpleName key
             let handle0, m = resolveInstanceMember env objArgNominal memberName argTys
@@ -266,7 +266,7 @@ module EmitMember =
         let key = TastAccessor.exprStaticPropertyGetKey e
         let declArgs = TastAccessor.exprStaticDeclArgs e
         let ty = TastAccessor.exprTy e
-        let handle = resolveStaticMember env key declArgs []
+        let handle = resolveStaticMember env key declArgs Block.empty
         b.Add(ILInstr.Call(handle, 0, 1))
 
     let buildStaticFieldGet (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
@@ -306,7 +306,7 @@ module EmitMember =
         : unit =
         let key = TastAccessor.exprStaticMethodCallKey e
         // A `StaticMethodCall`'s arguments ARE its `exprChildren` (no object arg to merge).
-        let args = TastAccessor.exprChildren e
+        let args = TastAccessor.exprChildrenBlock e
         let ty = TastAccessor.exprTy e
         // A consumer's SRTP `+` dispatching to an imported type's static operator
         // (`Vesper.Set`'s `op_Addition`) reaches here as a LOCAL-shaped `StaticMethodCall`, so
@@ -319,17 +319,17 @@ module EmitMember =
         let handle =
             if isLocal then
                 let declArgs = TastAccessor.exprStaticDeclArgs e
-                resolveStaticMember env key declArgs [ for a in args -> typeOfExpr a ]
+                resolveStaticMember env key declArgs (args |> Block.map typeOfExpr)
             else
                 // Reconstruct the member's .NET-tupled signature from the pushed args + result,
                 // so the ref can recover `Set<int>` from `op_Addition`'s open `Set<!0>`.
-                let argTys = [ for a in args -> typeOfExpr a ]
+                let argTys = args |> Block.map typeOfExpr
 
                 let paramTy =
                     match argTys with
-                    | [] -> RuntimeNames.unitTy
-                    | [ single ] -> single
-                    | many -> FTTuple(Block.ofList many)
+                    | BlockEmpty -> RuntimeNames.unitTy
+                    | BlockOne single -> single
+                    | many -> FTTuple many
 
                 env.Provider.ExternalMemberRef(key, false, true, FTFun(paramTy, ty))
         // Obj-parameter boxes are explicit `Upcast` nodes from Elaborate; push raw.

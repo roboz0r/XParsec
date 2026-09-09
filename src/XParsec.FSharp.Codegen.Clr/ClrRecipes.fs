@@ -176,8 +176,8 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     /// `Vesper.Fun`(len)<tys…>` as a `TypeSpec` — the FLAT interface a flat value-struct
     /// closure of param-arity `len-1` implements. `tys` is the flat params followed by the
     /// result, so `len` picks the entity (`3`⇒`Fun`3`, `4`⇒`Fun`4`, `5`⇒`Fun`5`).
-    let flatFunInterfaceSpecN (tys: FrozenType list) : EntityHandle =
-        let len = List.length tys
+    let flatFunInterfaceSpecN (tys: Block<FrozenType>) : EntityHandle =
+        let len = tys.Length
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
         let g = te.GenericInstantiation(env.FlatFunEntity len, len, false)

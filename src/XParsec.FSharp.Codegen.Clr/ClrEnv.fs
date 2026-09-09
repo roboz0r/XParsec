@@ -14,7 +14,7 @@ type internal GenericClosureShape =
     {
         /// The closure class's typars, one slot per enclosing typar.
         Frame: TyparFrame
-        CaptureSigs: FrozenType list
+        CaptureSigs: Block<FrozenType>
         ParamTy: FrozenType
         ResultTy: FrozenType
         DefHandle: EntityHandle

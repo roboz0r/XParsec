@@ -205,7 +205,7 @@ module EmitTypes =
             CaseType: TypeKey voption
         }
 
-    /// An augmentation member on a union/class `TypeDefinition`; `ParamArity` excludes
+    /// An augmentation member on a union/class `TypeDefinition`; `ParamTys` excludes
     /// `this`, and a property's `Handle` is its `get_<name>` method. `Handle` is the `Def`
     /// token, but a generic type reaches the member by `MemberRef` off `MetaName` +
     /// signature.
@@ -213,9 +213,8 @@ module EmitTypes =
         {
             Handle: EntityHandle
             IsStatic: bool
-            ParamArity: int
             MetaName: string
-            ParamTys: FrozenType list
+            ParamTys: Block<FrozenType>
             RetTy: FrozenType
             /// The member's *own* generic-method typar count (`member s.Map<'U> …`).
             /// 0 for the common non-generic member. > 0 ⇒ the member-ref must carry
@@ -341,20 +340,27 @@ module EmitTypes =
         /// A record field, reached through the accessor in the requested role.
         | Accessor of EntityHandle
 
+    /// An instance field of an emitted class, resolved by `Name` at a `this.x` use site.
+    type EmittedClassField =
+        {
+            Name: string
+            Handle: EntityHandle
+            Ty: FrozenType
+        }
+
     /// A class emitted into this assembly. `TypeArity` 0 ⇒ monomorphic; positive ⇒
     /// generic, and its members are reached by `MemberRef` rather than `Def` token.
     type EmittedClass =
         {
             Name: string
             TypeArity: int<typeSlot>
-            /// Primary-constructor backing fields, `(name, handle, type)` in declaration
-            /// order. Its LENGTH is the primary ctor's arity, which a `TExpr.New` matches
-            /// against, so explicit `val` fields stay out of it, in `InstanceFields`.
-            Fields: (string * EntityHandle * FrozenType) list
-            /// Explicit `val [mutable] x: T` instance fields, `(name, handle, type)`.
-            /// Default-initialised (not set by the primary ctor); a `this.x`
-            /// `FieldGet`/`FieldSet` resolves its handle here.
-            InstanceFields: (string * EntityHandle * FrozenType) list
+            /// Primary-constructor backing fields in declaration order. Its LENGTH is the
+            /// primary ctor's arity, which a `TExpr.New` matches against, so explicit `val`
+            /// fields stay out of it, in `InstanceFields`.
+            Fields: EmittedClassField list
+            /// Explicit `val [mutable] x: T` instance fields. Default-initialised (not set by
+            /// the primary ctor); a `this.x` `FieldGet`/`FieldSet` resolves its handle here.
+            InstanceFields: EmittedClassField list
             /// `true` for a `[<Struct>]` value type. Drives `isValueType` at use
             /// sites (box on `:>`, `unbox.any` on `:?>`).
             IsValueType: bool
@@ -369,10 +375,10 @@ module EmitTypes =
             /// resolves its `ldsfld` handle here. A mono class stores the field `Def`
             /// token, a generic class a `MemberRef` on the open self-`TypeSpec`.
             StaticFields: Dictionary<string, EntityHandle>
-            /// Secondary constructors keyed by arity → (declared param types, `.ctor`
-            /// handle). A `TExpr.New` whose arg count differs from the primary's selects
-            /// the matching overload here.
-            SecondaryCtors: (int * FrozenType list * EntityHandle) list
+            /// The secondary constructors in declaration order, each its declared parameter
+            /// types with its `.ctor` handle. A `TExpr.New` whose argument count differs from
+            /// the primary's selects the matching overload here.
+            SecondaryCtors: (Block<FrozenType> * EntityHandle) list
             /// The implemented interfaces, each written over THIS class's declaring typars
             /// (arg leaves are `FTTypar(Type _, i)`), for instantiation at an
             /// object argument. Direct impls only, not a base's.

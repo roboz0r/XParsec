@@ -213,7 +213,7 @@ module internal UnionEmit =
         asm.AddPrepared(
             MethodKey.UnionCaseViewCtor(td.Key, caseName),
             {
-                Signature = provider.RecordCtorSignature [ payloadTyOf td ]
+                Signature = provider.RecordCtorSignature(Block.singleton (payloadTyOf td))
                 Body = bodyOf asm (Emit.buildStructCtor [ viewPayloadField ])
                 ParamNames = [ UnionPayloadType.payloadFieldName ]
                 MethodTypars = []
@@ -224,7 +224,7 @@ module internal UnionEmit =
             asm.AddPrepared(
                 MethodKey.UnionCaseViewGetter(td.Key, caseName, f.Index),
                 {
-                    Signature = provider.InstanceMethodSignature([], f.FieldTy)
+                    Signature = provider.InstanceMethodSignature(Block.empty, f.FieldTy)
                     Body = bodyOf asm (fieldGetterIr asm td pass [ viewPayloadField ] f.Access)
                     ParamNames = []
                     MethodTypars = []
@@ -237,7 +237,7 @@ module internal UnionEmit =
         asm.AddPrepared(
             MethodKey.UnionCaseViewAccessor(td.Key, caseName),
             {
-                Signature = provider.InstanceMethodSignature([], viewTyOf td caseName)
+                Signature = provider.InstanceMethodSignature(Block.empty, viewTyOf td caseName)
                 Body = bodyOf asm (Emit.buildUnionCaseViewGetter (handleOf pass (payloadStep td)) viewCtor)
                 ParamNames = []
                 MethodTypars = []
@@ -318,12 +318,14 @@ module internal UnionEmit =
             MethodKey.NominalCtor td.Key,
             {
                 Signature =
-                    provider.RecordCtorSignature
-                        [
-                            if ud.HasTag then
-                                yield RuntimeNames.intTy
-                            for p in ctorParams -> p.Ty
-                        ]
+                    provider.RecordCtorSignature(
+                        Block.ofList
+                            [
+                                if ud.HasTag then
+                                    yield RuntimeNames.intTy
+                                for p in ctorParams -> p.Ty
+                            ]
+                    )
                 Body =
                     bodyOf
                         asm
@@ -346,7 +348,7 @@ module internal UnionEmit =
             asm.AddPrepared(
                 MethodKey.UnionGetTag td.Key,
                 {
-                    Signature = provider.InstanceMethodSignature([], RuntimeNames.intTy)
+                    Signature = provider.InstanceMethodSignature(Block.empty, RuntimeNames.intTy)
                     Body = bodyOf asm (Emit.buildFieldGetter t)
                     ParamNames = []
                     MethodTypars = []
@@ -393,7 +395,7 @@ module internal UnionEmit =
                 asm.AddPrepared(
                     MethodKey.UnionCaseCtor(td.Key, c.Name),
                     {
-                        Signature = provider.RecordCtorSignature [ for (_, t) in c.Fields -> t ]
+                        Signature = provider.RecordCtorSignature(c.Fields |> Block.map snd)
                         Body = bodyOf asm (Emit.buildChainedCtor ctorRef (ctorTagArgs tag) (caseFieldRefsOf asm td c))
                         ParamNames = ud.FieldNames c
                         MethodTypars = []
@@ -462,7 +464,7 @@ module internal UnionEmit =
                 | UnionFactoryShape.UnionCtor -> Emit.buildUnionCaseFactory ctorRef arity
 
             let factoryBody = bodyOf asm factoryIr
-            let paramTys = [ for (_, t) in c.Fields -> t ]
+            let paramTys = c.Fields |> Block.map snd
 
             asm.AddPrepared(
                 MethodKey.UnionFactory(td.Key, c.Name),
@@ -487,7 +489,7 @@ module internal UnionEmit =
                 asm.AddPrepared(
                     MethodKey.UnionCaseGetter(td.Key, g.Case, g.Index),
                     {
-                        Signature = provider.InstanceMethodSignature([], g.FieldTy)
+                        Signature = provider.InstanceMethodSignature(Block.empty, g.FieldTy)
                         Body = bodyOf asm (fieldGetterIr asm td pass unionRoot g.Access)
                         ParamNames = []
                         MethodTypars = []
@@ -551,7 +553,8 @@ module internal UnionEmit =
                     (EmitStructural.buildEqualsTyped handles false walk)
 
             | UnionCaseSlot.EqualsUnion ->
-                let equalsCase = caseSlotRef [ caseTy ] RuntimeNames.boolTy UnionCaseSlot.EqualsCase
+                let equalsCase =
+                    caseSlotRef (Block.singleton caseTy) RuntimeNames.boolTy UnionCaseSlot.EqualsCase
 
                 prepared
                     slot
@@ -575,7 +578,7 @@ module internal UnionEmit =
 
             | UnionCaseSlot.CompareToUnion ->
                 let compareToCase =
-                    caseSlotRef [ caseTy ] RuntimeNames.intTy UnionCaseSlot.CompareToCase
+                    caseSlotRef (Block.singleton caseTy) RuntimeNames.intTy UnionCaseSlot.CompareToCase
 
                 prepared
                     slot

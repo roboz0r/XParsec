@@ -53,9 +53,8 @@ module internal NominalEmit =
                 {
                     Handle = toEntity (asm.MethodDef(MethodKey.Member(td.Key, i)))
                     IsStatic = mem.IsStatic
-                    ParamArity = mem.Params.Length
                     MetaName = memberMetaName mem.Name mem.Kind
-                    ParamTys = [ for (_, t) in mem.Params -> t ]
+                    ParamTys = mem.Params |> Block.map snd
                     RetTy = mem.ReturnTy
                     MethodTyparCount = mem.MethodTypars.TypeArity
                 }
@@ -122,15 +121,13 @@ module internal NominalEmit =
                     else
                         toEntity (asm.FieldDef(FieldKey.ClassStaticField(td.Key, sl.Name)))
 
-            // `(arity, paramTys, handle)` lets a `New` call site pick the matching
-            // overload; the param types carry declaring-typar markers so a generic
-            // site can mint a `MemberRef` on the instantiated `TypeSpec`.
+            // The param types carry declaring-typar markers, so a generic site mints its
+            // `MemberRef` on the instantiated `TypeSpec`; their count selects the overload a
+            // `New` call site targets.
             let secondaryCtorHandles =
                 secondaryCtors
                 |> List.mapi (fun i (sc: TastAccessor.SecondaryCtor) ->
-                    sc.Params.Length,
-                    [ for (_, t) in sc.Params -> t ],
-                    toEntity (asm.MethodDef(MethodKey.SecondaryCtor(td.Key, i)))
+                    sc.Params |> Block.map snd, toEntity (asm.MethodDef(MethodKey.SecondaryCtor(td.Key, i)))
                 )
 
             // The val-field reference form (no primary ctor) declares no `NominalCtor`
@@ -143,7 +140,7 @@ module internal NominalEmit =
                 if emitPrimaryCtor then
                     toEntity (asm.MethodDef(MethodKey.NominalCtor td.Key))
                 else
-                    let (_, _, h) = List.head secondaryCtorHandles
+                    let (_, h) = List.head secondaryCtorHandles
                     h
 
             asm.Classes.[td.TypeKey] <-
@@ -153,16 +150,28 @@ module internal NominalEmit =
                     Fields =
                         [
                             for p in ctorParams ->
-                                p.Name, toEntity (asm.FieldDef(FieldKey.ClassCtorParamField(td.Key, p.Name))), p.Type
+                                {
+                                    Name = p.Name
+                                    Handle = toEntity (asm.FieldDef(FieldKey.ClassCtorParamField(td.Key, p.Name)))
+                                    Ty = p.Type
+                                }
                         ]
                     // A declared `val` field and an instance-`let` backing field are one
                     // thing at a use site: `this.x` resolves by NAME against this list.
                     InstanceFields =
                         [
                             for f in instanceFields ->
-                                f.Name, toEntity (asm.FieldDef(FieldKey.ClassInstanceField(td.Key, f.Name))), f.Type
+                                {
+                                    Name = f.Name
+                                    Handle = toEntity (asm.FieldDef(FieldKey.ClassInstanceField(td.Key, f.Name)))
+                                    Ty = f.Type
+                                }
                             for l in instanceLets ->
-                                l.Name, toEntity (asm.FieldDef(FieldKey.ClassLetField(td.Key, l.Name))), l.Type
+                                {
+                                    Name = l.Name
+                                    Handle = toEntity (asm.FieldDef(FieldKey.ClassLetField(td.Key, l.Name)))
+                                    Ty = l.Type
+                                }
                         ]
                     IsValueType = isStruct
                     Ctor = ctorHandle
@@ -215,7 +224,7 @@ module internal NominalEmit =
         asm.AddPrepared(
             MethodKey.NominalCtor td.Key,
             {
-                Signature = provider.RecordCtorSignature [ for f in fields -> f.Type ]
+                Signature = provider.RecordCtorSignature(Block.ofList [ for f in fields -> f.Type ])
                 Body = ctorMethodBody
                 ParamNames = [ for f in fields -> f.Name ]
                 MethodTypars = []
@@ -280,7 +289,7 @@ module internal NominalEmit =
         // minted off the `TypeRef`, since a protected ctor is not in the member set.
         match baseShape, baseCtorCall with
         | BaseShape.ExternalBase(baseKey, _), ValueSome bcc when not bcc.Args.IsEmpty ->
-            let argTypes = [ for a in bcc.Args -> TastAccessor.exprTy a ]
+            let argTypes = bcc.Args |> Block.map TastAccessor.exprTy
 
             match icodegen.TryEmitCtor(baseKey, bcc.ChosenCtor, Block.empty, argTypes) with
             | ValueSome recipe -> Emit.CtorChain.Base(recipe.Handle, Block.toList bcc.Args)
@@ -310,7 +319,7 @@ module internal NominalEmit =
             let baseCtorHandle =
                 match classes.TryGetValue baseKey with
                 | true, bc ->
-                    let argTypes = [ for a in bcc.Args -> TastAccessor.exprTy a ]
+                    let argTypes = bcc.Args |> Block.map TastAccessor.exprTy
                     let kind, handle = EmitResolve.pickLocalCtor td.Name bc baseArgs argTypes
                     EmitResolve.memberRef icodegen bc.TypeArity baseKey baseArgs kind handle
                 | false, _ ->
@@ -374,7 +383,7 @@ module internal NominalEmit =
 
             secondaryCtors
             |> List.iteri (fun i sc ->
-                let paramTys = [ for (_, t) in sc.Params -> t ]
+                let paramTys = sc.Params |> Block.map snd
 
                 let lets = Block.toList sc.Lets
 
@@ -504,7 +513,7 @@ module internal NominalEmit =
             asm.AddPrepared(
                 MethodKey.NominalCtor td.Key,
                 {
-                    Signature = provider.RecordCtorSignature [ for p in ctorParams -> p.Type ]
+                    Signature = provider.RecordCtorSignature(Block.ofList [ for p in ctorParams -> p.Type ])
                     Body = ctorMethodBody
                     ParamNames = [ for p in ctorParams -> p.Name ]
                     MethodTypars = []
@@ -554,7 +563,7 @@ module internal NominalEmit =
                     System.Exception(sprintf "While lowering body of member '%A.%s'\n%s" td.Key mem.Name ex.Message, ex)
                 )
 
-        let paramTys = [ for (_, t) in mem.Params -> t ]
+        let paramTys = mem.Params |> Block.map snd
 
         // A generic method needs the `GENERIC` calling-convention header count; its
         // own typars appear as `FTTypar(Member _, i)` nodes, encoded `!!i`.
@@ -691,7 +700,7 @@ module internal NominalEmit =
                         memberMetaName mem.Name mem.Kind,
                         false,
                         0<_>,
-                        [ for (_, t) in mem.Params -> t ],
+                        mem.Params |> Block.map snd,
                         mem.ReturnTy
                     )
 
@@ -704,17 +713,17 @@ module internal NominalEmit =
                     let getEnumerator, _ = capabilityMember ifaceTy slot
 
                     provider.InstanceMethodSignature(
-                        [],
+                        Block.empty,
                         FTClass(SymbolKeyOps.typeKeyOf "System.Collections" "IEnumerator", Block.empty)
                     ),
                     Emit.buildEnumerableGetEnumeratorCoSlot getEnumerator
                 | CoSlot.EnumeratorCurrent ->
                     let current, elemTy = capabilityMember ifaceTy slot
 
-                    provider.InstanceMethodSignature([], RuntimeNames.objTy),
+                    provider.InstanceMethodSignature(Block.empty, RuntimeNames.objTy),
                     Emit.buildEnumeratorCurrentCoSlot current (icodegen.TypeToken elemTy)
                 | CoSlot.EnumeratorReset ->
-                    provider.InstanceMethodSignatureVoid [],
+                    provider.InstanceMethodSignatureVoid Block.empty,
                     Emit.buildEnumeratorResetCoSlot provider.NotSupportedExceptionCtor
 
             asm.AddPrepared(
