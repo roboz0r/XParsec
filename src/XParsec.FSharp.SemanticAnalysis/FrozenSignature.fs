@@ -319,6 +319,7 @@ module FrozenSignature =
                     Origin = originIn info.Container.Namespace
                     CompiledName = info.CompiledName
                     ValRepr = bindingValRepr boundVar
+                    Literal = info.Literal
                 }
 
             PublishedSurfaceBuilder.addValue surface sym

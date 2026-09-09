@@ -109,10 +109,12 @@ module Elaborate =
 
     /// The binding's exportable identity, keyed by the name its source writes and carrying
     /// `[<CompiledName>]`'s as the name it emits under (`Set.empty` ⇒ `SetModule.Empty`).
-    /// `key` is the binding's own, present only where the pattern binds exactly one variable.
+    /// `key` is the binding's own, present only where the pattern binds exactly one variable;
+    /// `boundVar` is that variable.
     let private exportedBindingInfo
         (ctx: PassContext)
         (key: BindingKey voption)
+        (boundVar: BoundVarKey voption)
         (resolved: ResolvedAttributes)
         (attributes: TAttributes)
         : ModuleBindingInfo voption =
@@ -123,6 +125,7 @@ module Elaborate =
                 Name = k.Name
                 CompiledName = AttributeDecode.compiledNameOf ctx.NameOf k.Name resolved
                 Attributes = attributes
+                Literal = boundVar |> ValueOption.bind ctx.Resolution.LiteralValues.TryGetValue
             }
         )
 
@@ -277,7 +280,7 @@ module Elaborate =
         ctx.DeclareAttributes(attributeSite, attrElement, resolvedAttrs)
         let attributes = ctx.AttributesAt attributeSite
 
-        let info = exportedBindingInfo ctx bindingKey resolvedAttrs attributes
+        let info = exportedBindingInfo ctx bindingKey boundVar resolvedAttrs attributes
         let emittedName = info |> ValueOption.map (fun i -> i.EmittedName)
         let exportedKey = recordExportedBinding ctx b info boundVar
 

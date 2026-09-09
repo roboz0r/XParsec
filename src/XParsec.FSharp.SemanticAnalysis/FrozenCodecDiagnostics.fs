@@ -251,6 +251,15 @@ module FrozenCodecDiagnostics =
             w.Write typeName
             w.Write flag
             w.Write declared
+        | Conformance.ConformanceError.LiteralOnOneHalf(name, declared) ->
+            w.Write 29uy
+            w.Write name
+            w.Write declared
+        | Conformance.ConformanceError.LiteralValueDiffers(name, declared, defined) ->
+            w.Write 30uy
+            w.Write name
+            w.Write declared
+            w.Write defined
 
     let private readConformanceError (r: FrozenReader) : Conformance.ConformanceError =
         match r.ReadByte() with
@@ -336,6 +345,13 @@ module FrozenCodecDiagnostics =
             let typeName = r.ReadString()
             let flag = r.ReadString()
             Conformance.ConformanceError.ShapeFlagDiffers(typeName, flag, r.ReadBoolean())
+        | 29uy ->
+            let name = r.ReadString()
+            Conformance.ConformanceError.LiteralOnOneHalf(name, r.ReadBoolean())
+        | 30uy ->
+            let name = r.ReadString()
+            let declared = r.ReadString()
+            Conformance.ConformanceError.LiteralValueDiffers(name, declared, r.ReadString())
         | b -> failwithf "FrozenCodec: unknown ConformanceError tag %d" b
 
     /// A `uint16`-backed enum, written as its own representation INCLUDING the flag bits; a
@@ -712,6 +728,12 @@ module FrozenCodecDiagnostics =
         | Kind.ReferenceEqualityOnStruct -> w.Write 55uy
         | Kind.MeasureExpected -> w.Write 62uy
         | Kind.TypeExpectedNotMeasure -> w.Write 63uy
+        | Kind.SignatureLiteralWithoutValue -> w.Write 69uy
+        | Kind.SignatureValueWithoutLiteral -> w.Write 70uy
+        | Kind.SignatureLiteralTypeMismatch(expected, actual) ->
+            w.Write 71uy
+            w.Write expected
+            w.Write actual
 
     let private readKind (r: FrozenReader) : Kind =
         match r.ReadByte() with
@@ -865,6 +887,11 @@ module FrozenCodecDiagnostics =
         | 66uy -> Kind.OverstatedRecursion(RecursionOverstatement.RedundantRec(readStringList r))
         | 67uy -> Kind.OverstatedRecursion(RecursionOverstatement.SplittableGroup(readListWith r readStringList))
         | 68uy -> Kind.InlineInRecGroup(r.ReadString())
+        | 69uy -> Kind.SignatureLiteralWithoutValue
+        | 70uy -> Kind.SignatureValueWithoutLiteral
+        | 71uy ->
+            let expected = r.ReadString()
+            Kind.SignatureLiteralTypeMismatch(expected, r.ReadString())
         | b -> failwithf "FrozenCodec: unknown Kind tag %d" b
 
     let writeDiagnostic (w: FrozenWriter) (d: XParsec.FSharp.SemanticAnalysis.Diagnostic) =

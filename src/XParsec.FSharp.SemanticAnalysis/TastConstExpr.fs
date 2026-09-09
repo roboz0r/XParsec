@@ -74,6 +74,12 @@ module TConstResult =
         | TConstResult.ArrayVal _ -> ValueNone
 
 [<RequireQualifiedAccess>]
+module TConstDenotation =
+
+    /// The scalar; `ValueNone` for `null`, a type value and an array.
+    let tryScalar (d: TConstDenotation) : TConstValue voption = TConstResult.tryScalar d.Result
+
+[<RequireQualifiedAccess>]
 module TConstExpr =
 
     let ty (e: TConstExpr) : FrozenType =

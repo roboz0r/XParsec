@@ -12,25 +12,30 @@ open XParsec.FSharp.SemanticAnalysis.ElaborateCalls
 
 module internal ElaborateIdents =
 
-    /// A reference to a `[<Literal>]` of this file becomes the constant it declares.
-    let private localRef (ctx: PassContext) (bindingSite: NodeKey) (ty: SemType) (tok: SyntaxToken) : TExpr =
-        match
-            ctx.Resolution.LiteralValues.TryGetValue bindingSite
-            |> ValueOption.bind TConstExpr.tryScalar
-        with
-        | ValueSome c -> TExpr.Const(c, ty, tok)
-        | ValueNone -> TExpr.Var(bindingSite, ty, tok)
-
+    /// A value reference at `key`: a `[<Literal>]` of this file or of a referenced assembly
+    /// becomes the constant it declares, every other local a `Var` and every other provider
+    /// hit an `External`.
     let translateIdent (ctx: PassContext) (key: NodeKey) (ty: SemType) (tok: SyntaxToken) : TExpr =
-        match ctx.Bindings.Binding.TryGetValue key with
-        | ValueSome rb -> localRef ctx rb.BindingSite ty tok
-        // No Binding entry => NameResolution resolved through the provider, and stamped the
-        // identity it reached. Every spelling of one symbol carries the same key, so the
-        // written form is not re-derived here.
-        | ValueNone -> externalRef ctx.Resolution.ExternalValue key ty tok
+        let literal, slot =
+            match ctx.Bindings.Binding.TryGetValue key with
+            | ValueSome rb ->
+                ctx.Resolution.LiteralValues.TryGetValue(BoundVarKey.ofPatKey rb.BindingSite),
+                (fun () -> TExpr.Var(rb.BindingSite, ty, tok))
+            // No Binding entry => NameResolution resolved through the provider, and stamped the
+            // identity it reached. Every spelling of one symbol carries the same key, so the
+            // written form is not re-derived here.
+            | ValueNone ->
+                ctx.Resolution.ExternalValue.TryGetValue key
+                |> ValueOption.bind ctx.Provider.TryLookupByKey
+                |> ValueOption.bind (fun sym -> sym.Literal),
+                (fun () -> externalRef ctx.Resolution.ExternalValue key ty tok)
+
+        match literal |> ValueOption.bind TConstDenotation.tryScalar with
+        | ValueSome c -> TExpr.Const(c, ty, tok)
+        | ValueNone -> slot ()
 
     /// Fold a multi-segment `r.X.Y…` LongIdent into nested `FieldGet` nodes. The
-    /// anchor segment (`r`) becomes a `Var` pointing back at the local binding.
+    /// anchor segment (`r`) is translated as an identifier reference.
     let translateLongIdentFieldChain
         (ctx: PassContext)
         (li: LongIdent<SyntaxToken>)
@@ -49,10 +54,7 @@ module internal ElaborateIdents =
             | ValueSome rb -> typeOfKey ctx rb.BindingSite
             | ValueNone -> finalTy
 
-        let anchorExpr =
-            match anchorBinding with
-            | ValueSome rb -> TExpr.Var(rb.BindingSite, anchorTy, tok)
-            | ValueNone -> externalRef ctx.Resolution.ExternalValue anchorKey anchorTy tok
+        let anchorExpr = translateIdent ctx anchorKey anchorTy tok
 
         // The chain's *last* segment may be a property read on a typar object argument constrained
         // to an interface (`this.Source.Current` where `Source : 'E :> IStructEnumerator<'T>`).

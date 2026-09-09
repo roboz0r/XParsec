@@ -488,6 +488,13 @@ type Kind =
     /// An expression outside the constant domain, in attribute-argument (`[<Foo(1 + x)>]`)
     /// or `[<Literal>]`-RHS position.
     | NotConstantExpression
+    /// `[<Literal>] val X: T` in a signature, with no `= e` declaring the value.
+    | SignatureLiteralWithoutValue
+    /// `val X: T = e` in a signature, with no `[<Literal>]` licensing the value.
+    | SignatureValueWithoutLiteral
+    /// A `[<Literal>]` signature value whose constant is of another type than the
+    /// annotation (FS0001). Both are rendered types.
+    | SignatureLiteralTypeMismatch of expected: string * actual: string
     /// The attribute's declared `[<AttributeUsage>]` mask admits none of the flags the
     /// written-on element occupies. Both are `AttributeTargetFlags` sets.
     | AttributeTargetInvalid of element: int * validOn: int
@@ -610,6 +617,9 @@ module Kind =
         | Kind.AllowNullLiteralOnWrongKind -> DiagCode.FSharp 934
         | Kind.ReferenceEqualityOnStruct -> DiagCode.FSharp 376
         | Kind.NotConstantExpression -> DiagCode.FSharp 267 // tcInvalidConstantExpression
+        | Kind.SignatureLiteralWithoutValue -> DiagCode.Vesper "V261"
+        | Kind.SignatureValueWithoutLiteral -> DiagCode.Vesper "V262"
+        | Kind.SignatureLiteralTypeMismatch _ -> DiagCode.FSharp 1 // ErrorFromAddingTypeEquation
         | Kind.NewConstraintResultType -> DiagCode.FSharp 700 // tcNewConstraintMustTakeOneArg
         // fsc files this as a WARNING; here the mismatch is an error.
         | Kind.AttributeTargetInvalid _ -> DiagCode.FSharp 842 // tcAttributeIsNotValidForLanguageElement
@@ -752,6 +762,11 @@ module Kind =
         | Kind.ReferenceEqualityOnStruct ->
             "The 'ReferenceEquality' attribute cannot be used on structs. Consider using the 'StructuralEquality' attribute instead, or implement an override for 'System.Object.Equals(obj)'."
         | Kind.NotConstantExpression -> "This is not a valid constant expression or custom attribute value"
+        | Kind.SignatureLiteralWithoutValue ->
+            "A [<Literal>] value in a signature must declare its value: 'val X: int = 3'"
+        | Kind.SignatureValueWithoutLiteral -> "Only a value marked [<Literal>] may declare its value in a signature"
+        | Kind.SignatureLiteralTypeMismatch(expected, actual) ->
+            sprintf "This expression was expected to have type '%s' but here has type '%s'" expected actual
         | Kind.AttributeTargetInvalid(element, validOn) ->
             sprintf
                 "This attribute cannot be applied to %s. Valid targets are: %s"
@@ -878,6 +893,9 @@ module Kind =
         | Kind.AllowNullLiteralOnWrongKind
         | Kind.ReferenceEqualityOnStruct
         | Kind.NotConstantExpression
+        | Kind.SignatureLiteralWithoutValue
+        | Kind.SignatureValueWithoutLiteral
+        | Kind.SignatureLiteralTypeMismatch _
         | Kind.AttributeTargetInvalid _
         | Kind.CapabilityNotImplemented _
         | Kind.CapabilityNotDeclared _

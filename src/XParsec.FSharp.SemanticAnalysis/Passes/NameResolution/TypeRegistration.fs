@@ -753,16 +753,17 @@ module NameResolutionTypeRegistration =
                     env
         }
 
-    /// Records the RHS of a `[<Literal>]` module binding in `ctx.Resolution.LiteralValues`.
+    /// Records what a `[<Literal>]` module binding's RHS denotes in `ctx.Resolution.LiteralValues`.
     /// Checking runs at the binding's own position, so an EARLIER literal it references
-    /// resolves and a later one does not; an RHS outside the constant domain is FS0267.
+    /// resolves and a later one does not; an RHS outside the constant domain is FS0267. A
+    /// pattern binding other than a single name (`let a, b = …`) records nothing.
     let private registerLiteralBinding (ctx: PassContext) (b: Binding<SyntaxToken>) : unit =
         if (ctx.ResolveAttributes b.attributes).Has RuntimeNames.literalAttributeKey then
-            match ConstExprCheck.check ctx (ctx.UseSiteAt(CstKeys.ofBinding b)) b.expr with
-            | ValueSome rhs ->
-                for (_, key) in NameResolutionScope.bindingsOfPat ctx b.pattern do
-                    ctx.Resolution.LiteralValues.Set(key, rhs)
-            | ValueNone -> ()
+            match
+                BoundVarKey.ofCstPat b.pattern, ConstExprCheck.check ctx (ctx.UseSiteAt(CstKeys.ofBinding b)) b.expr
+            with
+            | ValueSome boundVar, ValueSome rhs -> ctx.Resolution.LiteralValues.Set(boundVar, TConstExpr.denotation rhs)
+            | _ -> ()
 
     /// Classify + stamp every type name a module-level TERM writes: a `let`'s parameter and
     /// return-type annotations, and every annotation reachable in its body. Runs at the term's

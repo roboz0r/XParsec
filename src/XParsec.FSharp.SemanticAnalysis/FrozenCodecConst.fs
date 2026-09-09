@@ -207,6 +207,14 @@ module FrozenCodecConst =
             TConstExpr.Binary(op, left, right, result, readTypeRef r, readAnchor r)
         | b -> failwithf "FrozenCodec: unknown TConstExpr tag %d" b
 
+    let writeTConstDenotation (w: FrozenWriter) (d: TConstDenotation) =
+        writeTConstResult w d.Result
+        writeTypeRef w d.Ty
+
+    let readTConstDenotation (r: FrozenReader) : TConstDenotation =
+        let result = readTConstResult r
+        { Result = result; Ty = readTypeRef r }
+
     let private writeTAttributeArg (w: FrozenWriter) (a: TAttributeArg) =
         writeStringVOption w a.Name
         writeTConstExpr w a.Expr

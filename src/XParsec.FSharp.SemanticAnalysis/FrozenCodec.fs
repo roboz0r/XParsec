@@ -572,7 +572,7 @@ module FrozenCodec =
     /// The blob layout's version. Bump it with every change to a column, a payload or a
     /// table's encoding, so a blob of an older layout is refused rather than misread.
     [<Literal>]
-    let private FormatVersion = 17uy
+    let private FormatVersion = 18uy
 
     let private writePools (w: FrozenWriter) (p: FrozenPools) =
         w.Write FormatVersion

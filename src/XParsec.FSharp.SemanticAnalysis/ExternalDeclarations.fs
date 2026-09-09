@@ -83,6 +83,9 @@ type ExternalSymbol =
         ImportForm: ImportForm
         /// The symbol's splice TEMPLATE: a `val inline` whose home file published its body.
         InlineBody: InlineBody voption
+        /// What a `[<Literal>]` denotes, which a reference is substituted with. `ValueNone`
+        /// for a value with a runtime slot to read.
+        Literal: TConstDenotation voption
     }
 
     /// The type-kinded typar count of `Generics`.

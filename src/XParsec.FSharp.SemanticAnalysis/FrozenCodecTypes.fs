@@ -416,11 +416,13 @@ module FrozenCodecTypes =
         writeSymbolRef w m.Key
         writeVOptionWith w (fun w (CompiledName n) -> w.Write n) m.CompiledName
         writeTAttributes w m.Attributes
+        writeVOptionWith w writeTConstDenotation m.Literal
 
     let readModuleBindingInfo (r: FrozenReader) : ModuleBindingInfo =
         let key = readSymbolRef r
         let compiledName = readVOptionWith r (fun r -> CompiledName(r.ReadString()))
         let attributes = readTAttributes r
+        let literal = readVOptionWith r readTConstDenotation
 
         match key with
         | SymbolKey.Binding bk ->
@@ -429,6 +431,7 @@ module FrozenCodecTypes =
                 Name = bk.Name
                 CompiledName = compiledName
                 Attributes = attributes
+                Literal = literal
             }
         | k -> failwithf "FrozenCodec: a ModuleBindingInfo stored a non-Binding key: %A" k
 

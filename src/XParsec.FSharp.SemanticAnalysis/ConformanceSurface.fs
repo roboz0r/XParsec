@@ -2,6 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
 open Vesper
+open XParsec.FSharp.Lexer
 
 // `.fsi` ↔ `.fs` conformance over the two ANALYSED halves, compared by resolved identity: the
 // signature's surface against the one the implementation would publish signatureless. A
@@ -39,6 +40,21 @@ module ConformanceSurface =
         | ExternalTypeShape.Union _
         | ExternalTypeShape.Enum _
         | ExternalTypeShape.Class _ -> not (declaredExterns.Contains entry.Key)
+
+    /// The rendering of a constant in a diagnostic message: `3`, `"abc"`, `[| 1; 2 |]`.
+    let rec private describeConst (r: TConstResult) : string =
+        match r with
+        | TConstResult.Scalar(TConstValue.Integral v) -> IntValue.render v
+        | TConstResult.Scalar(TConstValue.Float v) -> sprintf "%g" v
+        | TConstResult.Scalar(TConstValue.Float32 v) -> sprintf "%gf" v
+        | TConstResult.Scalar(TConstValue.Bool v) -> if v then "true" else "false"
+        | TConstResult.Scalar(TConstValue.Char v) -> sprintf "'%c'" v
+        | TConstResult.Scalar(TConstValue.Decimal v) -> sprintf "%Mm" v
+        | TConstResult.Scalar(TConstValue.String v) -> sprintf "\"%s\"" v
+        | TConstResult.Scalar TConstValue.Unit -> "()"
+        | TConstResult.Null -> "null"
+        | TConstResult.TypeVal t -> sprintf "typeof<%s>" (Conformance.describeType t)
+        | TConstResult.ArrayVal items -> sprintf "[| %s |]" (items |> Seq.map describeConst |> String.concat "; ")
 
     let private comparable (a: TAttributeArg) : string voption * TConstDenotation = a.Name, TConstExpr.denotation a.Expr
 
@@ -166,6 +182,22 @@ module ConformanceSurface =
                                 declaredEmission,
                                 impl.EmittedName
                             )
+
+                    // Literals compare by denotation: `0x1` and `1` are one value.
+                    match entry.Value.Literal, impl.Literal with
+                    | ValueSome declared, ValueSome defined ->
+                        if declared <> defined then
+                            yield
+                                Conformance.ConformanceError.LiteralValueDiffers(
+                                    named entry.Key,
+                                    describeConst declared.Result,
+                                    describeConst defined.Result
+                                )
+                    | ValueSome _, ValueNone ->
+                        yield Conformance.ConformanceError.LiteralOnOneHalf(named entry.Key, true)
+                    | ValueNone, ValueSome _ ->
+                        yield Conformance.ConformanceError.LiteralOnOneHalf(named entry.Key, false)
+                    | ValueNone, ValueNone -> ()
         ]
 
     /// Divergences over every type and value declaration, in key order, attributes in the

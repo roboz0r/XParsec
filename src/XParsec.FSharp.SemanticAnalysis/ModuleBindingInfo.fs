@@ -13,6 +13,9 @@ type ModuleBindingInfo =
         CompiledName: CompiledName voption
         /// The binding's attributes, resolved and constant-folded, in written order.
         Attributes: TAttributes
+        /// What a `[<Literal>]` binding's right-hand side denotes; `ValueNone` for every other
+        /// binding.
+        Literal: TConstDenotation voption
     }
 
     member this.BindingKey: BindingKey = SymbolKeyOps.bindingKeyOf this.Container this.Name

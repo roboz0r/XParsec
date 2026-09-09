@@ -78,11 +78,18 @@ module ConstExprCheck =
         case.Value
         |> ValueOption.map (fun v -> TConstExpr.EnumCase(owner.Key, case.Name, TConstResult.Scalar v, at))
 
-    /// The `LiteralRef` node for `m`, carrying the RHS's own checked value and type;
-    /// `ValueNone` for any other module value.
-    let private literalRefNode (ctx: PassContext) (at: Anchor) (m: LocalModuleMember) : TConstExpr voption =
-        ctx.Resolution.LiteralValues.TryGetValue m.BindingSite
-        |> ValueOption.map (fun rhs -> TConstExpr.LiteralRef(m.Key, TConstExpr.result rhs, TConstExpr.ty rhs, at))
+    /// The `LiteralRef` node for the `[<Literal>]` binding `key`, carrying what its RHS denotes.
+    let private literalRefNode (at: Anchor) (key: BindingKey) (rhs: TConstDenotation) : TConstExpr =
+        TConstExpr.LiteralRef(key, rhs.Result, rhs.Ty, at)
+
+    /// The `LiteralRef` node for `v`; `ValueNone` for any other value. A value of this file
+    /// carries its denotation on `LiteralValues`, a published one on its symbol.
+    let private valueNode (ctx: PassContext) (at: Anchor) (v: ResolvedValue) : TConstExpr voption =
+        match v with
+        | ResolvedValue.Local m ->
+            ctx.Resolution.LiteralValues.TryGetValue(BoundVarKey.ofPatKey m.BindingSite)
+            |> ValueOption.map (literalRefNode at m.Key)
+        | ResolvedValue.External sym -> sym.Literal |> ValueOption.map (literalRefNode at sym.Key)
 
     /// The constant an identifier's segments (`Mask`, `E.C`, `Path.M.Mask`) denote at `useSite`.
     let private tryNamedConstant
@@ -93,7 +100,7 @@ module ConstExprCheck =
         let at = Anchor.ofToken idents.[0]
 
         match resolveWhole ctx useSite (segmentsOf ctx idents) with
-        | ValueSome(ResolvedItem.Value(ResolvedValue.Local m)) -> literalRefNode ctx at m
+        | ValueSome(ResolvedItem.Value v) -> valueNode ctx at v
         | ValueSome(ResolvedItem.EnumCase(owner, case)) -> enumCaseNode at owner case
         | _ -> ValueNone
 

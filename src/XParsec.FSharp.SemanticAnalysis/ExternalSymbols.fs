@@ -785,6 +785,7 @@ module ExternalSymbols =
             ValRepr = ValueNone
             ImportForm = ImportForm.Named
             InlineBody = ValueNone
+            Literal = ValueNone
         }
 
     /// A monomorphic symbol from a closed `FrozenType` scheme. `decl` is a module chain, or

@@ -30,8 +30,8 @@ A constant expression types bottom-up and is then checked against the position's
 The declared type does not propagate into a literal: `fsi` refuses `[<Long(1)>]` against an
 `int64` parameter with FS0267 and accepts `[<Long(1L)>]`, so a literal keeps the type its own
 suffix gives it (stage 1's mapping) and an argument whose type differs from the parameter's is an
-error rather than a widening. `null` is the one form with no type of its own and takes the
-parameter's, as `[<S(null)>]` against a single `string` parameter shows.
+error rather than a widening. `null` and `[||]` are the two forms with no type of their own
+and take the parameter's, as `[<S(null)>]` against a single `string` parameter shows.
 
 | Position | Checked against |
 |---|---|
@@ -42,10 +42,23 @@ parameter's, as `[<S(null)>]` against a single `string` parameter shows.
 | Enum case `\| A = 1` | the enum's underlying type |
 | `[<DefaultParameterValue(0)>]` | the parameter's declared type |
 
+An `obj` position is the exception to "no widening": a parameter, property or array element
+declared `obj` admits any constant, including `null`, `typeof<T>` and an array, and the CLR
+blob encodes it boxed (II.23.3 `0x51`). `[<F(1)>]` against `F(x: obj)` is accepted where
+`[<N(1)>]` against `N(x: int64)` is FS0267.
+
 Constructor selection stays finite: filter by argument count, check the arguments against each
-candidate's parameters, take the unique success. No metavariables, no union-find. The same
+candidate's parameters, take the unique success. Where two candidates both admit every
+argument, the one with no `obj` parameter at a position where the other has one wins, and
+any other tie is FS0041. Probed: `M(obj)`/`M(string)` takes `M(string)` for `null` and for
+`"s"`, `V(obj)`/`V(Type)` takes `V(Type)` for `typeof<int>` and for `null`, and
+`B(string)`/`B(Type)` is FS0041 for `null`. No metavariables, no union-find. The same
 checker therefore serves the `.fs` and `.fsi` paths, and attribute arguments never enter
 `Unification` on either.
+
+A named argument `x = v` is matched against the chosen constructor's parameter names before
+the class's settable properties and fields: `[<S3(y = 2, x = 1)>]` selects `new(x: int, y: int)`
+and `[<Z("a", y = 1)>]` fills either a trailing parameter or a property named `y`.
 
 A `TypeOf` operand is ground by construction: `typeof<'T>` in attribute-argument position is
 refused by `fsi` with FS3187 both for a member's owning type parameter and for a binding's own,
@@ -185,8 +198,8 @@ where `let c: Color = enum<Color> 2` is clean. `inferTypeApp` (`InferTypeOps.fs:
 local binding's scheme or a nominal result, and an external symbol is neither. This misses
 attribute arguments entirely, which never enter `Unification`.
 
-`Resolution.LiteralValues` is now a `SideTable<TConstExpr>` keyed by binding site, holding the
-RHS as checked, so a `LiteralRef` carries the referent's own type — an enum-typed literal keeps
+`Resolution.LiteralValues` is now a `BoundVarTable<TConstDenotation>` keyed by bound variable,
+holding what the RHS denotes, so a `LiteralRef` carries the referent's own type — an enum-typed literal keeps
 its `FTEnum`, which the scalar-only table could not express. `ElaborateIdents.translateIdent`
 substitutes it at each use site, as `externalMemberExpr` (`ElaborateExpr.fs:29`) does for an
 external one. It stays on the side table rather than moving onto `ModuleBindingInfo`: publishing
@@ -253,29 +266,156 @@ Two positions the plan listed are NOT in:
   FS0522. Which element a class `let` occupies is an open question for the user rather than a
   guess to encode.
 
-### 5. The `.fsi` leg
+### 5. The `.fsi` leg — LANDED
 
-`ModuleSignatureElement.ValLiteral` currently lands in the discard arm at
-`SignatureResolution.fs:756` — a signature literal's value is parsed and thrown away, so
-`ExternalMember.ConstValue` has no producer from a Vesper signature. `SigCtx`
-(`Passes/SignatureResolution/Context.fs:31`) carries the `PassContext` the checker takes, and
-`SignatureResolution.fs:706`'s attribute arguments already reach it through `AttributeFold.build`,
-so the leg is: run `ConstExprCheck.check` over `ValLiteral`'s RHS at the signature's own use
-site and publish the checked constant.
+The plan above misread the CST: the parser keeps `[<Literal>] val X: int = e` on
+`ValSig.literalValue`, and `ModuleSignatureElement.ValLiteral` had no producer, so it is
+deleted. The leg is therefore in `registerValSig`: `signatureLiteral` runs
+`ConstExprCheck.check` over the trailing expression at the signature's own use site and
+requires the checked type to equal the annotation's template, per the Shape table above.
+A `[<Literal>]` without a value, a value without `[<Literal>]`, and a value of another type
+are each reported at the signature.
 
-`ConformanceSurface.comparableArgs` (`ConformanceSurface.fs:46`) then compares two values derived
-the same way, which it does not today.
+Both publication ends landed together, as stage 3 deferred:
 
-Done when: a `[<Literal>]` declared in a referenced assembly's signature folds at a use site in
-another assembly, and `.fsi`/`.fs` attribute disagreement is reported on argument expressions.
+- `ExternalSymbol.Literal: TConstDenotation voption` is the const slot. Every consumer reads
+  the value and its type alone, so the slot carries the denotation rather than the checked
+  expression, whose anchors point into the declaring file. `ConstExprCheck` folds a published
+  literal through it, and `ElaborateIdents.translateIdent` substitutes it at a use site
+  (bare ident and `r.X` chain anchor alike) as it does for a local one.
+- `ModuleBindingInfo.Literal` carries a `.fs` binding's denotation into the frozen tree,
+  read off `Resolution.LiteralValues` by the binding's bound variable at
+  `Elaborate.exportedBindingInfo`, so a `.fs` without a signature publishes the same slot
+  through `FrozenSignature.addValue`. The side table stays: the checker reads it during name
+  resolution, before `ModuleMembers` exists.
+
+Conformance compares the two halves' literals by `TConstDenotation`: `LiteralValueDiffers`
+and `LiteralOnOneHalf` are fsc's FS0034. Attribute arguments already compared by denotation
+after stage 2, so the second "done when" clause held before this stage.
+
+Regressions: `SignatureResolutionTests` (publication, the three refusals, and a published
+literal at a use site in another assembly through both Elaborate and the checker),
+`FrozenSignatureTests` (the `.fs` slot survives the blob), and `ConformanceTests` (FS0034).
 
 ### 6. The full attribute-argument domain
 
-Add `Null`, `TypeOf` and `ArrayLit` to the checker: `[<Foo(null)>]`, `[<Foo(typeof<T>)>]`,
-`[<Foo([| 1; 2 |])>]`. `null` is a distinct node, following `TExprG.Null` (`TastExpr.fs:65`)
-rather than becoming a `TConstValue` case.
+`TConstExpr.Null`, `TypeOf` and `ArrayLit`, `TConstResult.Null`, `TypeVal` and `ArrayVal`,
+their codec cases in `FrozenCodecConst.fs` and their `ConformanceSurface.describeConst`
+spellings all landed with stage 2. `ConstExprCheck.check` produces none of them, and
+`AttributeBlob.tryElem` (`AttributeRows.fs:82`) writes scalars only. Stage 8's CLR encoding is
+absorbed here: each sub-stage lands its own `Elem` form so "reaches a backend" is checkable
+per sub-stage. JS emits no attributes and is done when the codec round-trip holds.
 
-Done when: each round-trips through the codec and reaches a backend.
+The three forms differ in what they need from the position. `typeof<T>` and a non-empty array
+of one element type carry their own type and need nothing. `null`, `[||]` and any argument
+against an `obj` position take their type from the constructor parameter, which the front end
+does not select today: `AttributeFold.foldAttribute` folds each argument with no reference to
+the constructor, and selection by arity alone lives in the CLR backend
+(`AttributeRowPrep.fs:49-62`). 6a and 6b are bounded checker changes; 6c is the selection.
+
+#### 6a. `typeof<T>`
+
+`Expr.TypeApp` of an applied name resolving to the `typeof` intrinsic binding, with one type
+argument. `tryEnumKey` (`ConstExprCheck.fs:108`) already resolves a written type through
+`NameResolutionLongIdent.resolveType` and narrows to an enum; 6a needs the general form,
+resolving the written `Type<SyntaxToken>` at the use site and freezing it through
+`FrozenTypeBridge`. The node's `ty` is `System.Type`'s key. Recognise `typedefof<T>` in the
+same arm.
+
+Probed domain: `typeof<int>`, `typeof<int list>`, `typeof<list<_>>`, `typedefof<list<_>>`,
+`typeof<int[]>`, `typeof<int * string>` and `typeof<int -> int>` are all accepted. A type
+parameter operand is FS3187 (assumption 3), reported at the type argument.
+
+CLR: `AttributeBlob` writes `Type` (`0x50`) followed by the SerString of the type's
+assembly-qualified name for a referenced type, or its full name alone for a type of the
+assembly under emission. A type the encoder cannot spell (an anonymous or structural form)
+is `AttributeBlobRejection.UnencodableValue` until stage 7 moves the verdict upstream.
+
+Done when: `[<L(typeof<int>)>]` round-trips through the codec, `ConstExprCheckTests` pins the
+accepted domain and FS3187, and `AttributeRowTests` reads the `Type` element back from an
+emitted assembly.
+
+#### 6b. Non-empty array literals
+
+`Expr.ArrayOrList` in its array form with at least one item. Each item is checked with
+`check`; every item must have exactly the first item's type, and the node's `ty` is the
+frozen array of it. fsc reports a differing item as FS0267 at the item, not FS0001:
+`[<D([| 1; 2L |])>]` is FS0267 at `2L`. A nested array is FS0267 at the inner `[|`, so an
+item that is itself an `ArrayLit` is refused. `[||]`, `null` items and `obj[]` positions wait
+for 6c.
+
+fsc refuses `byte[]` and `uint16[]` literals (`[<K([| 1uy |])>]` and `"s"B` are both FS0267)
+while accepting every other primitive element type. II.23.3 encodes both, and the refusal is
+a front-end gate on a target-neutral value, so Vesper accepts them. Recorded as a stated
+parity departure alongside `decimal` and `nativeint` in the Shape section.
+
+CLR: `SZARRAY` (`0x1D`) followed by the element's `FieldOrPropType` byte, a `uint32` count
+and each element's `Elem`. An enum-typed element writes at its underlying width, as a
+positional enum scalar does today. `tryClassify` becomes recursive over `TConstResult` rather
+than a scalar match.
+
+Done when: `[<D([| 1; 2 |])>]` and `[<J([| E.A; E.B ||| E.C |])>]` round-trip and read back
+from an emitted assembly, and the mixed-element and nested-array refusals are pinned.
+
+#### 6c. Constructor selection, `null`, `[||]` and `obj` positions
+
+The front end selects the constructor and records it on `TAttribute`, so the backend reads
+a handle rather than choosing by arity: `AttributeCtorResolution`'s `NoMatchingCtor`,
+`AmbiguousCtor` and `NoExternalCtor` skips become front-end diagnostics at the attribute.
+
+**Candidates.** An external class's constructors come from
+`IExternalSymbolProvider.TryLookupMembers(key, ".ctor")` with ground `ExternalSignature`s. A
+local class's `ClassCtorParamInfo.Type` is an inference cell (`TypeInfos.fs:421`), so a
+local attribute class's parameter types are the resolved ANNOTATIONS, read the way
+`ClassFieldInfo` holds a `val` field's declared type. An unannotated parameter on a class
+used as an attribute is refused at the use, since the attribute's blob needs a declared type
+and fsc's inference to `obj` is a fact about fsc's inference order. Record the declared
+types on `ClassCtorParamInfo` as a `Declared: SemType voption` beside the cell rather than
+re-reading the CST at each attribute.
+
+**When.** A type declaration's attributes are declared at `DeclRegistration`, before
+`MemberRegistration` resolves any class's annotations, so a local attribute class's
+parameters are not resolvable at that moment. Selection therefore runs where target
+enforcement already runs, in `Passes.Attributes.run` after every declaration is filed, and
+`check` moves there with it: `AttributePosition` holds the resolved attributes and use site
+at declaration and gains its checked form in `run`. The FS0039 rule stage 4 cites is a
+name-resolution scoping fact carried by the `UseSite`, so the fold's result is unchanged by
+running later. Write the test that proves that first: `[<Tag(LaterLit)>]` above the literal
+stays FS0039 with the fold in `run`.
+
+**Selection.** Filter candidates by positional count, then check each positional argument
+against the candidate's parameter with `expected = ValueSome paramTy`, taking the stage 3
+deferral: `check` gains `expected: FrozenType voption`, `ValueNone` at every existing call
+site. An argument checks against a parameter when its own type equals it, or the parameter
+is `obj`. `Null` and an empty `ArrayLit` are the two nodes that take `expected` as their
+`ty`; `null` against a non-nullable or absent expectation is refused. Where more than one
+candidate admits every argument, prefer the candidate whose parameters are not `obj` at a
+position where another's are; a remaining tie is FS0041 at the attribute, and a single-
+candidate mismatch is FS0001 at the argument (probed: `[<S2("s")>]` against `S2(x: int)`).
+A positional count matching no candidate is FS0505.
+
+**Named arguments.** After the constructor is chosen, `Name` resolves against its parameter
+names first, then the class's settable properties and fields, each supplying the expected
+type. An `obj` named argument boxes as a positional one does. `TAttributeArg` records which
+kind the name resolved to, since the blob writes a named parameter positionally and a
+property under `0x54`. fsc's FS3172 on an `obj`-typed property named argument is an fsc
+defect and is not mirrored.
+
+**Element expectations.** Once `expected` exists, an `ArrayLit` against `T[]` checks each
+item with `expected = ValueSome T`, which is what admits `[| 1; "a" |]` and `[| null |]`
+against `obj[]`, and `[||]` against any array parameter. An `ArrayLit` against `obj` is
+checked with no element expectation and boxed whole.
+
+CLR: `tryClassify` reads the recorded constructor's parameter types, and writes `0x51`
+followed by the value's own `FieldOrPropType` and `Elem` at each `obj` position. `Null` for a
+string, type or array parameter is the II.23.3 null form (`0xFF` for `Type` and string,
+`0xFFFFFFFF` count for an array). `AttributeRowPrep`'s arity match is deleted, and
+`ClrProvider.TryExternalAttributeCtor` takes the recorded member key instead of a count.
+
+Done when: every acceptance and refusal recorded in this stage and in assumptions 6 to 9 is
+pinned by a test, `AttributeFoldTests` pins the overload preference
+and FS0041, the frozen tree carries the chosen constructor, and an emitted assembly reads
+back a boxed `obj` argument and a `null` argument through reflection.
 
 ### 7. The backend encodability gate
 
@@ -295,10 +435,7 @@ Done when: a `decimal` attribute argument is represented in the frozen tree, rep
 compiling for CLR, and silent when compiling for JS, with `PlatformTypes.fs` as the shape
 precedent for a target-conditioned analysis diagnostic.
 
-### 8. CLR encoding for the new cases
-
-`AttributeBlob.tryElem` (`AttributeRows.fs:82-105`) writes scalars only. Add `SZARRAY` (`0x1D`)
-and `Type` (`0x50`), including the assembly-qualified name a `Type` argument's SerString needs.
+### 8. CLR encoding for the new cases — folded into 6a, 6b and 6c
 
 ### 9. Wider operator domain
 
@@ -345,7 +482,23 @@ named-constant lookup at that one position, and is deliberately not planned here
 5. `null`, array literals, `nameof` and string concatenation are all valid attribute arguments.
    **Confirmed by probe.**
 6. Attribute constructor selection is by argument count then per-candidate checking, with an
-   ambiguity reported rather than silently ordered. **Open** — not probed; overload behaviour
-   with several same-arity constructors is untested.
+   ambiguity reported rather than silently ordered. **Confirmed by probe, with one
+   preference rule.** Same-arity candidates are distinguished by the literal's own type
+   (`A(int)`/`A(int64)`/`A(string)` under `1`, `1L`, `"s"`). Where two admit the argument,
+   the candidate without an `obj` parameter wins, verified by reflection on the emitted row.
+   `null` between `string` and `Type` is FS0041; between `string` and `int` it selects
+   `string`. A wrong count is FS0505 and a single-candidate mismatch is FS0001.
 7. `TConstExpr` in the frozen tree is a tooling surface with no codegen consumer, so no backend
    is required to read anything but the result. **Open.**
+8. An `obj` position admits any constant without a cast. **Confirmed by probe** — `1`,
+   `null`, `typeof<int>`, `[| 1; 2 |]` and `[| "a" |]` against `F(x: obj)`, and `[| 1; "a" |]`,
+   `[| null |]` and `[| typeof<int> |]` against `obj[]`. `box 1` is FS0267: the boxing is the
+   position's, never written.
+9. Array literal items share one type and do not nest. **Confirmed by probe** —
+   `[| 1; 2L |]` and `[| 1; 2 |]` against `int64[]` are FS0267 at the item, `[| [| 1 |] |]`
+   is FS0267 at the inner array, and `[||]` between `int[]` and `string[]` candidates is
+   FS0041. `byte[]` and `uint16[]` are refused by fsc and accepted here (6b).
+10. Nothing in the frozen tree needs the constructor today, so 6c adds it rather than
+    changes an existing consumer: the CLR row writer re-selects by arity and `EmitResolve`
+    re-selects for `TExpr.New` by unified types. **Open** whether `TExpr.New`'s recorded
+    `Resolution.ExternalCtor` is the right precedent for the field's shape.

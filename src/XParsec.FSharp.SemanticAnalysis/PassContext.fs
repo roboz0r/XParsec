@@ -321,9 +321,9 @@ type PassContextResolution =
         /// not self-visible: a non-`rec` group's bindings scope below the group, so a value read
         /// inside its own RHS skips them (`LocalScope.tryValue`). Empty everywhere else.
         mutable PendingBindings: Set<NodeKey>
-        /// Keyed by a module-level `[<Literal>]` binding's pattern `NodeKey` (the
-        /// `LocalModuleMember.BindingSite` a value resolution yields): the RHS as checked.
-        LiteralValues: SideTable<TConstExpr>
+        /// Keyed by a module-level `[<Literal>]` binding's bound variable: what its RHS
+        /// denotes as checked.
+        LiteralValues: BoundVarTable<TConstDenotation>
         /// Keyed by an attributed declaration's site (`AttributeSite`).
         AttributePositions: AttributePositionTable
     }
@@ -359,7 +359,7 @@ module PassContextResolution =
             TypeRefVerdicts = SideTable<_>()
             AttributeVerdicts = SideTable<_>()
             LocalModuleMembers = Dictionary<_, _>()
-            LiteralValues = SideTable<_>()
+            LiteralValues = BoundVarTable<_>()
             AttributePositions = AttributePositionTable()
         }
 

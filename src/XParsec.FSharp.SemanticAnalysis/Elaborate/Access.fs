@@ -116,10 +116,7 @@ module internal ElaborateAccess =
             | ValueSome rb -> typeOfKey ctx rb.BindingSite
             | ValueNone -> typeOfKey ctx access.Key
 
-        let anchorExpr =
-            match anchorBinding with
-            | ValueSome rb -> TExpr.Var(rb.BindingSite, anchorTy, tok)
-            | ValueNone -> externalRef ctx.Resolution.ExternalValue anchorKey anchorTy tok
+        let anchorExpr = ElaborateIdents.translateIdent ctx anchorKey anchorTy tok
 
         let mutable curr = anchorExpr
         let mutable currTy = anchorTy

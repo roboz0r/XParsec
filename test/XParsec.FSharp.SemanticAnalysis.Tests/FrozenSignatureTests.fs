@@ -523,4 +523,30 @@ module M =
                     (Block.singleton aName)
                     "'OnlyA' resolves to A alone"
             }
+
+            test "a `[<Literal>]` binding projects its checked value through the blob" {
+                let origin, frozen =
+                    freezeWithOrigin "module Lib\n\n[<Literal>]\nlet Mask = 1 ||| 2\n\nlet plain = 3"
+
+                let thawed = FrozenCodec.thaw (FrozenCodec.flatten frozen)
+                let store = FrozenSignature.toSignatures origin thawed :> IExternalSymbolStore
+
+                let literalOf (name: string) =
+                    match store.TryLookupByKey(bindingKey frozen name) with
+                    | ValueSome sym -> sym.Literal
+                    | ValueNone -> failtestf "'%s' was not published" name
+
+                let three = TConstValue.Integral(IntValue.Int32 3)
+
+                Expect.equal
+                    (literalOf "Mask")
+                    (ValueSome
+                        {
+                            Result = TConstResult.Scalar three
+                            Ty = FTConst(TConstValue.canonKey three, Block.empty)
+                        })
+                    "Mask carries the folded value"
+
+                Expect.equal (literalOf "plain") ValueNone "a runtime binding carries none"
+            }
         ]

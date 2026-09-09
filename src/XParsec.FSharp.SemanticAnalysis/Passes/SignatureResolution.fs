@@ -628,6 +628,39 @@ module SignatureResolution =
         | ValueSome(Access.Internal _) -> true
         | ValueSome(Access.Private _) -> false
 
+    /// What a `[<Literal>] val X: T = e` denotes, whose type equals the annotation's
+    /// `template`. A `[<Literal>]` without a value, a value without `[<Literal>]`, and a
+    /// value of another type are each reported at the signature.
+    let private signatureLiteral
+        (ctx: PassContext)
+        (ident: IdentOrOp<SyntaxToken>)
+        (resolvedAttrs: ResolvedAttributes)
+        (template: FrozenType)
+        (literalValue: (SyntaxToken * Expr<SyntaxToken>) voption)
+        : TConstDenotation voption =
+        match resolvedAttrs.Has RuntimeNames.literalAttributeKey, literalValue with
+        | false, ValueNone -> ValueNone
+        | true, ValueNone ->
+            ctx.Report(CstKeys.firstTokenOfIdentOrOp ident, Kind.SignatureLiteralWithoutValue)
+            ValueNone
+        | false, ValueSome(eq, _) ->
+            ctx.Report(eq, Kind.SignatureValueWithoutLiteral)
+            ValueNone
+        | true, ValueSome(_, e) ->
+            match
+                ConstExprCheck.check ctx (ctx.UseSiteAt(CstKeys.ofExpr e)) e
+                |> ValueOption.map TConstExpr.denotation
+            with
+            | ValueSome d when d.Ty = template -> ValueSome d
+            | ValueSome d ->
+                ctx.Report(
+                    CstKeys.firstTokenOfExpr e,
+                    Kind.SignatureLiteralTypeMismatch(Conformance.describeType template, Conformance.describeType d.Ty)
+                )
+
+                ValueNone
+            | ValueNone -> ValueNone
+
     let private registerValSig
         (sctx: SigCtx)
         (containment: DeclContainment<SyntaxToken>)
@@ -635,7 +668,13 @@ module SignatureResolution =
         : unit =
         let ctx = sctx.Pass
 
-        let (ValSig(attributes = attrs; access = access; ident = ident; typars = tds; signature = csig)) =
+        let (ValSig(
+            attributes = attrs
+            access = access
+            ident = ident
+            typars = tds
+            signature = csig
+            literalValue = literalValue)) =
             valSig
 
         classifyValSigTypes ctx valSig
@@ -696,6 +735,7 @@ module SignatureResolution =
                     { ExternalSymbols.scheme decl name template generics with
                         CompiledName = AttributeDecode.compiledNameOf ctx.NameOf name resolvedAttrs
                         ValRepr = valRepr
+                        Literal = signatureLiteral ctx ident resolvedAttrs template literalValue
                     }
 
                 PublishedSurfaceBuilder.addValue sctx.Surface sym
@@ -756,7 +796,6 @@ module SignatureResolution =
             | ModuleSignatureElement.Val valSig -> registerValSig sctx w.Containment valSig
             | ModuleSignatureElement.ModuleAbbrev abbrev -> ctx.ReportAbbrevTarget(w.Containment, abbrev)
             | ModuleSignatureElement.Import import -> ctx.ReportOpenTarget(w.Containment, import)
-            | ModuleSignatureElement.ValLiteral _
             | ModuleSignatureElement.Exception _
             | ModuleSignatureElement.Module _
             | ModuleSignatureElement.CompilerDirective _

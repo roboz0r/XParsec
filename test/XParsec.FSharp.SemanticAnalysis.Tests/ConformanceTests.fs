@@ -374,6 +374,36 @@ let analysedConformanceTests =
                     "both halves fold to one argument list"
             }
 
+            // ---- `[<Literal>]` values across the pair (fsc's FS0034) ----
+
+            test "a literal written on both halves with one value conforms, whatever its spelling" {
+                Expect.isEmpty
+                    (conformAnalysed
+                        "namespace V\n\n[<Literal>]\nval Mask: int = 0x3"
+                        "namespace V\n\n[<Literal>]\nlet Mask = 1 ||| 2")
+                    "both halves denote 3"
+            }
+
+            test "a literal whose value differs across the pair is reported" {
+                let m =
+                    conformAnalysed
+                        "namespace V\n\n[<Literal>]\nval Mask: int = 3"
+                        "namespace V\n\n[<Literal>]\nlet Mask = 4"
+                    |> theOne "finding"
+
+                Expect.stringContains m "V.Mask" "names the value"
+                Expect.stringContains m "differing constant values: 3 in the signature" "the values disagree"
+                Expect.stringContains m "4 in the implementation" "the implementation's value is shown"
+            }
+
+            test "a literal on the implementation alone is reported" {
+                let m =
+                    conformAnalysed "namespace V\n\nval Mask: int" "namespace V\n\n[<Literal>]\nlet Mask = 3"
+                    |> theOne "finding"
+
+                Expect.stringContains m "is not [<Literal>] in the signature (.fsi) but is" "one-sided"
+            }
+
             test "named arguments conform in either order" {
                 Expect.isEmpty
                     (conformAnalysed

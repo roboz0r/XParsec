@@ -149,6 +149,12 @@ module Conformance =
         /// A declaration-shape flag (`sealed`, `abstract`, `struct`) written on one half alone
         /// (FS0296/FS0297 for `sealed`, FS0193 for `abstract`).
         | ShapeFlagDiffers of typeName: string * flag: string * declared: bool
+        /// A value marked `[<Literal>]` on one half alone (FS0034). `declared` is whether the
+        /// signature marks it.
+        | LiteralOnOneHalf of name: string * declared: bool
+        /// A `[<Literal>]` value whose constant differs across the pair (FS0034). `declared`
+        /// and `defined` are each half's rendered constant.
+        | LiteralValueDiffers of name: string * declared: string * defined: string
 
     let describe (e: ConformanceError) : string =
         let half (present: bool) = if present then "is" else "is not"
@@ -293,6 +299,18 @@ module Conformance =
                 (half declared)
                 flag
                 (half (not declared))
+        | ConformanceError.LiteralOnOneHalf(n, declared) ->
+            sprintf
+                "value '%s' %s [<Literal>] in the signature (.fsi) but %s in the implementation (.fs)"
+                n
+                (half declared)
+                (half (not declared))
+        | ConformanceError.LiteralValueDiffers(n, declared, defined) ->
+            sprintf
+                "value '%s' is [<Literal>] on both halves of the pair with differing constant values: %s in the signature (.fsi), %s in the implementation (.fs)"
+                n
+                declared
+                defined
 
     /// One attribute written on both halves of a `.fsi` / `.fs` pair with differing arguments.
     /// `Attribute` is the attribute's metadata name.

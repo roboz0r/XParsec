@@ -1523,3 +1523,90 @@ let tests =
                 | other -> failtestf "expected a Class shape for C; got %A" other
             }
         ]
+
+/// `Lib.Mask`, a `[<Literal>]` declared by a referenced assembly's signature alone.
+let private libSig = "namespace Lib\n\n[<Literal>]\nval Mask: int = 0x3"
+
+/// The denotation of the `int` literal `n`.
+let private intC (n: int) : TConstDenotation =
+    let v = TConstValue.Integral(IntValue.Int32 n)
+
+    {
+        Result = TConstResult.Scalar v
+        Ty = FTConst(TConstValue.canonKey v, Block.empty)
+    }
+
+/// The referenced assembly's signature stacked over the real contract, as a consumer sees it.
+let private libProvider () : IExternalSymbolProvider =
+    let r = resolveFsi "lib.fsi" libSig
+    Expect.isEmpty r.Messages "the signature resolves cleanly"
+    ExternalSymbolProviders.composite [ realProvider.Value; r.Provider ]
+
+[<Tests>]
+let literalTests =
+    testList
+        "SignatureResolution literals"
+        [
+            test "`[<Literal>] val X: int = 0x3` publishes its checked value" {
+                let r = resolveFsi "app.fsi" libSig
+                Expect.isEmpty r.Messages "clean"
+
+                Expect.equal (symbolOf r "Mask").Literal (ValueSome(intC 3)) "the value as checked"
+            }
+
+            test "a value of another type than the annotation is reported" {
+                let r = resolveFsi "app.fsi" "namespace Lib\n\n[<Literal>]\nval Mask: int64 = 3"
+
+                Expect.equal
+                    r.Messages
+                    [ "This expression was expected to have type 'int64' but here has type 'int'" ]
+                    "the literal keeps its own type"
+
+                Expect.isTrue (symbolOf r "Mask").Literal.IsNone "no value is published"
+            }
+
+            test "a `[<Literal>]` without a value is reported" {
+                let r = resolveFsi "app.fsi" "namespace Lib\n\n[<Literal>]\nval Mask: int"
+
+                Expect.isTrue
+                    (r.Messages |> List.exists (fun m -> m.Contains "must declare its value"))
+                    (sprintf "%A" r.Messages)
+            }
+
+            test "a value without `[<Literal>]` is reported" {
+                let r = resolveFsi "app.fsi" "namespace Lib\n\nval Mask: int = 3"
+
+                Expect.isTrue
+                    (r.Messages
+                     |> List.exists (fun m -> m.Contains "Only a value marked [<Literal>]"))
+                    (sprintf "%A" r.Messages)
+
+                Expect.isTrue (symbolOf r "Mask").Literal.IsNone "no value is published"
+            }
+
+            test "a published literal is a constant at a use site in another assembly" {
+                let lexed, file = parseFile "open Lib\n\nlet x = Mask"
+
+                let tast =
+                    Pipeline.analyseSemFor testCompiling (libProvider ()) (LexedFile.ofText lexed) file
+
+                expectCleanTast tast
+
+                match List.last (List.ofSeq tast.Decls) with
+                | TDecl.Let({
+                                Value = TExpr.Const(TConstValue.Integral(IntValue.Int32 3), _, _)
+                            },
+                            _,
+                            _) -> ()
+                | other -> failtestf "expected `x` to hold the published constant, got %A" other
+            }
+
+            test "a published literal folds inside a constant expression in another assembly" {
+                let ctx, file = analyseNameRes (libProvider ()) "open Lib\n\nlet x = Mask ||| 4"
+                let b = firstBinding file
+
+                match ConstExprCheck.check ctx (ctx.UseSiteAt(CstKeys.ofBinding b)) b.expr with
+                | ValueSome node -> Expect.equal (TConstExpr.denotation node) (intC 7) "Mask ||| 4"
+                | ValueNone -> failtestf "rejected: %A" [ for d in ctx.Diagnostics -> d.Message ]
+            }
+        ]
