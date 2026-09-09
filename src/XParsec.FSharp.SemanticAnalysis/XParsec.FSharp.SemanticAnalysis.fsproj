@@ -147,13 +147,6 @@
     <Compile Include="AssignTarget.fs" />
     <Compile Include="Passes\NameResolution\LongIdent.fs" />
     <Compile Include="Passes\NameResolution\TypeRefStamp.fs" />
-    <!-- After `LongIdent.fs`: a constant position resolves a spelling through the SAME
-         resolver expression position uses, and attribute folding runs the checker over it. -->
-    <Compile Include="ConstExprCheck.fs" />
-    <Compile Include="AttributeFold.fs" />
-    <!-- After name resolution: an attribute is decoded by RESOLVING its long-ident
-         as a type, not by matching its short name. -->
-    <Compile Include="Passes\Attributes.fs" />
     <Compile Include="Passes\Unification\EngineCore.fs" />
     <!-- Immediately after `zonk`, which every query here is asked through, and before any
          pass that asks one. It reads the engine core and the `SemType` shapes, nothing else. -->
@@ -167,6 +160,14 @@
     <Compile Include="Passes\Unification\ConstraintCheck.fs" />
     <Compile Include="Passes\Unification\Engine.fs" />
     <Compile Include="Passes\Unification\Translate.fs" />
+    <!-- After `LongIdent.fs`: a constant position resolves a name through the resolver
+         expression position uses. After `Translate.fs`: a reified type goes through the
+         written-type translator every annotation uses. -->
+    <Compile Include="ConstExprCheck.fs" />
+    <Compile Include="AttributeFold.fs" />
+    <!-- After name resolution: an attribute is decoded by RESOLVING its long-ident
+         as a type, not by matching its short name. -->
+    <Compile Include="Passes\Attributes.fs" />
     <Compile Include="Passes\NameResolution\Scope.fs" />
     <Compile Include="Passes\NameResolution\TypeRegistration.fs" />
     <Compile Include="Passes\NameResolution\DeclRegistration.fs" />

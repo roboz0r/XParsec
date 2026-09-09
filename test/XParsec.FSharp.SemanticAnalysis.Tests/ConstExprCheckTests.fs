@@ -39,8 +39,31 @@ let private published: IExternalSymbolProvider =
         b.ImplicitOpens <- [ SymbolKeyOps.assemblyAutoOpen "Tests" ]
     )
 
+/// The `System.ValueTuple` family member a tuple of `arity` instantiates, capped at the
+/// `ValueTuple`8` that nests the rest. Mirrors `ClrTuples.typeKey`.
+let private valueTupleKey (arity: int) : TypeKey =
+    SymbolKeyOps.typeKeyOfArity "System" "ValueTuple" (min arity 8)
+
+/// The CLR backend's platform facts, which `realProvider` omits by composing over
+/// `PackageProviders.noPlatformMetadata`.
+let private clrPlatform: IExternalSymbolProvider =
+    ExternalSymbolProviders.ofKeyIndexedChannels
+        { ExternalSymbolProviders.KeyIndexedChannels.empty with
+            Platform =
+                ValueSome
+                    { new IPlatformFacts with
+                        member _.IsValueType _ = ValueNone
+
+                        member _.TupleType arity =
+                            if arity < 2 then
+                                ValueNone
+                            else
+                                ValueSome(valueTupleKey arity)
+                    }
+        }
+
 let private provider: Lazy<IExternalSymbolProvider> =
-    lazy ExternalSymbolProviders.composite [ realProvider.Value; published ]
+    lazy ExternalSymbolProviders.composite [ realProvider.Value; published; clrPlatform ]
 
 let private eKey = SymbolKeyOps.typeKeyOf "" "E"
 let private directionKey = SymbolKeyOps.qualifiedTypeKeyOf "Tests.Direction" 0
@@ -59,6 +82,15 @@ let private enumC (key: TypeKey) (v: TConstValue) : TConstDenotation =
         Result = TConstResult.Scalar v
         Ty = FTEnum key
     }
+
+/// A `typeof<T>` / `typedefof<T>` outcome: the reified type, at `Vesper.Type`.
+let private typeC (operand: FrozenType) : TConstDenotation =
+    {
+        Result = TConstResult.TypeVal operand
+        Ty = FTConst(RuntimeNames.runtimeTypeKey, Block.empty)
+    }
+
+let private ftPrim (key: TypeKey) : FrozenType = FTConst(key, Block.empty)
 
 /// The file's last top-level `let` binding.
 let private lastBinding (file: ImplementationFile<SyntaxToken>) : Binding<SyntaxToken> =
@@ -99,6 +131,12 @@ let private int32 (v: int) = TConstValue.Integral(IntValue.Int32 v)
 
 /// `E.A = 1`, `E.B = 4`, and a second enum `F.Bit = 8` at the same width.
 let private localEnums = [ "type E = | A = 1 | B = 4"; "type F = | Bit = 8" ]
+
+/// An arity-1 record, for the reified generic instantiation and its definition.
+let private genericBox = [ "type Box<'T> = { v: 'T }" ]
+
+let private boxKey = SymbolKeyOps.typeKeyOfArity "" "Box" 1
+let private rKey = SymbolKeyOps.typeKeyOf "" "R"
 
 /// A bare and a module-qualified `[<Literal>]`.
 let private literals =
@@ -305,6 +343,253 @@ let tests =
                             (checkWith (localEnums @ [ "let enum (v: int) = v" ]) "enum<E> 1")
                             notConstant
                             "a `let enum` of the file denotes another binding"
+                    }
+                ]
+
+            testList
+                "reified types"
+                [
+                    test "typeof<int>" {
+                        Expect.equal (check "typeof<int>") (Ok(typeC (ftPrim RuntimeNames.intKey))) "typeof<int>"
+                    }
+
+                    test "typeof<string>" {
+                        Expect.equal
+                            (check "typeof<string>")
+                            (Ok(typeC (ftPrim RuntimeNames.stringKey)))
+                            "typeof<string>"
+                    }
+
+                    test "typeof of an array" {
+                        Expect.equal
+                            (check "typeof<int[]>")
+                            (Ok(typeC (FTConst(RuntimeNames.arrayKey 1, Block.singleton (ftPrim RuntimeNames.intKey)))))
+                            "typeof<int[]>"
+                    }
+
+                    test "typeof of a local record" {
+                        Expect.equal
+                            (checkWith [ "type R = { a: int }" ] "typeof<R>")
+                            (Ok(typeC (FTRecord(rKey, Block.empty))))
+                            "typeof<R>"
+                    }
+
+                    test "typeof of a local enum" {
+                        Expect.equal (checkWith localEnums "typeof<E>") (Ok(typeC (FTEnum eKey))) "typeof<E>"
+                    }
+
+                    test "typeof of a published enum" {
+                        Expect.equal (check "typeof<Direction>") (Ok(typeC (FTEnum directionKey))) "typeof<Direction>"
+                    }
+
+                    test "typeof of a generic instantiation carries the argument" {
+                        Expect.equal
+                            (checkWith genericBox "typeof<Box<int>>")
+                            (Ok(typeC (FTRecord(boxKey, Block.singleton (ftPrim RuntimeNames.intKey)))))
+                            "typeof<Box<int>>"
+                    }
+
+                    // Accepted here; fsc reifies both as BCL nominals (`System.Tuple`2`,
+                    // `FSharpFunc`2`).
+                    test "typeof of a tuple" {
+                        Expect.equal
+                            (check "typeof<int * string>")
+                            (Ok(
+                                typeC (
+                                    FTTuple(Block.ofList [ ftPrim RuntimeNames.intKey; ftPrim RuntimeNames.stringKey ])
+                                )
+                            ))
+                            "typeof<int * string>"
+                    }
+
+                    test "typeof of a function" {
+                        Expect.equal
+                            (check "typeof<int -> int>")
+                            (Ok(typeC (FTFun(ftPrim RuntimeNames.intKey, ftPrim RuntimeNames.intKey))))
+                            "typeof<int -> int>"
+                    }
+
+                    test "typedefof drops the written type arguments" {
+                        Expect.equal
+                            (checkWith genericBox "typedefof<Box<int>>")
+                            (Ok(typeC (FTRecord(boxKey, Block.empty))))
+                            "typedefof<Box<int>>"
+                    }
+
+                    test "typedefof takes an inferred type argument, which it discards" {
+                        Expect.equal
+                            (checkWith genericBox "typedefof<Box<_>>")
+                            (Ok(typeC (FTRecord(boxKey, Block.empty))))
+                            "typedefof<Box<_>>"
+                    }
+
+                    test "typedefof of a niladic type is that type" {
+                        Expect.equal (check "typedefof<int>") (Ok(typeC (ftPrim RuntimeNames.intKey))) "typedefof<int>"
+                    }
+
+                    // `int[]`'s element type is an argument of an ARITY-0 identity, so there is
+                    // nothing to drop: fsc gives `System.Int32[]` too.
+                    test "typedefof of an array keeps its element type" {
+                        Expect.equal
+                            (check "typedefof<int[]>")
+                            (Ok(typeC (FTConst(RuntimeNames.arrayKey 1, Block.singleton (ftPrim RuntimeNames.intKey)))))
+                            "typedefof<int[]>"
+                    }
+
+                    // The provider supplies the identity, so the answer is the target's: fsc
+                    // says `System.Tuple`2`, where a Vesper tuple IS a value tuple.
+                    test "typedefof of a tuple is the target's tuple identity" {
+                        Expect.equal
+                            (check "typedefof<int * string>")
+                            (Ok(typeC (FTClass(valueTupleKey 2, Block.empty))))
+                            "typedefof<int * string>"
+
+                        Expect.equal
+                            (check "typedefof<int * string * bool>")
+                            (Ok(typeC (FTClass(valueTupleKey 3, Block.empty))))
+                            "typedefof<int * string * bool>"
+                    }
+
+                    test "typedefof of an anonymous union is rejected" {
+                        Expect.equal
+                            (check "typedefof<string | null>")
+                            (Error [ ConstExprCheck.Rejection.structuralDefinition ])
+                            "typedefof<string | null>"
+                    }
+
+                    // The identity is the target's to supply, so a stack with no platform facts
+                    // refuses.
+                    test "typedefof of a tuple is rejected without platform facts" {
+                        Expect.equal
+                            (checkAgainst realProvider.Value [] "typedefof<int * string>")
+                            (Error [ ConstExprCheck.Rejection.structuralDefinition ])
+                            "typedefof<int * string>"
+                    }
+
+                    // A 9-tuple is a `ValueTuple`8` whose 8th argument nests the rest, and
+                    // `typedefof` drops every argument, so the nesting stays in the encoder.
+                    test "typedefof of a tuple past the family's width is the nesting member" {
+                        Expect.equal
+                            (check "typedefof<int * int * int * int * int * int * int * int * int>")
+                            (Ok(typeC (FTClass(valueTupleKey 8, Block.empty))))
+                            "typedefof of a 9-tuple"
+                    }
+
+                    // `Vesper.Fun`2` is the interface a curried value implements on both
+                    // targets, so no platform fact is asked for.
+                    test "typedefof of a function is the curried interface" {
+                        Expect.equal
+                            (check "typedefof<int -> int>")
+                            (Ok(typeC (FTClass(RuntimeNames.vesperFunKey 2, Block.empty))))
+                            "typedefof<int -> int>"
+
+                        Expect.equal
+                            (check "typedefof<int -> string -> bool>")
+                            (Ok(typeC (FTClass(RuntimeNames.vesperFunKey 2, Block.empty))))
+                            "typedefof<int -> string -> bool>"
+                    }
+
+                    // fsc reports FS3187: a reified type is ground.
+                    test "a type parameter operand is rejected" {
+                        Expect.equal (check "typeof<'T>") (Error [ ConstExprCheck.Rejection.typarReified ]) "typeof<'T>"
+                    }
+
+                    test "a type parameter among the arguments is rejected under typedefof too" {
+                        Expect.equal
+                            (checkWith genericBox "typedefof<Box<'T>>")
+                            (Error [ ConstExprCheck.Rejection.typarReified ])
+                            "typedefof<Box<'T>>"
+                    }
+
+                    // fsc infers the hole (`typeof<list<_>>` is `list<obj>`); a constant
+                    // position rejects it instead.
+                    test "an inferred type argument is rejected under typeof" {
+                        Expect.equal
+                            (checkWith genericBox "typeof<Box<_>>")
+                            (Error [ ConstExprCheck.Rejection.inferredReified ])
+                            "typeof<Box<_>>"
+                    }
+
+                    test "a bare hole is rejected under typedefof" {
+                        Expect.equal
+                            (check "typedefof<_>")
+                            (Error [ ConstExprCheck.Rejection.inferredReified ])
+                            "typedefof<_>"
+                    }
+
+                    // The array identity has arity 0, so its element type survives `typedefof`
+                    // and a hole there is read.
+                    test "a hole in an array element is rejected under typedefof" {
+                        Expect.equal
+                            (check "typedefof<_[]>")
+                            (Error [ ConstExprCheck.Rejection.inferredReified ])
+                            "typedefof<_[]>"
+                    }
+
+                    // A structural form's elements are arguments of the identity it takes, and
+                    // `typedefof` drops them before the type is read, as it does for `Box<_>`.
+                    test "a hole in a structural form is dropped with the arguments" {
+                        Expect.equal
+                            (check "typedefof<_ * int>")
+                            (Ok(typeC (FTClass(valueTupleKey 2, Block.empty))))
+                            "typedefof<_ * int>"
+
+                        Expect.equal
+                            (check "typedefof<(_ -> int)>")
+                            (Ok(typeC (FTClass(RuntimeNames.vesperFunKey 2, Block.empty))))
+                            "typedefof<(_ -> int)>"
+
+                        Expect.equal
+                            (checkWith genericBox "typedefof<Box<_> * int>")
+                            (Ok(typeC (FTClass(valueTupleKey 2, Block.empty))))
+                            "typedefof<Box<_> * int>"
+                    }
+
+                    // Name resolution reports the written arity (FS0033) before the check runs,
+                    // and the translation's recovery carries that reason, so the check refuses
+                    // silently under either spelling.
+                    test "a generic name written without its arguments is reported once" {
+                        for src in [ "typeof<Box>"; "typedefof<Box>" ] do
+                            let ctx, file =
+                                analyseNameRes provider.Value ("type Box<'T> = { v: 'T }\nlet x = " + src)
+
+                            let b = lastBinding file
+
+                            Expect.isTrue
+                                (ConstExprCheck.check ctx (ctx.UseSiteAt(CstKeys.ofBinding b)) b.expr).IsNone
+                                (src + " is not a constant expression")
+
+                            Expect.equal
+                                [ for d in ctx.Diagnostics -> d.Kind ]
+                                [ Kind.TypeArgArity("Box", 1, 0) ]
+                                (src + ": one diagnostic, at the written name")
+                    }
+
+                    // Name resolution reports the written name (FS0039) before the check runs,
+                    // so the check refuses without adding a second diagnostic.
+                    test "an undefined type is reported once" {
+                        let ctx, file = analyseNameRes provider.Value "let x = typeof<Nope>"
+                        let b = lastBinding file
+
+                        Expect.isTrue
+                            (ConstExprCheck.check ctx (ctx.UseSiteAt(CstKeys.ofBinding b)) b.expr).IsNone
+                            "typeof<Nope> is not a constant expression"
+
+                        Expect.equal
+                            [ for d in ctx.Diagnostics -> d.Kind ]
+                            [ Kind.UndefinedType "Nope" ]
+                            "one diagnostic, at the written name"
+                    }
+
+                    test "a shadowed typeof is not a constant expression" {
+                        Expect.equal
+                            (checkWith [ "let typeof (v: int) = v" ] "typeof<int>")
+                            notConstant
+                            "a `let typeof` of the file denotes another binding"
+                    }
+
+                    test "a reification with two type arguments is not a constant expression" {
+                        Expect.equal (check "typeof<int, string>") notConstant "typeof<int, string>"
                     }
                 ]
 

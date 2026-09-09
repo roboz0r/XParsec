@@ -9,7 +9,8 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 
 /// The attribute-argument constant domain: a literal, a named-constant reference (an enum
 /// case or a `[<Literal>]` value), `|||`/`&&&`/`^^^` on two integral constants of one type,
-/// unary minus on a numeric constant, an enum conversion, and grouping parens.
+/// unary minus on a numeric constant, an enum conversion, `typeof<T>` / `typedefof<T>`, and
+/// grouping parens.
 module ConstExprCheck =
 
     /// What a rejected expression reports, beside `Kind.NotConstantExpression` for a form
@@ -43,6 +44,20 @@ module ConstExprCheck =
         let enumOperand =
             Kind.Message "An enum conversion in a constant expression takes an integral constant"
 
+        /// `typeof<'T>` / `typedefof<Box<'T>>` (FS3187): a reified type is ground.
+        let typarReified =
+            Kind.Message
+                "A constant expression cannot reify a type parameter; a declaration's type parameters are not in scope in a constant position"
+
+        /// `typeof<list<_>>`: a constant position reads every type argument as written.
+        let inferredReified =
+            Kind.NotYetSupported "an inferred type argument ('_') in a reified type; write the type argument in full"
+
+        /// `typedefof<string | null>`, and a tuple or function under a provider carrying no
+        /// platform facts: a generic definition comes from an identity the target supplies.
+        let structuralDefinition =
+            Kind.Message "'typedefof' takes a type with a generic definition on the target"
+
     /// Reports `kind` at `e`'s first token. Arms propagate `ValueNone` without reporting again,
     /// so one rejected expression yields one diagnostic.
     let private reject (ctx: PassContext) (e: Expr<SyntaxToken>) (kind: Kind) : TConstExpr voption =
@@ -51,6 +66,9 @@ module ConstExprCheck =
 
     let private typeOfValue (ctx: PassContext) (v: TConstValue) : FrozenType =
         LiteralTypes.frozenOfConstValue ctx.Intrinsics v
+
+    let private runtimeType (ctx: PassContext) : FrozenType =
+        toFrozen (ctx.Intrinsics.OfCanon RuntimeNames.runtimeTypeKey)
 
     let private segmentsOf (ctx: PassContext) (idents: ImmutableArray<SyntaxToken>) : string[] =
         [| for t in idents -> ctx.NameOf t |]
@@ -185,6 +203,143 @@ module ConstExprCheck =
             |> ValueOption.map (fun conv -> struct (conv, args.[0]))
         | _ -> ValueNone
 
+    /// Which type a reification denotes.
+    [<RequireQualifiedAccess>]
+    type private Reified =
+        /// `typeof<T>`: the type as written.
+        | AsWritten
+        /// `typedefof<T>`: the generic definition of the written type constructor, its type
+        /// arguments discarded.
+        | Definition
+
+    /// The reification `applied` resolves to at `useSite`; `ValueNone` for any other expression.
+    let private tryReified (ctx: PassContext) (useSite: UseSite) (applied: Expr<SyntaxToken>) : Reified voption =
+        match applied with
+        | CstKeys.IdentPath idents ->
+            match tryBinding ctx useSite (segmentsOf ctx idents) with
+            | ValueSome key when key = RuntimeNames.typeofBindingKey -> ValueSome Reified.AsWritten
+            | ValueSome key when key = RuntimeNames.typedefofBindingKey -> ValueSome Reified.Definition
+            | _ -> ValueNone
+        | _ -> ValueNone
+
+    /// The first type parameter (`'T` / `^T`) written anywhere inside `written`. A type
+    /// parameter is refused before translation, which would mint an undeclared one into the
+    /// enclosing `TyparScope`.
+    let private tryWrittenTypar (written: Type<SyntaxToken>) : SyntaxToken voption =
+        let mutable found = ValueNone
+
+        let visitType _ (t: Type<SyntaxToken>) =
+            match t with
+            | Type.VarType(Typar.Named(ident = id))
+            | Type.VarType(Typar.Static(ident = id)) when found.IsNone -> found <- ValueSome id
+            | _ -> ()
+
+            found.IsNone
+
+        CstTypeWalk.iterType
+            { CstTypeWalk.identityTypeIter with
+                VisitType = visitType
+            }
+            written
+
+        found
+
+    /// The identity a structural type is laid out under: a tuple as `IPlatformFacts` supplies
+    /// it (CLR `System.ValueTuple`n`, JS a rank-1 array), a function as `Vesper.Fun`2`, the
+    /// interface a curried value implements on both targets.
+    let private tryPlatformIdentity (ctx: PassContext) (t: FrozenType) : TypeKey voption =
+        match t with
+        | FTTuple items -> ctx.Provider.Platform |> ValueOption.bind (fun p -> p.TupleType items.Length)
+        | FTFun _ -> ValueSome(RuntimeNames.vesperFunKey 2)
+        | _ -> ValueNone
+
+    /// `t` with its type arguments dropped, where its identity is generic. A tuple and a
+    /// function take the identity the target lays them out under. An arity-0 identity
+    /// (`int[]`), an enum and an unresolved type are unchanged.
+    let private tryDefinitionOf (ctx: PassContext) (t: FrozenType) : FrozenType voption =
+        match t with
+        | FTConst(key, _) when key.TyparArity > 0 -> ValueSome(FTConst(key, Block.empty))
+        | FTRecord(key, _) when key.TyparArity > 0 -> ValueSome(FTRecord(key, Block.empty))
+        | FTUnion(key, _) when key.TyparArity > 0 -> ValueSome(FTUnion(key, Block.empty))
+        | FTClass(key, _) when key.TyparArity > 0 -> ValueSome(FTClass(key, Block.empty))
+        | FTConst _
+        | FTRecord _
+        | FTUnion _
+        | FTClass _
+        | FTEnum _
+        | FTUnknown _ -> ValueSome t
+        | FTTuple _
+        | FTFun _ ->
+            match tryPlatformIdentity ctx t with
+            | ValueSome key when key.TyparArity > 0 -> ValueSome(FTClass(key, Block.empty))
+            | _ -> ValueNone
+        | _ -> ValueNone
+
+    /// `t` where it is ground. A written `_` is reported at `at`; any other unresolved type was
+    /// reported at its written name.
+    let private tryGround
+        (ctx: PassContext)
+        (at: SyntaxToken)
+        (translated: SemType)
+        (t: FrozenType)
+        : FrozenType voption =
+        if FrozenTypeBridge.ftIsGround t then
+            ValueSome t
+        else
+            if ctx.HasInferenceHoleIn translated then
+                ctx.Report(at, Rejection.inferredReified)
+
+            ValueNone
+
+    /// The ground type `typeof<written>` / `typedefof<written>` reifies, `at` the
+    /// reification's own token; `ValueNone` after the rejection is reported.
+    let private tryReifiedType
+        (ctx: PassContext)
+        (at: SyntaxToken)
+        (reified: Reified)
+        (written: Type<SyntaxToken>)
+        : FrozenType voption =
+        match tryWrittenTypar written with
+        | ValueSome tok ->
+            ctx.Report(tok, Rejection.typarReified)
+            ValueNone
+        | ValueNone ->
+            // An attribute argument lies outside the name-resolution walk; an expression-position
+            // argument was stamped by the walk, and the verdict is memoised.
+            NameResolutionTypeRefStamp.stampTypeRefs ctx written
+
+            // A `_` mints a fresh type variable and an inference-hole mark in `ctx`; a constant
+            // position reads the mark once and leaves the variable unlinked.
+            let translated = UnificationTranslate.translateType ctx written
+
+            let frozen =
+                FrozenTypeBridge.freezeWith ctx.Store (fun _ -> FTUnknown UnknownReason.UnresolvedTypar) translated
+
+            let candidate =
+                match reified with
+                | Reified.AsWritten -> ValueSome frozen
+                | Reified.Definition ->
+                    match tryDefinitionOf ctx frozen with
+                    | ValueSome definition -> ValueSome definition
+                    | ValueNone ->
+                        ctx.Report(at, Rejection.structuralDefinition)
+                        ValueNone
+
+            candidate |> ValueOption.bind (tryGround ctx at translated)
+
+    /// A reification applied to exactly one written type.
+    [<return: Struct>]
+    let private (|Reification|_|)
+        (ctx: PassContext)
+        (useSite: UseSite)
+        (e: Expr<SyntaxToken>)
+        : struct (Reified * Type<SyntaxToken>) voption =
+        match e with
+        | Expr.TypeApp(expr = applied; types = typeArgs) when typeArgs.Length = 1 ->
+            tryReified ctx useSite applied
+            |> ValueOption.map (fun reified -> struct (reified, typeArgs.[0]))
+        | _ -> ValueNone
+
     /// Negation wraps AT THE WIDTH: `-(-128y)` stays `-128y`.
     let private negateScalar (v: TConstValue voption) : Result<TConstValue, Kind> =
         match v with
@@ -256,6 +411,11 @@ module ConstExprCheck =
                     )
                 | _ -> reject ctx e Rejection.enumOperand
             )
+        | Reification ctx useSite (struct (reified, written)) ->
+            let at = CstKeys.firstTokenOfExpr e
+
+            tryReifiedType ctx at reified written
+            |> ValueOption.map (fun operand -> TConstExpr.TypeOf(operand, runtimeType ctx, Anchor.ofToken at))
         // The lexer merges `-` into an ADJACENT numeric where the preceding token cannot be a
         // left operand, so `-1` arrives above as one literal. This arm takes the spaced `- 1`
         // and `-(1)`.

@@ -54,6 +54,9 @@ files = [
     "prim-types-nativeint-measured.fs",
     "compiler-markers.fsi",
     "compiler-markers.fs",
+    # `reflect` is CLR-only: JS has no runtime representation of a type.
+    "reflect.fsi",
+    "reflect.clr.fs",
     "core-types.fsi",
     "core-types.fs",
     # `fun-adapters` is CLR-only: a CLR function value is a nominal `Fun` interface, so

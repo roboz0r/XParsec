@@ -311,29 +311,84 @@ of one element type carry their own type and need nothing. `null`, `[||]` and an
 against an `obj` position take their type from the constructor parameter, which the front end
 does not select today: `AttributeFold.foldAttribute` folds each argument with no reference to
 the constructor, and selection by arity alone lives in the CLR backend
-(`AttributeRowPrep.fs:49-62`). 6a and 6b are bounded checker changes; 6c is the selection.
+(`AttributeRowPrep.fs:49-62`). 6b is a bounded checker change; 6c is the selection. 6a was
+not: `typeof` had no declaration anywhere, so it splits into a front end and a CLR encoding.
 
-#### 6a. `typeof<T>`
+#### 6a. `typeof<T>` — the front end — LANDED
 
-`Expr.TypeApp` of an applied name resolving to the `typeof` intrinsic binding, with one type
-argument. `tryEnumKey` (`ConstExprCheck.fs:108`) already resolves a written type through
-`NameResolutionLongIdent.resolveType` and narrows to an enum; 6a needs the general form,
-resolving the written `Type<SyntaxToken>` at the use site and freezing it through
-`FrozenTypeBridge`. The node's `ty` is `System.Type`'s key. Recognise `typedefof<T>` in the
-same arm.
+`typeof` was a missing LANGUAGE FEATURE, not an attribute-fold detail: it had no Vesper.Core
+declaration, no `Type` type and no recogniser, exactly as stage 10 records for `nameof`. The
+front end and the CLR blob encoding therefore split, and 6a-clr below carries the encoding.
 
-Probed domain: `typeof<int>`, `typeof<int list>`, `typeof<list<_>>`, `typedefof<list<_>>`,
-`typeof<int[]>`, `typeof<int * string>` and `typeof<int -> int>` are all accepted. A type
-parameter operand is FS3187 (assumption 3), reported at the type argument.
+`Vesper.Core` gained `reflect.{fsi,clr.fs}`: the opaque intrinsic `type Type` over
+`System.Type`, and `[<AutoOpen>] module TypeIntrinsics` holding `typeof` and `typedefof`.
+CLR only — `manifest.js.toml` omits the contract, so `Type` is a language-known key that
+`PlatformTypes` reports as unsupported on JS, the `decimal` / `nativeint` precedent. Both
+bindings are `let inline`, so neither emits a method, and their bodies carry the `ldtoken` /
+`ldtokendef` templates 6a-clr implements. A `typeof<T>` written in ORDINARY expression
+position therefore analyses and fails at CLR emission with "unsupported inline-IL
+instruction"; the attribute path never reaches emission.
 
-CLR: `AttributeBlob` writes `Type` (`0x50`) followed by the SerString of the type's
+`ConstExprCheck` takes `Expr.TypeApp` of an applied name resolving to
+`RuntimeNames.typeofBindingKey` / `typedefofBindingKey` with one type argument. The written
+type is stamped through `NameResolutionTypeRefStamp` and translated through
+`UnificationTranslate.translateType`, then frozen — the one written-type translator every
+annotation goes through, rather than a second derivation of it. That put `ConstExprCheck.fs`,
+`AttributeFold.fs` and `Passes/Attributes.fs` after `Translate.fs` in compile order; nothing
+between the two positions referenced them.
+
+The node's `ty` is `Vesper.Type` (`RuntimeNames.runtimeTypeKey`), which the CLR metadata
+reader already canonicalises `System.Type` to, so 6c's parameter comparison holds by
+construction.
+
+`typedefof` needs NO node column of its own: the operand alone is the value. It records the
+head nominal with its arguments dropped, which the identity's own arity spells
+(`Vesper.Collections.List`1`), and an arity-0 identity keeps its arguments, so
+`typedefof<int[]>` stays `int[]` as fsc answers.
+
+A structural type has no identity of its own, so `typedefof` takes the one the TARGET lays it
+out under, which the backend supplies: `IPlatformFacts.TupleType` for a tuple (CLR
+`System.ValueTuple`n`, capped at the `ValueTuple`8` that nests the rest; JS a rank-1 array),
+and `Vesper.Fun`2` for a function, the interface a curried value implements on both targets.
+Dropping the arguments is what keeps this cheap — the outermost constructor is the whole
+answer, so the tuple nesting stays in the encoder. A stack composed over
+`noPlatformMetadata` supplies no identity and refuses (`Rejection.structuralDefinition`),
+which is also where an anonymous union and a type-level computation land.
+
+Two departures from fsc, each pinned:
+
+- **`typeof<list<_>>` is refused** (`Rejection.inferredReified`). fsc infers the hole to
+  `obj`; a constant position runs no inference. `typedefof<list<_>>`, the canonical spelling,
+  is accepted, because the arguments are dropped before the type is read.
+- **A type parameter is refused under both spellings** (`Rejection.typarReified`), reported at
+  the typar. fsc reports FS3187 for `typeof<'T>` and for `typedefof<list<'T>>` alike.
+
+`typedefof<int * string>` is `System.ValueTuple`2` where fsc gives `System.Tuple`2`, which is
+the value-tuple choice already made rather than a departure of this stage.
+
+Regressions: `ConstExprCheckTests`' `reified types` list over the accepted domain, both
+refusals, the tuple and function identities and the no-platform-facts refusal, and
+`AttributeFoldTests` round-tripping `[<Mark(typeof<int>)>]` and `[<Mark(typedefof<Box<_>>)>]`
+through `FrozenCodec`.
+
+#### 6a-clr. The `Type` element
+
+`AttributeBlob` writes `Type` (`0x50`) followed by the SerString of the type's
 assembly-qualified name for a referenced type, or its full name alone for a type of the
-assembly under emission. A type the encoder cannot spell (an anonymous or structural form)
-is `AttributeBlobRejection.UnencodableValue` until stage 7 moves the verdict upstream.
+assembly under emission. `tryClassify` reads `TConstResult` rather than
+`TAttributeArg.Value`, which is `ValueNone` for a `TypeVal` and rejects the whole row today.
+A type the encoder cannot spell is `AttributeBlobRejection.UnencodableValue` until stage 7
+moves the verdict upstream. A `typedefof` operand arrives as a nominal whatever was written,
+so only `typeof` reaches the encoder carrying `FTTuple` / `FTFun`, where the assembly-qualified
+name is the target's own (`System.ValueTuple`2[[…]]`, `Vesper.Fun`2[[…]]`) and the `TRest`
+nesting past arity 7 is the encoder's.
 
-Done when: `[<L(typeof<int>)>]` round-trips through the codec, `ConstExprCheckTests` pins the
-accepted domain and FS3187, and `AttributeRowTests` reads the `Type` element back from an
-emitted assembly.
+`EmitIntrinsic` gains `ldtoken` (`ldtoken <T>; call System.Type::GetTypeFromHandle`) and
+`ldtokendef` (that, then `GetGenericTypeDefinition()`), which is what makes `typeof<T>` usable
+in ordinary expression position.
+
+Done when: `AttributeRowTests` reads the `Type` element back from an emitted assembly, and a
+`typeof<T>` in expression position emits.
 
 #### 6b. Non-empty array literals
 
@@ -475,7 +530,7 @@ named-constant lookup at that one position, and is deliberately not planned here
    `ElaborateExpr.fs:29` already does for an external one. **Confirmed.**
 3. `typeof<'T>` naming a declaration's own type parameter is rejected, so a `TypeOf` operand is
    always ground. **Confirmed by probe** — FS3187, for an owning type parameter and a binding's
-   own alike.
+   own alike, and for `typedefof<list<'T>>`, whose typar the reification discards.
 4. A declared type is not propagated into a literal; `null` is the one form that takes its type
    from the position. **Confirmed by probe** — FS0267 for `[<Long(1)>]`, accepted for
    `[<Long(1L)>]` and for a bare `null` against a `string` parameter.

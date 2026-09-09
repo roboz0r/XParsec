@@ -172,6 +172,14 @@ module RuntimeNames =
         elif key = enumBindingKey then ValueSome 0
         else ValueNone
 
+    // `Vesper.TypeIntrinsics`, from `reflect.fsi`. CLR only.
+
+    let typeofBindingKey: BindingKey =
+        SymbolKeyOps.moduleBindingKey intrinsicNamespace "TypeIntrinsics" "typeof"
+
+    let typedefofBindingKey: BindingKey =
+        SymbolKeyOps.moduleBindingKey intrinsicNamespace "TypeIntrinsics" "typedefof"
+
     let objAbbrevName: string = "obj"
 
     // The printf sinks. CLR contracts with no JS analogue.
@@ -355,6 +363,9 @@ module RuntimeNames =
     let undefinedKey: TypeKey = primitiveKey undefinedTypeName
     let byrefKey: TypeKey = primitiveKey SymbolKeyOps.byrefName
 
+    /// `Vesper.Type` (CLR `System.Type`), the type of a reification. CLR only.
+    let runtimeTypeKey: TypeKey = primitiveKey "Type"
+
     let arrayTypeKey (rank: int) : TypeKey =
         SymbolKeyOps.typeKeyOf intrinsicNamespace (SymbolKeyOps.arrayName rank)
 
@@ -479,7 +490,9 @@ module RuntimeNames =
     let private targetOptionalPrimitiveKeys: TypeKey list =
         let mandatory = isKeyIn minContractKeys
 
-        numericKeys @ referencePrimitiveKeys @ [ bigintKey; undefinedKey ]
+        numericKeys
+        @ referencePrimitiveKeys
+        @ [ bigintKey; undefinedKey; runtimeTypeKey ]
         |> List.filter (mandatory >> not)
 
     let isTargetOptionalPrimitiveKey: TypeKey -> bool =

@@ -47,6 +47,13 @@ let private enumScalar (enumKey: TypeKey) (v: TConstValue) : TConstDenotation =
         Ty = FTEnum enumKey
     }
 
+/// A `typeof<T>` / `typedefof<T>` argument: the reified type, at `Vesper.Type`.
+let private reified (operand: FrozenType) : TConstDenotation =
+    {
+        Result = TConstResult.TypeVal operand
+        Ty = FTConst(RuntimeNames.runtimeTypeKey, Block.empty)
+    }
+
 let private positional (v: TConstValue) = ValueNone, scalar v
 
 let private named (n: string) (v: TConstValue) = ValueSome n, scalar v
@@ -165,6 +172,39 @@ let tests =
                     (markArgs m.Attributes)
                     [ positional (int32 5); positional (TConstValue.String "m") ]
                     "member M carries its folded Mark"
+            }
+
+            test "reified type arguments fold and survive the codec" {
+                let pools =
+                    freezeFor (
+                        src
+                            [
+                                "type MarkAttribute(t: Type) ="
+                                "    member this.T = t"
+                                ""
+                                "type Box<'T> = { v: 'T }"
+                                ""
+                                "[<Mark(typeof<int>)>]"
+                                "type Instantiated = { X: int }"
+                                ""
+                                "[<Mark(typedefof<Box<_>>)>]"
+                                "type Defined = { Y: int }"
+                            ]
+                    )
+
+                Expect.isEmpty (FrozenPools.blockingErrors pools) "the reified source analyses clean"
+                let thawed = FrozenCodec.thaw (FrozenCodec.flatten pools)
+                let boxKey = (typeDecl thawed "Box").TypeKey
+
+                Expect.equal
+                    (markArgs (typeDecl thawed "Instantiated").Attributes)
+                    [ ValueNone, reified (FTConst(RuntimeNames.intKey, Block.empty)) ]
+                    "typeof<int> reifies the primitive's own identity"
+
+                Expect.equal
+                    (markArgs (typeDecl thawed "Defined").Attributes)
+                    [ ValueNone, reified (FTRecord(boxKey, Block.empty)) ]
+                    "typedefof<Box<_>> reifies the arity-1 identity with no arguments"
             }
 
             test "AttributeUsage folds through the contract's AttributeTargets enum" {

@@ -1180,11 +1180,12 @@ let tests =
                         // NEW entry is two manifests that drifted.
                         let expected =
                             [
-                                // decimal / nativeint / nd-array are types JS does not have, so
-                                // their contracts are ABSENT from the js manifest; a js program
-                                // writing one is rejected off the language-known key. And a CLR
-                                // function value is a nominal `Fun` interface, so adapting
-                                // flat<->curried needs a reified object; JS applies directly.
+                                // decimal / nativeint / nd-array / Type are types JS does not
+                                // have, so their signature files are ABSENT from the js manifest;
+                                // a js program writing one is rejected off the language-known key.
+                                // And a CLR function value is a nominal `Fun` interface, so
+                                // adapting flat<->curried needs a reified object; JS applies
+                                // directly.
                                 {|
                                     Package = "Vesper.Core"
                                     List = "files"
@@ -1197,6 +1198,7 @@ let tests =
                                             "prim-types-decimal-measured.fs"
                                             "prim-types-nativeint-measured.fsi"
                                             "prim-types-nativeint-measured.fs"
+                                            "reflect.fsi"
                                             "fun-adapters.fsi"
                                             "fun-adapters.fs"
                                         ]
