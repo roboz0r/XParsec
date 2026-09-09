@@ -170,7 +170,7 @@ module EmitPattern =
     let private resolveUnionArm
         (env: EmitEnv)
         (key: TypeKey)
-        (tyArgs: FrozenType list)
+        (tyArgs: Block<FrozenType>)
         (qualName: string)
         (caseName: string)
         : UnionArmPlan =
@@ -190,7 +190,7 @@ module EmitPattern =
                         for step in field.Steps ->
                             match step with
                             | EmitTypes.FieldStep.Member(def, member') ->
-                                memberRef env u.Typars key tyArgs (UserMemberKind.UnionMember member') def
+                                memberRef env.Provider u.TypeArity key tyArgs (UserMemberKind.UnionMember member') def
                             | EmitTypes.FieldStep.Def def -> def
                     ]
 
@@ -202,7 +202,7 @@ module EmitPattern =
             let caseTyToken =
                 c.CaseType
                 |> ValueOption.map (fun caseKey ->
-                    let ty = FTClass(caseKey, Block.ofList tyArgs)
+                    let ty = FTClass(caseKey, tyArgs)
                     ty, env.Provider.TypeToken ty
                 )
 
@@ -211,7 +211,13 @@ module EmitPattern =
             let tagGetterRef () =
                 match u.Tag with
                 | ValueSome tag ->
-                    memberRef env u.Typars key tyArgs (UserMemberKind.UnionMember UnionMember.GetTag) tag.Getter
+                    memberRef
+                        env.Provider
+                        u.TypeArity
+                        key
+                        tyArgs
+                        (UserMemberKind.UnionMember UnionMember.GetTag)
+                        tag.Getter
                 | ValueNone -> failwithf "Emit: union '%s' is not discriminated by a tag field" qualName
 
             let caseTypeToken () =
@@ -363,7 +369,7 @@ module EmitPattern =
         | PatShape.Union ->
             let caseName = TastAccessor.patUnionCaseName pat
             let nominal = nominalOfPat pat
-            let key, tyArgs = keyAndTyArgs nominal
+            let key, tyArgs = nominal.Key, nominal.Args
             let qualName = SymbolKeyOps.typeMetaName key
             let plan = resolveUnionArm env key tyArgs qualName caseName
 
@@ -431,7 +437,7 @@ module EmitPattern =
             // A record pattern has no tag to compare, so it never fails on shape and
             // only its sub-patterns can branch to `nextLabel`.
             let nominal = nominalOfPat pat
-            let key, tyArgs = keyAndTyArgs nominal
+            let key, tyArgs = nominal.Key, nominal.Args
 
             match env.Records.TryGetValue key with
             | true, r ->

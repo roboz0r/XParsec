@@ -162,7 +162,7 @@ module internal NominalRegistration =
         // capture-field `MemberRef`s and the construction-site `newobj` both reach it.
         // Monomorphic closures use their `Def` tokens directly.
         for c in file.Closures do
-            if c.Typars > 0<_> then
+            if c.TypeArity > 0<_> then
                 provider.RegisterClosure(
                     c.Name,
                     c.Frame,

@@ -23,8 +23,8 @@ module EmitConstruct =
 
         let tyArgs =
             match ty with
-            | FTClass(_, xs) -> Block.toList xs
-            | _ -> []
+            | FTClass(_, xs) -> xs
+            | _ -> Block.empty
 
         // Both ctor paths filter candidates by arity off these, then disambiguate a same-arity
         // set by type: the external one through `chosenCtor`, the local one through
@@ -67,7 +67,7 @@ module EmitConstruct =
                 match localClass with
                 | ValueSome(classKey, c) ->
                     let kind, handle = pickLocalCtor className c tyArgs argTypes
-                    let ctorRef = memberRef env c.Typars classKey tyArgs kind handle
+                    let ctorRef = memberRef env.Provider c.TypeArity classKey tyArgs kind handle
                     fun () -> b.Add(ILInstr.Newobj(ctorRef, argCount))
                 | ValueNone ->
                     // An external ctor is identified by the construction's result-type key;
@@ -101,7 +101,7 @@ module EmitConstruct =
     let buildRecordCons (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let srcFields = TastAccessor.exprRecordConsFields e
         let nominal = nominalOfExpr e
-        let key, tyArgs = keyAndTyArgs nominal
+        let key, tyArgs = nominal.Key, nominal.Args
 
         match env.Records.TryGetValue key with
         | true, r ->
@@ -115,7 +115,7 @@ module EmitConstruct =
                 | None -> failwithf "Emit: record literal for '%A' is missing initialiser for field '%s'" key f.Name
 
             let ctor =
-                memberRef env r.Typars key tyArgs (UserMemberKind.RecordMember RecordMember.Ctor) r.Ctor
+                memberRef env.Provider r.TypeArity key tyArgs (UserMemberKind.RecordMember RecordMember.Ctor) r.Ctor
 
             b.Add(ILInstr.Newobj(ctor, List.length r.Fields))
         | false, _ ->
@@ -141,7 +141,7 @@ module EmitConstruct =
         // the override if there is one, else `call` the getter on the saved source (its
         // address for a struct record), then `newobj`.
         let nominal = nominalOfExpr e
-        let key, tyArgs = keyAndTyArgs nominal
+        let key, tyArgs = nominal.Key, nominal.Args
 
         match env.Records.TryGetValue key with
         | true, r ->
@@ -159,7 +159,7 @@ module EmitConstruct =
                     b.Add(ILInstr.Call(getter, 1, 1))
 
             let ctor =
-                memberRef env r.Typars key tyArgs (UserMemberKind.RecordMember RecordMember.Ctor) r.Ctor
+                memberRef env.Provider r.TypeArity key tyArgs (UserMemberKind.RecordMember RecordMember.Ctor) r.Ctor
 
             b.Add(ILInstr.Newobj(ctor, List.length r.Fields))
         | false, _ -> failwithf "Emit: no emitted record for '%A'" key
@@ -168,7 +168,7 @@ module EmitConstruct =
         let caseName = TastAccessor.exprUnionConsCaseName e
         let args = TastAccessor.exprChildren e
         let nominal = nominalOfExpr e
-        let key, tyArgs = keyAndTyArgs nominal
+        let key, tyArgs = nominal.Key, nominal.Args
         let qualName = SymbolKeyOps.typeMetaName key
 
         // A value assigned to a case field typed `obj` is boxed by an explicit `Upcast`
@@ -182,8 +182,8 @@ module EmitConstruct =
             // on the stack in declaration order.
             let factoryRef =
                 memberRef
-                    env
-                    u.Typars
+                    env.Provider
+                    u.TypeArity
                     key
                     tyArgs
                     (UserMemberKind.UnionMember(UnionMember.Factory caseName))

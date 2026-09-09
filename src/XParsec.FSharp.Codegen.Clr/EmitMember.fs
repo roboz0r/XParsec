@@ -129,10 +129,10 @@ module EmitMember =
                 // (`IStructSeq<int>`), not the bare definition, so mint a `MemberRef` at the
                 // `ifaceArgs` the node carries. A non-generic one uses the `Def` handle.
                 EmitResolve.memberRef
-                    env
-                    iface.Typars
+                    env.Provider
+                    iface.TypeArity
                     ifaceKey
-                    (Block.toList ifaceArgs)
+                    ifaceArgs
                     (UserMemberKind.Member(m.MetaName, false, m.MethodTyparCount, m.ParamTys, m.RetTy))
                     m.Handle
             | false, _ ->
@@ -266,7 +266,7 @@ module EmitMember =
         let key = TastAccessor.exprStaticPropertyGetKey e
         let declArgs = TastAccessor.exprStaticDeclArgs e
         let ty = TastAccessor.exprTy e
-        let handle = resolveStaticMember env key (Block.toList declArgs) []
+        let handle = resolveStaticMember env key declArgs []
         b.Add(ILInstr.Call(handle, 0, 1))
 
     let buildStaticFieldGet (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
@@ -319,7 +319,7 @@ module EmitMember =
         let handle =
             if isLocal then
                 let declArgs = TastAccessor.exprStaticDeclArgs e
-                resolveStaticMember env key (Block.toList declArgs) [ for a in args -> typeOfExpr a ]
+                resolveStaticMember env key declArgs [ for a in args -> typeOfExpr a ]
             else
                 // Reconstruct the member's .NET-tupled signature from the pushed args + result,
                 // so the ref can recover `Set<int>` from `op_Addition`'s open `Set<!0>`.

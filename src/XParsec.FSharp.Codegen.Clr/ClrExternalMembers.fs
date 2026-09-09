@@ -246,8 +246,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
     /// Mint the `MemberRef` for a referenced-assembly record's `.ctor`, instantiated at `args`.
     /// Parameter types are the declared fields in their *open* typar form.
-    let externalRecordCtor (key: TypeKey) (args: FrozenType list) : EntityHandle voption =
-        let arity = List.length args
+    let externalRecordCtor (key: TypeKey) (args: Block<FrozenType>) : EntityHandle voption =
+        let arity = args.Length
 
         match externalRecordRef key arity with
         | ValueNone -> ValueNone
@@ -274,9 +274,13 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// Mint the `MemberRef` for a referenced-assembly union's case factory, the static
     /// `<caseName>(fields…) : Union<…>` the union emitter writes, over open markers so the
     /// signature matches. Returns handle + field count; `ValueNone` ⇒ unknown union or case.
-    let externalUnionFactory (key: TypeKey) (caseName: string) (args: FrozenType list) : (EntityHandle * int) voption =
+    let externalUnionFactory
+        (key: TypeKey)
+        (caseName: string)
+        (args: Block<FrozenType>)
+        : (EntityHandle * int) voption =
         let fullName = SymbolKeyOps.typeMetaName key
-        let arity = List.length args
+        let arity = args.Length
 
         match externalUnionRef key arity with
         | ValueNone -> ValueNone
@@ -290,8 +294,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
                 let unionKey = SymbolKeyOps.qualifiedTypeKeyOf fullName arity
 
-                let retTy =
-                    FTUnion(unionKey, Block.ofList (declaringMarkers unionKey u.Typars.TypeArity))
+                let retTy = FTUnion(unionKey, declaringMarkers unionKey u.Typars.TypeArity)
 
                 let s = BlobBuilder()
 
@@ -309,7 +312,12 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 ValueSome(toEntity (ctx.MemberRef(parent, caseName, s)), List.length paramTys)
 
     /// A referenced-package union's nested case type at `args`.
-    let externalCaseSpec (key: TypeKey) (tref: EntityHandle) (args: FrozenType list) (caseName: string) : EntityHandle =
+    let externalCaseSpec
+        (key: TypeKey)
+        (tref: EntityHandle)
+        (args: Block<FrozenType>)
+        (caseName: string)
+        : EntityHandle =
         externalTypeSpec key (toEntity (ctx.TypeRef(tref, "", caseName))) args
 
     /// The `MemberRef` of a parameterless instance method `name` on `parent` returning
@@ -330,8 +338,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
     /// The test a match arm emits for `caseName` on a referenced-package union at `args`.
     /// `ValueNone` ⇒ unknown union or case.
-    let externalUnionCaseTest (key: TypeKey) (args: FrozenType list) (caseName: string) : UnionCaseTest voption =
-        match externalUnionRef key (List.length args) with
+    let externalUnionCaseTest (key: TypeKey) (args: Block<FrozenType>) (caseName: string) : UnionCaseTest voption =
+        match externalUnionRef key args.Length with
         | ValueNone -> ValueNone
         | ValueSome(tref, u) ->
             match u.Cases |> Block.tryFindIndex (fun c -> c.Name = caseName) with
@@ -353,7 +361,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         (key: TypeKey)
         (tref: EntityHandle)
         (regime: UnionRegime)
-        (args: FrozenType list)
+        (args: Block<FrozenType>)
         (caseName: string)
         : EntityHandle voption =
         if UnionRegime.isHierarchy regime then
@@ -364,8 +372,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// A referenced-package hierarchy union's case type at `args`: a `TypeRef` nested in
     /// the union's, instantiated over the union's own arguments. `ValueNone` ⇒ a flat
     /// regime, where the case has no type of its own.
-    let externalUnionCaseType (key: TypeKey) (args: FrozenType list) (caseName: string) : EntityHandle voption =
-        match externalUnionRef key (List.length args) with
+    let externalUnionCaseType (key: TypeKey) (args: Block<FrozenType>) (caseName: string) : EntityHandle voption =
+        match externalUnionRef key args.Length with
         | ValueNone -> ValueNone
         | ValueSome(tref, u) -> externalCaseParent key tref (UnionRegime.ofExternalShape u) args caseName
 
@@ -373,11 +381,11 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// `ValueNone` ⇒ unknown case/index.
     let externalUnionCaseField
         (key: TypeKey)
-        (args: FrozenType list)
+        (args: Block<FrozenType>)
         (caseName: string)
         (fieldIndex: int)
         : UnionCaseAccess voption =
-        let arity = List.length args
+        let arity = args.Length
 
         match externalUnionRef key arity with
         | ValueNone -> ValueNone
@@ -417,7 +425,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     let externalCtor
         (key: TypeKey)
         (chosen: SymbolKey voption)
-        (tyArgs: FrozenType list)
+        (tyArgs: Block<FrozenType>)
         (argTypes: FrozenType list)
         : CtorRecipe voption =
         match symbols.TryLookupCtor(key, chosen, List.length argTypes) with
@@ -496,11 +504,11 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// at `args`.
     let externalRecordField
         (key: TypeKey)
-        (args: FrozenType list)
+        (args: Block<FrozenType>)
         (fieldName: string)
         (role: TAccessorRole)
         : EntityHandle voption =
-        let arity = List.length args
+        let arity = args.Length
 
         match externalRecordRef key arity with
         | ValueNone -> ValueNone

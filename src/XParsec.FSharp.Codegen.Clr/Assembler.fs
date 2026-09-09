@@ -341,7 +341,7 @@ type internal Assembler
         let closures = Dictionary<TastAccessor.ExprId, Emit.EmittedClosure>()
 
         for c in file.Closures do
-            if c.Typars = 0<_> then
+            if c.TypeArity = 0<_> then
                 closures.[c.Node] <-
                     {
                         Type = toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Closure c.Name))
@@ -631,7 +631,7 @@ type internal Assembler
             interfaces.[td.TypeKey] <-
                 {
                     Name = td.Name
-                    Typars = Block.toList (TyparList.typeNames td.TypeParams)
+                    TypeArity = td.TypeParams.TypeArity
                     Members = memberTable
                 }
 
@@ -709,7 +709,7 @@ type internal Assembler
     // the enclosing function's `FTTypar(scope, i)` re-projects onto this class's `!i`.
     member this.PrepareClosures(f: FileEmit) =
         for c in f.Layout.Closures do
-            let isGenericClosure = c.Typars > 0<_>
+            let isGenericClosure = c.TypeArity > 0<_>
 
             // A `Stack` closure's ctor does NOT chain `System.Object::.ctor`, because
             // value types have none. A captureless one's ctor is a bare `ret`: construction is

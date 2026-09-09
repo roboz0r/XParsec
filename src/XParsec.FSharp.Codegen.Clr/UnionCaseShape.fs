@@ -42,8 +42,8 @@ module UnionCaseType =
 
     /// The case type at the union's own type arguments. Registered in `UserTypes`, and as a
     /// generic shape when the union is generic, so it encodes like any nominal.
-    let ty (unionKey: TypeKey) (caseName: string) (args: FrozenType list) : FrozenType =
-        FTClass(key unionKey caseName, Block.ofList args)
+    let ty (unionKey: TypeKey) (caseName: string) (args: Block<FrozenType>) : FrozenType =
+        FTClass(key unionKey caseName, args)
 
 /// The value types a `StructTagged` union owns: `Payload` and one public `Payload_<Case>`
 /// view per payload-bearing case, nested in the union; the non-generic `ExplicitLayout`
@@ -83,8 +83,7 @@ module UnionPayloadType =
         nestedIn (overlayKey unionKey) (caseDataName caseName)
 
     /// `Payload` at the union's own type arguments.
-    let payloadTy (unionKey: TypeKey) (args: FrozenType list) : FrozenType =
-        FTClass(payloadKey unionKey, Block.ofList args)
+    let payloadTy (unionKey: TypeKey) (args: Block<FrozenType>) : FrozenType = FTClass(payloadKey unionKey, args)
 
     /// `Payload` in the scope of the union's own `arity` typars: the type its `_payload`
     /// field, its `.ctor` parameter and each view's wrapped field are declared at.
@@ -98,5 +97,5 @@ module UnionPayloadType =
         FTClass(caseDataKey unionKey caseName, Block.empty)
 
     /// One case's view at the union's own type arguments.
-    let viewTy (unionKey: TypeKey) (caseName: string) (args: FrozenType list) : FrozenType =
-        FTClass(viewKey unionKey caseName, Block.ofList args)
+    let viewTy (unionKey: TypeKey) (caseName: string) (args: Block<FrozenType>) : FrozenType =
+        FTClass(viewKey unionKey caseName, args)

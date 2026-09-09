@@ -75,7 +75,7 @@ module internal NominalEmit =
             asm.Records.[td.TypeKey] <-
                 {
                     Name = td.Name
-                    Typars = Block.toList (TyparList.typeNames td.TypeParams)
+                    TypeArity = td.TypeParams.TypeArity
                     Fields =
                         [
                             for f in rd.Fields ->
@@ -149,7 +149,7 @@ module internal NominalEmit =
             asm.Classes.[td.TypeKey] <-
                 {
                     Name = td.Name
-                    Typars = Block.toList (TyparList.typeNames td.TypeParams)
+                    TypeArity = td.TypeParams.TypeArity
                     Fields =
                         [
                             for p in ctorParams ->
@@ -282,7 +282,7 @@ module internal NominalEmit =
         | BaseShape.ExternalBase(baseKey, _), ValueSome bcc when not bcc.Args.IsEmpty ->
             let argTypes = [ for a in bcc.Args -> TastAccessor.exprTy a ]
 
-            match icodegen.TryEmitCtor(baseKey, bcc.ChosenCtor, [], argTypes) with
+            match icodegen.TryEmitCtor(baseKey, bcc.ChosenCtor, Block.empty, argTypes) with
             | ValueSome recipe -> Emit.CtorChain.Base(recipe.Handle, Block.toList bcc.Args)
             | ValueNone ->
                 failwithf
@@ -301,8 +301,8 @@ module internal NominalEmit =
         | _, ValueSome bcc ->
             let baseKey, baseArgs =
                 match baseShape with
-                | BaseShape.LocalMono(k, _) -> k, []
-                | BaseShape.Generic(FTClass(n, xs)) -> n, Block.toList xs
+                | BaseShape.LocalMono(k, _) -> k, Block.empty
+                | BaseShape.Generic(FTClass(n, xs)) -> n, xs
                 | _ -> failwithf "Emit: class '%s' has a base-ctor call but no class base type" td.Name
 
             // `inherit Base(args)` reaches any of the base's ctors, so the chain target
@@ -312,11 +312,7 @@ module internal NominalEmit =
                 | true, bc ->
                     let argTypes = [ for a in bcc.Args -> TastAccessor.exprTy a ]
                     let kind, handle = EmitResolve.pickLocalCtor td.Name bc baseArgs argTypes
-
-                    if List.isEmpty bc.Typars then
-                        handle
-                    else
-                        icodegen.UserGenericMemberRef(baseKey, baseArgs, kind)
+                    EmitResolve.memberRef icodegen bc.TypeArity baseKey baseArgs kind handle
                 | false, _ ->
                     failwithf "Emit: base class '%A' of '%s' is not an emitted project-local class" baseKey td.Name
 

@@ -18,17 +18,16 @@ module EmitResolve =
     /// monomorphic type, or a `MemberRef` on the object argument's instantiated
     /// `TypeSpec` for a generic one (`List<int>::Cons`, `Box<int>::Value`).
     let memberRef
-        (env: EmitEnv)
-        (typars: 'a list)
+        (provider: ICodegenProvider)
+        (typeArity: int<typeSlot>)
         (key: TypeKey)
-        (tyArgs: FrozenType list)
+        (tyArgs: Block<FrozenType>)
         (kind: UserMemberKind)
         (monoHandle: EntityHandle)
         : EntityHandle =
-        if List.isEmpty typars then
-            monoHandle
-        else
-            env.Provider.UserGenericMemberRef(key, tyArgs, kind)
+        match typeArity with
+        | 0<_> -> monoHandle
+        | _ -> provider.UserGenericMemberRef(key, tyArgs, kind)
 
     /// A project-local class's constructors as `(declared parameter types, the member kind
     /// reaching it, its handle)`: the emitted primary first when the class has one, then each
@@ -50,7 +49,7 @@ module EmitResolve =
     let pickLocalCtor
         (site: string)
         (c: EmittedClass)
-        (tyArgs: FrozenType list)
+        (tyArgs: Block<FrozenType>)
         (argTypes: FrozenType list)
         : UserMemberKind * EntityHandle =
         let argCount = List.length argTypes
@@ -59,7 +58,7 @@ module EmitResolve =
         | [] -> failwithf "Emit: no constructor of arity %d on class '%s'" argCount site
         | [ (_, kind, h) ] -> kind, h
         | sameArity ->
-            let declaringArgs = FrozenType.typeSlotArgs (Block.ofList tyArgs)
+            let declaringArgs = FrozenType.typeSlotArgs tyArgs
 
             let admits (ps: FrozenType list) =
                 List.forall2 (fun p a -> FrozenTypeBridge.substituteDeclaring declaringArgs p = a) ps argTypes
@@ -84,7 +83,7 @@ module EmitResolve =
         (declTyparArity: int<typeSlot>)
         (argTys: FrozenType list)
         (resultTy: FrozenType)
-        : FrozenType list * FrozenType list =
+        : Block<FrozenType> * Block<FrozenType> =
         let openT = curriedFun m.ParamTys m.RetTy
         let instT = curriedFun argTys resultTy
         env.Provider.RecoverOpenTypars(declTyparArity, m.MethodTyparCount, openT, instT)
@@ -171,14 +170,14 @@ module EmitResolve =
         (argTys: FrozenType list)
         : EntityHandle * EmittedMember =
         // Project-local types only.
-        let key, tyArgs = keyAndTyArgs objArgTy
+        let key, tyArgs = objArgTy.Key, objArgTy.Args
 
         // The member-key registry read, identical across every emitted-nominal kind: pick
         // the overload by argument types, then mint the `Def`-token or generic `MemberRef`.
         // Only the table and its declaring typars differ per kind.
         let fromMembers
             (kindLabel: string)
-            (typars: string list)
+            (typeArity: int<typeSlot>)
             (members: System.Collections.Generic.Dictionary<string, Block<EmittedMember>>)
             =
             match members.TryGetValue name with
@@ -186,8 +185,8 @@ module EmitResolve =
                 let m = pickOverload name candidates argTys
 
                 memberRef
-                    env
-                    typars
+                    env.Provider
+                    typeArity
                     key
                     tyArgs
                     (UserMemberKind.Member(m.MetaName, false, m.MethodTyparCount, m.ParamTys, m.RetTy))
@@ -196,19 +195,19 @@ module EmitResolve =
             | false, _ -> failwithf "Emit: %s '%A' has no emitted member '%s'" kindLabel key name
 
         match env.Unions.TryGetValue key with
-        | true, u -> fromMembers "union" u.Typars u.Members
+        | true, u -> fromMembers "union" u.TypeArity u.Members
         | false, _ ->
             match env.Classes.TryGetValue key with
-            | true, c -> fromMembers "class" c.Typars c.Members
+            | true, c -> fromMembers "class" c.TypeArity c.Members
             | false, _ ->
                 match env.Records.TryGetValue key with
-                | true, r -> fromMembers "record" r.Typars r.Members
+                | true, r -> fromMembers "record" r.TypeArity r.Members
                 | false, _ ->
                     // An interface-typed object argument (`(x :> IFace).M()`) resolves to
                     // the abstract slot, dispatched `callvirt` (an interface is not a value
                     // type). Same member-table shape as a class.
                     match env.Interfaces.TryGetValue key with
-                    | true, iface -> fromMembers "interface" iface.Typars iface.Members
+                    | true, iface -> fromMembers "interface" iface.TypeArity iface.Members
                     | false, _ -> failwithf "Emit: no emitted type carrying members for object argument '%A'" key
 
     /// Where the parent `TypeSpec` of an external instance member ref comes from.
@@ -251,12 +250,11 @@ module EmitResolve =
         | RecoverFromSignature -> env.Provider.ExternalMemberRef(key, isProperty, false, memberTy)
 
     /// The static-member equivalent. `declArgs` instantiates the class `TypeSpec` the
-    /// `MemberRef` is minted on, so an arity mismatch against a generic declaring type fails,
-    /// as does a static member on a generic union.
+    /// `MemberRef` is minted on. A static member on a generic union throws.
     let resolveStaticMember
         (env: EmitEnv)
         (memberKey: SymbolKey)
-        (declArgs: FrozenType list)
+        (declArgs: Block<FrozenType>)
         (argTys: FrozenType list)
         : EntityHandle =
         // The emitted tables are keyed by `SymbolKey` directly, so the member key's `Decl`
@@ -265,27 +263,15 @@ module EmitResolve =
             let mk = SymbolKeyOps.asMemberKey "Emit: static member call" memberKey
             mk.Decl, mk.Name
 
-        let instantiationFor (typars: 'a list) : FrozenType list =
-            match List.length typars with
-            | 0 -> []
-            | n when List.length declArgs = n -> declArgs
-            | n ->
-                failwithf
-                    "Emit: static member '%A.%s' declares %d typar(s) but the node carries %d declaring args; emitting open declaring typars would not load"
-                    key
-                    name
-                    n
-                    (List.length declArgs)
-
         match env.Unions.TryGetValue key with
         | true, u ->
             match u.Members.TryGetValue name with
             | true, candidates ->
                 let m = pickOverload name candidates argTys
 
-                if List.isEmpty u.Typars then
-                    m.Handle
-                else
+                match u.TypeArity with
+                | 0<_> -> m.Handle
+                | _ ->
                     failwithf
                         "Emit: '%A.%s' is a static augmentation member on a GENERIC union, which this compiler does not emit"
                         key
@@ -299,10 +285,10 @@ module EmitResolve =
                     let m = pickOverload name candidates argTys
 
                     memberRef
-                        env
-                        c.Typars
+                        env.Provider
+                        c.TypeArity
                         key
-                        (instantiationFor c.Typars)
+                        declArgs
                         (UserMemberKind.Member(m.MetaName, true, m.MethodTyparCount, m.ParamTys, m.RetTy))
                         m.Handle
                 | false, _ -> failwithf "Emit: class '%A' has no emitted static member '%s'" key name
@@ -364,15 +350,15 @@ module EmitResolve =
         (env: EmitEnv)
         (r: EmittedRecord)
         (key: TypeKey)
-        (tyArgs: FrozenType list)
+        (tyArgs: Block<FrozenType>)
         (f: EmittedRecordField)
         (role: TAccessorRole)
         : EntityHandle =
         match RecordFieldAccessorRefs.tryRole role f.Accessors with
         | ValueSome monoHandle ->
             memberRef
-                env
-                r.Typars
+                env.Provider
+                r.TypeArity
                 key
                 tyArgs
                 (UserMemberKind.RecordMember(RecordMember.Accessor(f.Name, role)))
@@ -385,14 +371,22 @@ module EmitResolve =
     /// Throws when the class is emitted here and declares no such field, which analysis
     /// rejects as `NoMember` before codegen runs.
     let tryClassField (env: EmitEnv) (objArgTy: FrozenNominal) (fieldName: string) : EntityHandle voption =
-        let key, tyArgs = keyAndTyArgs objArgTy
+        let key, tyArgs = objArgTy.Key, objArgTy.Args
 
         match env.Classes.TryGetValue key with
         | true, c ->
             // Primary-ctor backing fields first, then explicit `val` instance fields.
             match (c.Fields @ c.InstanceFields) |> List.tryFind (fun (n, _, _) -> n = fieldName) with
             | Some(_, h, _) ->
-                ValueSome(memberRef env c.Typars key tyArgs (UserMemberKind.ClassMember(ClassMember.Field fieldName)) h)
+                ValueSome(
+                    memberRef
+                        env.Provider
+                        c.TypeArity
+                        key
+                        tyArgs
+                        (UserMemberKind.ClassMember(ClassMember.Field fieldName))
+                        h
+                )
             | None -> failwithf "Emit: class '%A' has no field '%s'" key fieldName
         | false, _ -> ValueNone
 
@@ -414,7 +408,7 @@ module EmitResolve =
         (fieldName: string)
         (role: TAccessorRole)
         : FieldAccess =
-        let key, tyArgs = keyAndTyArgs objArgTy
+        let key, tyArgs = objArgTy.Key, objArgTy.Args
 
         match env.Records.TryGetValue key with
         | true, r ->

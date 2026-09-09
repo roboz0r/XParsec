@@ -252,7 +252,7 @@ module internal UnionEmit =
         let cases = ud.Cases
         let isStruct = ud.ValueKind.IsValueType
         let isHierarchy = ud.IsHierarchy
-        let selfTy = FTUnion(td.TypeKey, Block.ofList (typarMarkersOf td))
+        let selfTy = FTUnion(td.TypeKey, typarMarkersOf td)
 
         // The `_tag` ref, shared by the `.ctor` and `get_Tag`: a generic union mints a
         // `MemberRef` row per call.
@@ -820,7 +820,7 @@ module internal UnionEmit =
         asm.Unions.[td.TypeKey] <-
             {
                 Name = td.Name
-                Typars = Block.toList (TyparList.typeNames td.TypeParams)
+                TypeArity = td.TypeParams.TypeArity
                 Tag =
                     if ud.HasTag then
                         ValueSome

@@ -388,6 +388,58 @@ separate change.
    grep for `FrozenType list` in `Codegen.Clr` then names only parameter, local and capture
    lists.
 
+   Landed from the step 7 review. The chain from `FrozenNominal.Args` to
+   `FrozenType.typeSlotArgs` carries a `Block<FrozenType>` end to end: call sites read
+   `n.Key, n.Args` directly, `declaringMarkers` and `TyparFrame.Instantiation` return one, and every
+   `ICodegenProvider` member carrying a nominal's type arguments takes one — `TryEmitCtor`,
+   `TryEmitUnionCons`, `TryEmitRecordCons`, `UserGenericMemberRef`, `UserClosureMemberRef`,
+   `TryResolveExternalRecordField`, `ExternalUnionCaseTest` / `Field` / `Type` and
+   `StaticFnMethodSpec`, with `RecoverOpenTypars` returning a pair of them.
+   `TastLower.matchInstantiation` and `matchScopeInstantiation` return a `Block`, because a
+   recovered instantiation reaches `StaticFnMethodSpec` alone.
+
+   `UnionCaseType.ty`, `UnionPayloadType.payloadTy` / `viewTy` and `NominalShared.selfTyOf`
+   take the block their `FTClass` / `FTUnion` node holds, so the nominal constructors are
+   applied without a rebuild.
+
+   The two remaining `FrozenType list` instantiations are `ValueTupleRefs`' element types and
+   `FlatFunInterfaceSpecN`'s flat parameters plus result: neither is a nominal's arguments.
+   Step 8 takes them.
+
+   The step also carried the arity a nominal declares over to `int<typeSlot>`:
+   `EmittedUnion` / `EmittedRecord` / `EmittedClass` / `EmittedInterface` hold `TypeArity`
+   where they held a `string list` of typar names that only ever answered `List.isEmpty` and
+   `List.length`, and `EmittedClosure.Typars` is renamed to match. `EmitResolve.memberRef` takes
+   that arity and the provider in place of an unconstrained `'a list` and the whole `EmitEnv`,
+   so `NominalEmit`'s base-ctor chain reuses it.
+
+   The arity check on a generic instantiation lives in `ClrGenerics.userTypeSpec` and
+   `genericClosureTypeSpec`, the two places a `GENERICINST` is encoded, and compares type-slot
+   counts on both sides. `resolveStaticMember` previously carried its own check, over
+   `List.length` of the signature-order `declArgs`, which counts the measure arguments
+   `typeSlotArgs` drops, so a static member call on a measure-carrying generic class was
+   rejected there while every instance-member, ctor and closure path had no check at all.
+
+   Two `ptest`s in `GenericParamFlagsTests` hold the measure-generic class shapes the check
+   is for, both blocked in the front end: a static member call leaves the class's measure
+   typar unsolved (`Measure mismatch: <m> vs <'m0>`), and inside the class's own body its
+   measure-kinded typar is a free root, so `this` freezes as
+   `Box<FTUnknown UnresolvedTypar, !0>` and the check rejects two type-slot arguments
+   against one declared typar. The second is the shape that previously encoded a malformed
+   `GENERICINST` silently.
+
+8. **The provider's remaining lists.** `ICodegenProvider` mixes `Block<FrozenType>` for a
+   nominal's type arguments with `FrozenType list` for `argTypes` and `string list` for
+   `fieldNames` in the same signature, and 58 `FrozenType list` sites remain in `Codegen.Clr`
+   naming parameter, local, capture and structural-element lists. Each is produced by a list
+   comprehension over `TastAccessor.exprChildren` or read off an `EmittedMember.ParamTys`,
+   and consumed by `List.length` and `List.forall2` alone.
+
+   `ValueTupleRefs` is the one paying for the representation: `ClrEncoder` keys its memo
+   `Dictionary<FrozenType list, ValueTupleHandles>` on `HashIdentity.Structural`, so every
+   lookup hashes a cons chain. Its element types come from `CompiledFns.FlatStep.TupleValue`
+   in `Codegen.Common`, so that step moves to a `Block` first and the memo key follows.
+
    Not started.
 
 ## Verify
@@ -445,6 +497,7 @@ Before this document is deleted, each row is in code or in a test:
 - [x] `typar-scope-plan.md` step 6 is struck and points here.
 - [x] A measure argument root is a kind the store states, and `unify` reports a measure
       meeting a type rather than linking it (step 6).
-- [ ] A nominal's type arguments reach `FrozenType.typeSlotArgs` as the `Block` that
+- [x] A nominal's type arguments reach `FrozenType.typeSlotArgs` as the `Block` that
       `FrozenNominal.Args` holds, with no list conversion between; `FrozenType list` in
-      `Codegen.Clr` names only parameter, local and capture lists (step 7).
+      `Codegen.Clr` names only parameter, local, capture and structural-element lists
+      (step 7).

@@ -44,7 +44,7 @@ module internal AttributeRowPrep =
             AttributeCtorResolution.Ctor provider.AttributeUsageAttrCtor
         else
             match classes.TryGetValue attr.Key with
-            | true, c when c.Typars.IsEmpty ->
+            | true, c when c.TypeArity = 0<_> ->
                 let paramTys = Block.toList attr.Ctor.ArgSig
 
                 match EmitResolve.localCtors c |> List.tryFind (fun (ps, _, _) -> ps = paramTys) with

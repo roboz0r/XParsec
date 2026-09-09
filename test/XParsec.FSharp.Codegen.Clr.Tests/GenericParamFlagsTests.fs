@@ -182,6 +182,41 @@ let tests =
                 Expect.equal (typeGenericParamsOf bytes "Pair`1") [ "a", valueType ] "one row, the type-kinded typar's"
             }
 
+            // Pending on the front end: inside its own body a class's measure-kinded typar is a
+            // free root, so `this` freezes as `Box<FTUnknown UnresolvedTypar, !0>` and the encoder
+            // rejects two type-slot arguments against one declared typar.
+            ptest "an instance member call on a measure-generic class instantiates its one type slot" {
+                runs
+                    "5"
+                    (String.concat
+                        "\n"
+                        [
+                            "[<Measure>] type m"
+                            "type Box<[<Measure>] 'u, 'a>(v: 'a) ="
+                            "    member x.V = v"
+                            "let b : Box<m, int> = Box(5)"
+                            "printfn \"%d\" b.V"
+                        ])
+            }
+
+            // Pending on the front end: a static member call on a measure-generic class leaves
+            // the declaring measure typar unsolved (`Measure mismatch: <m> vs <'m0>`), so the
+            // backend's static path is unreachable for this shape.
+            ptest "a static member call on a measure-generic class instantiates its one type slot" {
+                runs
+                    "5"
+                    (String.concat
+                        "\n"
+                        [
+                            "[<Measure>] type m"
+                            "type Box<[<Measure>] 'u, 'a>(v: 'a) ="
+                            "    member x.V = v"
+                            "    static member Make (v: 'a, w: float<'u>) : Box<'u, 'a> = Box(v)"
+                            "let b = Box.Make(5, 1.0<m>)"
+                            "printfn \"%d\" b.V"
+                        ])
+            }
+
             test "a union's case classes carry the declaring typar's constraint" {
                 let bytes =
                     bytesOf

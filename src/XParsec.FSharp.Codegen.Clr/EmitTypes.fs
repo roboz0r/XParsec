@@ -67,7 +67,7 @@ module EmitTypes =
         }
 
         /// The total `GenericParam` row count on the closure's `TypeDefinition`.
-        member c.Typars: int<typeSlot> = c.Frame.Count
+        member c.TypeArity: int<typeSlot> = c.Frame.Count
 
     /// A generalised body-local `let` with a positive typar count, lifted to a generic static
     /// method on the Program class, as `fsc` emits it. Its method typars are `Frame`, and a
@@ -108,7 +108,7 @@ module EmitTypes =
     /// suffices: it is `newobj`'d once into a singleton field by the closure's `.cctor`
     /// and every construction site `ldsfld`s that instead of allocating.
     let closureIsCached (c: Closure) : bool =
-        List.isEmpty c.Captures && c.Typars = 0<_> && not c.IsValueStruct
+        List.isEmpty c.Captures && c.TypeArity = 0<_> && not c.IsValueStruct
 
     /// The `Def` tokens of a MONOMORPHIC closure, valid in every body. A generic closure has
     /// none: its `TypeSpec` and `MemberRef`s encode `FTTypar` relative to the referencing
@@ -142,7 +142,7 @@ module EmitTypes =
         (c: Closure)
         (which: ClosureToken)
         : EntityHandle =
-        if c.Typars = 0<_> then
+        if c.TypeArity = 0<_> then
             let emitted = closures.[c.Node]
 
             match which with
@@ -253,13 +253,13 @@ module EmitTypes =
             Getter: EntityHandle
         }
 
-    /// A union emitted into this assembly. `Typars` empty ⇒ monomorphic: a single sealed
+    /// A union emitted into this assembly. `TypeArity` 0 ⇒ monomorphic: a single sealed
     /// class whose `Tag` / `Factory` / `Fields` handles are usable as `Def` tokens.
-    /// Non-empty ⇒ generic, and every member is reached by `MemberRef` off `Name` instead.
+    /// Positive ⇒ generic, and every member is reached by `MemberRef` off `Name` instead.
     type EmittedUnion =
         {
             Name: string
-            Typars: string list
+            TypeArity: int<typeSlot>
             /// Held exactly where `UnionRegime.hasTag` holds.
             Tag: EmittedTag voption
             ValueKind: NominalValueKind
@@ -317,12 +317,12 @@ module EmitTypes =
         }
 
     /// A record emitted into this assembly: a sealed class, one field per record field behind
-    /// its accessors, one ctor taking `Fields` in declaration order. `Typars` empty ⇒
-    /// monomorphic (`Def`-token handles), non-empty ⇒ generic.
+    /// its accessors, one ctor taking `Fields` in declaration order. `TypeArity` 0 ⇒
+    /// monomorphic (`Def`-token handles), positive ⇒ generic.
     type EmittedRecord =
         {
             Name: string
-            Typars: string list
+            TypeArity: int<typeSlot>
             Fields: EmittedRecordField list
             /// `true` for a `[<Struct>]` value-type record. Drives `isValueType`
             /// at use sites (box on `:>`, `unbox.any` on `:?>`), like the class flag.
@@ -341,12 +341,12 @@ module EmitTypes =
         /// A record field, reached through the accessor in the requested role.
         | Accessor of EntityHandle
 
-    /// A class emitted into this assembly. `Typars` empty ⇒ monomorphic; non-empty ⇒
+    /// A class emitted into this assembly. `TypeArity` 0 ⇒ monomorphic; positive ⇒
     /// generic, and its members are reached by `MemberRef` rather than `Def` token.
     type EmittedClass =
         {
             Name: string
-            Typars: string list
+            TypeArity: int<typeSlot>
             /// Primary-constructor backing fields, `(name, handle, type)` in declaration
             /// order. Its LENGTH is the primary ctor's arity, which a `TExpr.New` matches
             /// against, so explicit `val` fields stay out of it, in `InstanceFields`.
@@ -400,11 +400,11 @@ module EmitTypes =
 
     /// An interface emitted into this assembly. Only `Members` matters at use sites: a call
     /// on an interface-typed object arg resolves the member here and `callvirt`s its slot.
-    /// There is no ctor or field to carry. `Typars` empty ⇒ monomorphic.
+    /// There is no ctor or field to carry. `TypeArity` 0 ⇒ monomorphic.
     type EmittedInterface =
         {
             Name: string
-            Typars: string list
+            TypeArity: int<typeSlot>
             Members: Dictionary<string, Block<EmittedMember>>
         }
 

@@ -213,7 +213,7 @@ module internal UnionLayoutNodes =
                 let singletonCases = ud.SingletonCases
 
                 let selfTy =
-                    FTUnion(td.TypeKey, Block.ofList (declaringMarkers td.TypeKey td.TypeParams.TypeArity))
+                    FTUnion(td.TypeKey, declaringMarkers td.TypeKey td.TypeParams.TypeArity)
 
                 // A flat union's payload fields: `initonly` inline slots on its own `TypeDef`,
                 // or the one `_payload` field with the value types nested behind it. A

@@ -9,7 +9,7 @@ open AssemblerScaffold
 /// record and class emission all reach for.
 module internal NominalShared =
 
-    let typarMarkersOf (td: TastAccessor.TypeDecl) : FrozenType list =
+    let typarMarkersOf (td: TastAccessor.TypeDecl) : Block<FrozenType> =
         declaringMarkers td.TypeKey td.TypeParams.TypeArity
 
     /// A reference to a member of `parent`, a type registered over `td`'s own typars: the
@@ -46,11 +46,11 @@ module internal NominalShared =
         | ValueSome body -> bodyOf asm body
         | ValueNone -> PreparedBody.Abstract
 
-    let selfTyOf (input: NominalEmissionInput) (td: TastAccessor.TypeDecl) (ts: FrozenType list) : FrozenType =
+    let selfTyOf (input: NominalEmissionInput) (td: TastAccessor.TypeDecl) (ts: Block<FrozenType>) : FrozenType =
         match input with
-        | NominalEmissionInput.Union _ -> FTUnion(td.TypeKey, Block.ofList ts)
-        | NominalEmissionInput.Record _ -> FTRecord(td.TypeKey, Block.ofList ts)
-        | NominalEmissionInput.Class _ -> FTClass(td.TypeKey, Block.ofList ts)
+        | NominalEmissionInput.Union _ -> FTUnion(td.TypeKey, ts)
+        | NominalEmissionInput.Record _ -> FTRecord(td.TypeKey, ts)
+        | NominalEmissionInput.Class _ -> FTClass(td.TypeKey, ts)
 
     /// The handle the equality/comparison bodies `isinst`/`unbox.any` against: a
     /// generic type's open self-`TypeSpec`, a mono type's `TypeDef`.

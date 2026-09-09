@@ -309,6 +309,15 @@ module Block =
     let foldBack (folder: 'T -> 'State -> 'State) (xs: BlockM<'T, 'M>) (state: 'State) : 'State =
         Array.foldBack folder xs.Xs state
 
+    /// The sum of `projection` over every element, `GenericZero` for an empty block.
+    let inline sumBy ([<InlineIfLambda>] projection: 'T -> ^U) (xs: BlockM<'T, 'M>) : ^U =
+        let mutable total = LanguagePrimitives.GenericZero< ^U>
+
+        for x in xs do
+            total <- total + projection x
+
+        total
+
     /// `ValueNone` for an out-of-range index, in place of an indexer's throw.
     let tryItem (index: int<'M>) (xs: BlockM<'T, 'M>) : 'T voption =
         let src = xs.Xs
@@ -348,6 +357,42 @@ module Block =
         if xs.IsEmpty then ys
         elif ys.IsEmpty then xs
         else BlockM<'T, 'M>(Array.append xs.Xs ys.Xs)
+
+    /// The inner blocks end to end, in order, carrying the parts' measure `'N`, which now
+    /// indexes the concatenation. Returns the single part unchanged when `xss` holds one.
+    let concat (xss: BlockM<BlockM<'T, 'N>, 'M>) : BlockM<'T, 'N> =
+        let parts = xss.Xs
+
+        match parts.Length with
+        | 0 -> BlockM<'T, 'N>(Array.empty)
+        | 1 -> parts.[0]
+        | _ ->
+            let mutable total = 0
+
+            for i in 0 .. parts.Length - 1 do
+                total <- total + parts.[i].Xs.Length
+
+            match total with
+            | 0 -> BlockM<'T, 'N>(Array.empty)
+            | _ ->
+                let out = Array.zeroCreate total
+                let mutable next = 0
+
+                for i in 0 .. parts.Length - 1 do
+                    let part = parts.[i].Xs
+                    Array.blit part 0 out next part.Length
+                    next <- next + part.Length
+
+                BlockM<'T, 'N>(out)
+
+    /// `mapping`'s results end to end, in order.
+    let collect (mapping: 'T -> BlockM<'U, 'N>) (xs: BlockM<'T, 'M>) : BlockM<'U, 'N> =
+        let src = xs.Xs
+
+        match src.Length with
+        | 0 -> BlockM<'U, 'N>(Array.empty)
+        | 1 -> mapping src.[0]
+        | _ -> concat (map mapping xs)
 
     /// First occurrence of each element wins, so the surviving order is the input's. Uses
     /// `EqualityComparer<'T>.Default`, so callers need no `'T: equality` constraint.

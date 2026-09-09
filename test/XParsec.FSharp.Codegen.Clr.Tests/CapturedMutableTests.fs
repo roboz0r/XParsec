@@ -252,7 +252,7 @@ let tests =
                 Expect.equal (List.length closures) 1 "exactly one closure: `fun () -> x` inside `mkConst`"
                 let c = List.head closures
 
-                Expect.equal c.Typars 1<typeSlot> "the inner closure inherits `mkConst`'s one typar (`'a`)"
+                Expect.equal c.TypeArity 1<typeSlot> "the inner closure inherits `mkConst`'s one typar (`'a`)"
             }
 
             test "a closure inside a monomorphic static fn has empty Typars" {
@@ -266,9 +266,9 @@ let tests =
 
                 for c in closures do
                     Expect.equal
-                        c.Typars
+                        c.TypeArity
                         0<typeSlot>
-                        (sprintf "closure %s should have zero Typars (enclosing fn is monomorphic)" c.Name)
+                        (sprintf "closure %s should have zero type arity (enclosing fn is monomorphic)" c.Name)
             }
 
             // `Repr` is the front-end verdict that a stack (readonly-struct) shape is
@@ -311,7 +311,7 @@ let tests =
 
                 Expect.equal (List.length closures) 1 "exactly one closure: `f` inside `mkConst`"
                 let c = List.head closures
-                Expect.equal c.Typars 1<typeSlot> "the closure is generic over `mkConst`'s `'a`"
+                Expect.equal c.TypeArity 1<typeSlot> "the closure is generic over `mkConst`'s `'a`"
                 Expect.equal c.Repr ClosureRepr.Heap "generic typar capture ⇒ RequiresHeapRepr ⇒ Heap"
             }
 
@@ -356,8 +356,8 @@ let tests =
                 let innerBridge = discovered.Closures.[0] // registered first (leaves-first walk)
                 let midBridge = discovered.Closures.[1]
 
-                Expect.equal midBridge.Typars 3<typeSlot> "`mid`'s bridge lives in `mkPair`'s body"
-                Expect.equal innerBridge.Typars 5<typeSlot> "`inner`'s bridge lives in `mid`'s lifted body"
+                Expect.equal midBridge.TypeArity 3<typeSlot> "`mid`'s bridge lives in `mkPair`'s body"
+                Expect.equal innerBridge.TypeArity 5<typeSlot> "`inner`'s bridge lives in `mid`'s lifted body"
             }
 
             test "a closure in Main / top-level expression has empty Typars" {
@@ -369,7 +369,10 @@ let tests =
                 Expect.isNonEmpty closures "the inline `fun x -> x + 1` is a closure"
 
                 for c in closures do
-                    Expect.equal c.Typars 0<typeSlot> (sprintf "closure %s in Main should have zero Typars" c.Name)
+                    Expect.equal
+                        c.TypeArity
+                        0<typeSlot>
+                        (sprintf "closure %s in Main should have zero type arity" c.Name)
             }
 
             // One closure `TypeDef` with two `TypeSpec` parents at the construction sites

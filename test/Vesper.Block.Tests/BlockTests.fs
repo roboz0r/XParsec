@@ -227,6 +227,56 @@ let moduleFunctions =
                 Expect.equal (Block.truncate -1 a) Block.empty "negative truncate"
             }
 
+            test "concat joins the parts in order, skipping empty ones" {
+                let parts: Block<Block<int>> =
+                    Block.ofArray [| Block.ofArray [| 1; 2 |]; Block.empty; Block.ofArray [| 3 |]; Block.empty |]
+
+                Expect.equal (Block.concat parts) (Block.ofArray [| 1; 2; 3 |]) "order"
+                Expect.equal (Block.concat (Block.empty: Block<Block<int>>)) Block.empty "no parts"
+
+                Expect.equal
+                    (Block.concat (Block.ofArray [| (Block.empty: Block<int>); Block.empty |]))
+                    Block.empty
+                    "every part empty"
+            }
+
+            test "concat returns the same block when one part holds everything" {
+                let only: Block<int> = Block.ofArray [| 1; 2 |]
+                Expect.equal (Block.concat (Block.singleton only)) only "one part"
+            }
+
+            test "concat takes the inner blocks' index tag" {
+                let parts: BlockM<BlockM<int, col>, row> =
+                    Block.ofArray [| Block.ofArray [| 1 |]; Block.ofArray [| 2 |] |]
+
+                let joined: BlockM<int, col> = Block.concat parts
+                Expect.equal joined.[1<col>] 2 "indexed by the inner tag"
+            }
+
+            test "collect joins the mapped results in order" {
+                let xs: Block<int> = Block.ofArray [| 1; 2; 3 |]
+
+                Expect.equal
+                    (Block.collect (fun x -> Block.ofArray (Array.replicate x x)) xs)
+                    (Block.ofArray [| 1; 2; 2; 3; 3; 3 |])
+                    "order"
+
+                Expect.equal (Block.collect (fun _ -> (Block.empty: Block<int>)) xs) Block.empty "every result empty"
+                Expect.equal (Block.collect Block.singleton (Block.empty: Block<int>)) Block.empty "no elements"
+            }
+
+            test "collect over one element returns that result" {
+                let only: Block<int> = Block.ofArray [| 7; 8 |]
+                Expect.equal (Block.collect (fun _ -> only) (Block.singleton 0)) only "one element"
+            }
+
+            test "sumBy carries the projection's measure and is zero when empty" {
+                let xs: Block<int> = Block.ofArray [| 1; 2; 3 |]
+                let total: int<row> = xs |> Block.sumBy (fun x -> x * 1<row>)
+                Expect.equal total 6<row> "tagged sum"
+                Expect.equal (Block.sumBy id (Block.empty: Block<int>)) 0 "empty"
+            }
+
             test "distinct keeps the first occurrence" {
                 let xs: Block<string> = Block.ofArray [| "b"; "a"; "b"; "c"; "a" |]
                 Expect.equal (Block.toArray (Block.distinct xs)) [| "b"; "a"; "c" |] "order"

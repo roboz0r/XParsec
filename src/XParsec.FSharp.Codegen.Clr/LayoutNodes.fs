@@ -580,7 +580,7 @@ module internal LayoutNodes =
     let buildClosureNodes (closures: EmitTypes.Closure list) : TypeNode list =
         [
             for c in closures ->
-                let isGeneric = c.Typars > 0<_>
+                let isGeneric = c.TypeArity > 0<_>
                 let cached = Emit.closureIsCached c
 
                 let captureFields =
@@ -648,8 +648,8 @@ module internal LayoutNodes =
                             Key = TypeSlotKey.Closure c.Name
                             Kind = TypeSlotKind.Closure
                             Namespace = ""
-                            MetaName = SymbolKeyOps.arityName c.Name (int c.Typars)
-                            Typars = GenericParamRow.ofTypars (TyparList.positional c.Typars)
+                            MetaName = SymbolKeyOps.arityName c.Name (int c.TypeArity)
+                            Typars = GenericParamRow.ofTypars (TyparList.positional c.TypeArity)
                         }
                     Enclosing = ValueNone
                     Fields = fields

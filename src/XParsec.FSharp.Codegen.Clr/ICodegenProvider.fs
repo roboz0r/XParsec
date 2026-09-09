@@ -1,6 +1,7 @@
 ﻿namespace XParsec.FSharp.Codegen.Clr
 
 open System.Reflection.Metadata
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 
@@ -346,64 +347,64 @@ type ICodegenProvider =
     /// recorded it, selecting that exact same-arity overload by identity; `ValueNone` falls
     /// back to the first arity match. `tyArgs` instantiate the constructed type.
     abstract TryEmitCtor:
-        key: TypeKey * chosen: SymbolKey voption * tyArgs: FrozenType list * argTypes: FrozenType list ->
+        key: TypeKey * chosen: SymbolKey voption * tyArgs: Block<FrozenType> * argTypes: FrozenType list ->
             CtorRecipe voption
 
     /// `tyArgs` are the union type's instantiation arguments; the field values are already
     /// on the stack in declaration order beneath the call. The union is identified by
     /// key identity, not by name, since FSharp.Core's `list` and the Vesper cons-list
     /// are both written `list`.
-    abstract TryEmitUnionCons: key: TypeKey * caseName: string * tyArgs: FrozenType list -> CallRecipe voption
+    abstract TryEmitUnionCons: key: TypeKey * caseName: string * tyArgs: Block<FrozenType> -> CallRecipe voption
 
     /// A `MemberRef` to one member of an emitted *generic* nominal user type (union /
     /// record / class) `key`, instantiated at `args`. A monomorphic instance never reaches
     /// here because its `Def` tokens are used directly.
-    abstract UserGenericMemberRef: key: TypeKey * args: FrozenType list * kind: UserMemberKind -> EntityHandle
+    abstract UserGenericMemberRef: key: TypeKey * args: Block<FrozenType> * kind: UserMemberKind -> EntityHandle
 
     /// A `MemberRef` to one member of an emitted *generic* closure `name` (a synthetic
     /// `<closure>$n`), instantiated at `args`. Closures carry no `SymbolKey`.
-    abstract UserClosureMemberRef: name: string * args: FrozenType list * which: ClosureMember -> EntityHandle
+    abstract UserClosureMemberRef: name: string * args: Block<FrozenType> * which: ClosureMember -> EntityHandle
 
     /// The `TypeSpec` of an emitted *generic* closure `name` at `args`: the `castclass` operand
     /// a construction site uses to reach the closure's own fields.
-    abstract UserClosureTypeSpec: name: string * args: FrozenType list -> EntityHandle
+    abstract UserClosureTypeSpec: name: string * args: Block<FrozenType> -> EntityHandle
 
     /// A `MemberRef` to a *referenced-assembly* record's `.ctor`, instantiated at `tyArgs`,
     /// for a record declared in another package (`Vesper.Ref\`1` in `Vesper.Core.dll`).
     /// `ValueNone` ⇒ the record is unknown here.
-    abstract TryEmitRecordCons: key: TypeKey * tyArgs: FrozenType list * fieldNames: string list -> CtorRecipe voption
+    abstract TryEmitRecordCons: key: TypeKey * tyArgs: Block<FrozenType> * fieldNames: string list -> CtorRecipe voption
 
     /// The `MemberRef` of one accessor of one named field on a *referenced-assembly* record,
     /// instantiated at `tyArgs`. `ValueNone` ⇒ unknown record, or unknown field on a known one.
     /// A `Setter` on an immutable field throws.
     abstract TryResolveExternalRecordField:
-        key: TypeKey * tyArgs: FrozenType list * fieldName: string * role: TAccessorRole -> EntityHandle voption
+        key: TypeKey * tyArgs: Block<FrozenType> * fieldName: string * role: TAccessorRole -> EntityHandle voption
 
     /// The test a match arm emits against a *referenced-package* union's scrutinee for
     /// `caseName`, instantiated at `tyArgs`. `ValueNone` ⇒ unknown union or case.
-    abstract ExternalUnionCaseTest: key: TypeKey * tyArgs: FrozenType list * caseName: string -> UnionCaseTest voption
+    abstract ExternalUnionCaseTest: key: TypeKey * tyArgs: Block<FrozenType> * caseName: string -> UnionCaseTest voption
 
     /// The read path a `match … Some x` arm takes to field `fieldIndex` of `caseName` on a
     /// referenced-package union instantiated at `tyArgs`. `ValueNone` ⇒ unknown union/case/field.
     abstract ExternalUnionCaseField:
-        key: TypeKey * tyArgs: FrozenType list * caseName: string * fieldIndex: int -> UnionCaseAccess voption
+        key: TypeKey * tyArgs: Block<FrozenType> * caseName: string * fieldIndex: int -> UnionCaseAccess voption
 
     /// The type token for one case of a referenced-package HIERARCHY union at `tyArgs`: the
     /// nested type its payload is declared on, which a cross-package `match` arm casts the
     /// scrutinee to. `ValueNone` ⇒ a flat regime, where the payload sits on the union.
-    abstract ExternalUnionCaseType: key: TypeKey * tyArgs: FrozenType list * caseName: string -> EntityHandle voption
+    abstract ExternalUnionCaseType: key: TypeKey * tyArgs: Block<FrozenType> * caseName: string -> EntityHandle voption
 
     /// A `MethodSpec` instantiating a *generic* module-static method (`fold`) at a call
     /// site. `instTypes` is the per-typar instantiation: a recursive self-call passes the
     /// method's own typars (`!!i` via the ambient set), an external call concrete types.
-    abstract StaticFnMethodSpec: handle: EntityHandle * instTypes: FrozenType list -> EntityHandle
+    abstract StaticFnMethodSpec: handle: EntityHandle * instTypes: Block<FrozenType> -> EntityHandle
 
     /// Recover the declaring type's and the member's own type arguments by structurally
     /// matching an *open* signature (`FTTypar(Type _, i)` / `FTTypar(Member _, j)` markers)
     /// against its *instantiated* counterpart. Returns `(declaringArgs, methodArgs)`.
     abstract RecoverOpenTypars:
         declTyparArity: int<typeSlot> * methodTyparArity: int<typeSlot> * openT: FrozenType * instT: FrozenType ->
-            FrozenType list * FrozenType list
+            Block<FrozenType> * Block<FrozenType>
 
     /// `Vesper.Fun\`2::Invoke` — apply a function *value* of type `funcTy` to one argument.
     /// Object argument and argument are both already on the stack (object arg beneath),

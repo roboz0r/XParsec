@@ -311,16 +311,11 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                     TastLower.solvePhantomTypars openSig.Scheme.Typars tryExternalInterfaceWitness instArr
 
                     let methodArgs =
-                        [
-                            for i in 0 .. instArr.Length - 1 ->
-                                match instArr.[i] with
-                                | ValueSome t -> t
-                                | ValueNone ->
-                                    failwithf
-                                        "emitExternalCall: could not infer instantiation for method type parameter %d of %s (phantom-typar solve found no witness)"
-                                        i
-                                        declaration
-                        ]
+                        TastLower.requireSolved
+                            (fun () ->
+                                sprintf "the external method %s (phantom-typar solve found no witness)" declaration
+                            )
+                            instArr
 
                     methodSpec callBase methodArgs
 

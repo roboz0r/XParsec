@@ -71,10 +71,10 @@ module EmitLoops =
             | false, _ -> failwithf "EmitLoops: interface '%A' has no emitted member '%s'" ifaceKey memberName
 
         EmitResolve.memberRef
-            env
-            iface.Typars
+            env.Provider
+            iface.TypeArity
             ifaceKey
-            (Block.toList ifaceArgs)
+            ifaceArgs
             (UserMemberKind.Member(m.MetaName, false, m.MethodTyparCount, m.ParamTys, m.RetTy))
             m.Handle
 

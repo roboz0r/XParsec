@@ -275,35 +275,24 @@ type internal ClrEncoder(env: ClrEnv) =
         (methodTyparArity: int<typeSlot>)
         (openT: FrozenType)
         (instT: FrozenType)
-        : FrozenType list * FrozenType list =
+        : Block<FrozenType> * Block<FrozenType> =
         let decl, meth = fillOpenTyparSlots declTyparArity methodTyparArity openT instT
 
         let collect (name: string) (slots: FrozenType voption[]) =
-            [
-                for i in 0 .. slots.Length - 1 ->
-                    match slots.[i] with
-                    | ValueSome t -> t
-                    | ValueNone ->
-                        failwithf
-                            "ClrProvider: could not recover %s type argument %d (open %A vs %A)"
-                            name
-                            i
-                            openT
-                            instT
-            ]
+            TastLower.requireSolved (fun () -> sprintf "the %s signature (open %A vs %A)" name openT instT) slots
 
         collect "declaring" decl, collect "method" meth
 
     /// The member-ref parent: the declaring `TypeRef`, wrapped in a `TypeSpec` instantiation when
     /// generic (`EqualityComparer`1<int>`). A struct declaring type (`Span`1<char>`, a struct
     /// record) must be tagged `VALUETYPE` or the runtime rejects the ref ("value type mismatch").
-    let externalTypeSpec (tref: EntityHandle) (isValueType: bool) (instArgs: FrozenType list) : EntityHandle =
-        match instArgs with
-        | [] -> tref
-        | _ ->
+    let externalTypeSpec (tref: EntityHandle) (isValueType: bool) (instArgs: Block<FrozenType>) : EntityHandle =
+        if instArgs.IsEmpty then
+            tref
+        else
             let tsB = BlobBuilder()
             let te = BlobEncoder(tsB).TypeSpecificationSignature()
-            let g = te.GenericInstantiation(tref, List.length instArgs, isValueType)
+            let g = te.GenericInstantiation(tref, instArgs.Length, isValueType)
 
             for a in instArgs do
                 encodeType (g.AddArgument()) (a)
@@ -320,13 +309,13 @@ type internal ClrEncoder(env: ClrEnv) =
         ctx.AddStandaloneSignature blob
 
     /// Wrap a generic-method handle in a `MethodSpec` instantiating it at `args`
-    /// (`fold<int,int>`). A non-generic handle (`args = []`) returns unchanged.
-    let methodSpec (handle: EntityHandle) (args: FrozenType list) : EntityHandle =
-        match args with
-        | [] -> handle
-        | _ ->
+    /// (`fold<int,int>`). A handle with empty `args` returns unchanged.
+    let methodSpec (handle: EntityHandle) (args: Block<FrozenType>) : EntityHandle =
+        if args.IsEmpty then
+            handle
+        else
             let inst = BlobBuilder()
-            let specEnc = BlobEncoder(inst).MethodSpecificationSignature(List.length args)
+            let specEnc = BlobEncoder(inst).MethodSpecificationSignature(args.Length)
 
             for t in args do
                 encodeType (specEnc.AddArgument()) (t)

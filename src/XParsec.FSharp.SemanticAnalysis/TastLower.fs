@@ -88,13 +88,16 @@ module TastLower =
         : FrozenType voption[] =
         matchTyparsPartial (fun scope -> scope.IsFunction) typarCount defTys actualTys
 
-    let private strict (what: string) (result: FrozenType voption[]) : FrozenType list =
-        [
-            for i in 0 .. result.Length - 1 ->
+    /// Every slot of a partial recovery, or a throw identifying the first unsolved one. `what`
+    /// describes the owner of the type parameters in that message, and is called only on the throw.
+    let requireSolved (what: unit -> string) (result: FrozenType voption[]) : Block<FrozenType> =
+        Block.init
+            result.Length
+            (fun i ->
                 match result.[i] with
                 | ValueSome t -> t
-                | ValueNone -> failwithf "Emit: could not infer instantiation for %s type parameter %d" what i
-        ]
+                | ValueNone -> failwithf "could not infer instantiation for type parameter %d of %s" i (what ())
+            )
 
     /// Recover a generic static method's per-typar instantiation at a call site by
     /// structurally matching each declared parameter type against the actual argument
@@ -103,8 +106,8 @@ module TastLower =
         (typarCount: int<typeSlot>)
         (defTys: FrozenType list)
         (actualTys: FrozenType list)
-        : FrozenType list =
-        strict "static-method" (matchInstantiationPartial typarCount defTys actualTys)
+        : Block<FrozenType> =
+        requireSolved (fun () -> "a static method") (matchInstantiationPartial typarCount defTys actualTys)
 
     /// `matchInstantiation` over the typars of one `scope`, a lifted local's own.
     let matchScopeInstantiation
@@ -112,8 +115,10 @@ module TastLower =
         (typarCount: int<typeSlot>)
         (defTys: FrozenType list)
         (actualTys: FrozenType list)
-        : FrozenType list =
-        strict (sprintf "%A" scope) (matchTyparsPartial (fun s -> s = scope) typarCount defTys actualTys)
+        : Block<FrozenType> =
+        requireSolved
+            (fun () -> sprintf "%A" scope)
+            (matchTyparsPartial (fun s -> s = scope) typarCount defTys actualTys)
 
     /// Fill `instArr`'s remaining holes from the CONSTRAINTS: for a `Coercion target` on the
     /// typar at `ci`, already solved, `tryWitness` reads that type's actual impl of

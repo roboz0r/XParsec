@@ -6,13 +6,15 @@ open XParsec.FSharp.SemanticAnalysis
 [<AutoOpen>]
 module internal TyparMarkers =
 
-    /// A declaring type's own typars as self-describing nodes, in declaration order:
-    /// position `i` encodes as `!i`. This is the instantiation that names a generic type
-    /// from inside its own bodies (`Box\`1<!0>`).
-    let declaringMarkers (key: TypeKey) (count: int<typeSlot>) : FrozenType list =
-        [
-            for i in 0 .. int count - 1 -> FTTypar(TyparScope.Type key, TyparIndex.typeSlot i)
-        ]
+    /// A scope's own typars as self-describing nodes, in declaration order. `TyparSlots`
+    /// decides the slot each one encodes to.
+    let scopeMarkers (scope: TyparScope) (count: int<typeSlot>) : Block<FrozenType> =
+        Block.init (int count) (fun i -> FTTypar(scope, TyparIndex.typeSlot i))
+
+    /// The instantiation denoting a generic type from inside its own bodies: position `i`
+    /// encodes as `!i` (`Box\`1<!0>`).
+    let declaringMarkers (key: TypeKey) (count: int<typeSlot>) : Block<FrozenType> =
+        scopeMarkers (TyparScope.Type key) count
 
 /// One scope's typars in a `TyparFrame`.
 type FrameScope =
@@ -30,8 +32,7 @@ type TyparFrame =
         Scopes: Block<FrameScope>
     }
 
-    member x.Count: int<typeSlot> =
-        x.Scopes |> Block.fold (fun n s -> n + s.Count) 0<typeSlot>
+    member x.Count: int<typeSlot> = x.Scopes |> Block.sumBy (fun s -> s.Count)
 
     /// The slot the scope's typar `0` occupies, `ValueNone` for a scope outside the frame.
     member x.TryOffset(scope: TyparScope) : int<typeSlot> voption =
@@ -49,11 +50,8 @@ type TyparFrame =
 
     /// The frame's own leaves in slot order: the instantiation denoting the owner from inside
     /// the bodies its scopes are visible in.
-    member x.Instantiation: FrozenType list =
-        [
-            for s in x.Scopes do
-                for i in 0 .. int s.Count - 1 -> FTTypar(s.Scope, TyparIndex.typeSlot i)
-        ]
+    member x.Instantiation: Block<FrozenType> =
+        x.Scopes |> Block.collect (fun s -> scopeMarkers s.Scope s.Count)
 
     /// The frame with `scope`'s typars appended.
     member x.Push(scope: FrameScope) : TyparFrame =

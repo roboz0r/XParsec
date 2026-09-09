@@ -24,6 +24,17 @@ type ClrProvider
     let ext = ClrExternalMembers(env, enc)
     let recipes = ClrRecipes(env, enc)
 
+    /// The element type of a Vesper cons-list nominal, matched by key identity because
+    /// FSharp.Core's `list` and the Vesper cons-list are both written `list`. A cons-list
+    /// carries exactly one type argument, so any other arity throws.
+    let (|VesperList|_|) (key: TypeKey) (tyArgs: Block<FrozenType>) : FrozenType voption =
+        if RuntimeNames.isVesperListKey key then
+            match tyArgs with
+            | BlockOne elem -> ValueSome elem
+            | other -> failwithf "ClrProvider: the cons-list expects one type argument, got %A" other
+        else
+            ValueNone
+
     member _.ObjectType: EntityHandle = env.EObject.Value
 
     /// `System.ValueType` — the IL base type of a `[<Struct>]` value type.
@@ -225,10 +236,10 @@ type ClrProvider
         env.UserValueTypes.Add typeKey |> ignore
         FTClass(typeKey, Block.empty)
 
-    member _.GenericClosureTypeSpec(name: string, args: FrozenType list) : EntityHandle =
+    member _.GenericClosureTypeSpec(name: string, args: Block<FrozenType>) : EntityHandle =
         generics.GenericClosureTypeSpec(name, args)
 
-    member _.GenericClosureMemberRef(name: string, args: FrozenType list, which: ClosureMember) : EntityHandle =
+    member _.GenericClosureMemberRef(name: string, args: Block<FrozenType>, which: ClosureMember) : EntityHandle =
         generics.GenericClosureMemberRef(name, args, which)
 
     /// Run `f`, a synthesised owner's own signature / body / member-ref emission, with every
@@ -365,18 +376,13 @@ type ClrProvider
             ext.ExternalCtor(key, chosen, tyArgs, argTypes)
 
         member _.TryEmitUnionCons(key, caseName, tyArgs) =
-            let elem () =
-                match tyArgs with
-                | [ e ] -> e
-                | other -> failwithf "ClrProvider: list type expects one type argument, got %A" other
-
-            // The cons-list, recognised by key identity rather than by string name.
-            if RuntimeNames.isVesperListKey key then
+            match tyArgs with
+            | VesperList key elem ->
                 match caseName with
-                | "Cons" -> ValueSome(recipes.EmitVesperListCons(elem ()))
-                | "Empty" -> ValueSome(recipes.EmitVesperListEmpty(elem ()))
+                | "Cons" -> ValueSome(recipes.EmitVesperListCons elem)
+                | "Empty" -> ValueSome(recipes.EmitVesperListEmpty elem)
                 | _ -> ValueNone
-            else
+            | _ ->
                 // A referenced-package union case (`Some` / `None`): `call` the emitted static
                 // case factory `<caseName>(fields…) : Union<…>` on the instantiated `TypeSpec`,
                 // its fields already on the stack in declaration order.
@@ -409,7 +415,7 @@ type ClrProvider
             | ValueNone -> ValueNone
             | ValueSome handle ->
                 let argCount =
-                    match env.ExternalRecordShape(key, List.length tyArgs) with
+                    match env.ExternalRecordShape(key, tyArgs.Length) with
                     | ValueSome(fields, _) -> fields.Length
                     | ValueNone -> 0
 
@@ -421,45 +427,29 @@ type ClrProvider
         member _.ExternalUnionCaseTest(key, tyArgs, caseName) =
             // The cons-list is invisible to the generic external-union path, so match it
             // against its known emitted layout: two cases with a payload ⇒ type-tested.
-            if RuntimeNames.isVesperListKey key then
-                let elem =
-                    match tyArgs with
-                    | [ e ] -> e
-                    | other -> failwithf "ClrProvider: cons-list match expects one type argument, got %A" other
-
+            match tyArgs with
+            | VesperList key elem ->
                 match caseName with
                 | "Empty"
                 | "Cons" -> ValueSome(UnionCaseTest.IsInst(recipes.VesperListCaseTypeSpec(elem, caseName)))
                 | _ -> ValueNone
-            else
-                ext.ExternalUnionCaseTest(key, tyArgs, caseName)
+            | _ -> ext.ExternalUnionCaseTest(key, tyArgs, caseName)
 
         member _.ExternalUnionCaseField(key, tyArgs, caseName, fieldIndex) =
-            if RuntimeNames.isVesperListKey key then
-                let elem =
-                    match tyArgs with
-                    | [ e ] -> e
-                    | other -> failwithf "ClrProvider: cons-list match expects one type argument, got %A" other
-
+            match tyArgs with
+            | VesperList key elem ->
                 // Only `Cons` carries fields: field 0 is the head, field 1 the tail, both on
                 // the `Cons` case type.
                 match caseName, fieldIndex with
                 | "Cons", 0 -> ValueSome(UnionCaseAccess.Field [ recipes.EmitVesperListConsField(elem, 0) ])
                 | "Cons", 1 -> ValueSome(UnionCaseAccess.Field [ recipes.EmitVesperListConsField(elem, 1) ])
                 | _ -> ValueNone
-            else
-                ext.ExternalUnionCaseField(key, tyArgs, caseName, fieldIndex)
+            | _ -> ext.ExternalUnionCaseField(key, tyArgs, caseName, fieldIndex)
 
         member _.ExternalUnionCaseType(key, tyArgs, caseName) =
-            if RuntimeNames.isVesperListKey key then
-                let elem =
-                    match tyArgs with
-                    | [ e ] -> e
-                    | other -> failwithf "ClrProvider: cons-list match expects one type argument, got %A" other
-
-                ValueSome(recipes.VesperListCaseTypeSpec(elem, caseName))
-            else
-                ext.ExternalUnionCaseType(key, tyArgs, caseName)
+            match tyArgs with
+            | VesperList key elem -> ValueSome(recipes.VesperListCaseTypeSpec(elem, caseName))
+            | _ -> ext.ExternalUnionCaseType(key, tyArgs, caseName)
 
         member _.StaticFnMethodSpec(handle, instTypes) =
             ext.StaticFnMethodSpec(handle, instTypes)

@@ -3,6 +3,7 @@ namespace XParsec.FSharp.Codegen.Clr
 open System.Collections.Generic
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
@@ -179,7 +180,7 @@ module EmitCall =
                     (flatActualTys @ [ actualResultTy ])
 
             let callHandle =
-                env.Provider.StaticFnMethodSpec(ll.Handle, ll.Enclosing.Instantiation @ own)
+                env.Provider.StaticFnMethodSpec(ll.Handle, Block.append ll.Enclosing.Instantiation own)
 
             callFlatStatic
                 recur
@@ -234,15 +235,9 @@ module EmitCall =
                     TastLower.solvePhantomTypars sm.Scheme.Typars (tryInterfaceWitness env) instArr
 
                     let inst =
-                        [
-                            for i in 0 .. instArr.Length - 1 ->
-                                match instArr.[i] with
-                                | ValueSome t -> t
-                                | ValueNone ->
-                                    failwithf
-                                        "Emit: could not infer instantiation for static-method type parameter %d (phantom-typar solve found no witness)"
-                                        i
-                        ]
+                        TastLower.requireSolved
+                            (fun () -> "a static method (phantom-typar solve found no witness)")
+                            instArr
 
                     env.Provider.StaticFnMethodSpec(sm.Handle, inst)
 
