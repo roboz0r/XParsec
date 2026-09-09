@@ -364,7 +364,7 @@ type TyparListG<'ty> =
     }
 
     /// The arity: one per parameter of either kind.
-    member this.Length: int = int this.Order.Length
+    member this.Length: int<sigSlot> = this.Order.Length
 
     member this.IsEmpty: bool = this.Order.IsEmpty
 

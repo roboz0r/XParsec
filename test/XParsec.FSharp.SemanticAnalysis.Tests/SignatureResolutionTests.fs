@@ -427,7 +427,7 @@ let tests =
                 match shapeOf r "Thing" with
                 | ExternalTypeShape.Unmodelled(UnmodelledReason.ExtractionFailed reason, typars) ->
                     Expect.stringContains reason "Red" "the reason names the case that did not read"
-                    Expect.equal typars.Length 0 "Unmodelled carries the declared arity"
+                    Expect.equal typars.Length 0<sigSlot> "Unmodelled carries the declared arity"
                 | other -> failtestf "expected an Unmodelled shape for the enum; got %A" other
             }
 
@@ -580,7 +580,7 @@ let tests =
 
                 match shapeOf r "Thing`1" with
                 | ExternalTypeShape.Union { Typars = typars; Cases = cases } ->
-                    Expect.equal typars.Length 1 "Union carries the declared arity"
+                    Expect.equal typars.Length 1<sigSlot> "Union carries the declared arity"
                     Expect.equal cases.Length 2 "two cases published"
                     Expect.equal cases.[0].Name "Empty" "`([])` names the nullary case by its canonical ctor form"
                     Expect.equal cases.[0].FrozenFieldTypes.Length 0 "the nullary case has no fields"
@@ -629,7 +629,7 @@ let tests =
 
                 match shapeOf r "objnull" with
                 | ExternalTypeShape.Abbrev { Typars = typars; Body = frozen } ->
-                    Expect.equal typars.Length 0 "objnull is nullary"
+                    Expect.equal typars.Length 0<sigSlot> "objnull is nullary"
 
                     match frozen with
                     | FTUnknown(UnknownReason.UnfreezableExternal what) ->
@@ -963,7 +963,7 @@ let tests =
 
                 let typars = (symbolOf r "eqAfter").Generics.Typars
 
-                Expect.equal typars.Length 2 "both parameters are declared"
+                Expect.equal typars.Length 2<sigSlot> "both parameters are declared"
                 Expect.equal typars.TypeArity 1<typeSlot> "only `'a` is type-kinded"
                 Expect.equal typars.MeasureArity 1<measureSlot> "`'u` is measure-kinded"
 

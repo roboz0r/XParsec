@@ -1710,7 +1710,7 @@ module N =
 
                 match ExternalSymbols.tryMetaType all.[0].View "Test.A.myalias" with
                 | ValueSome(ExternalTypeShape.Abbrev { Typars = typars }) ->
-                    Expect.equal typars.Length 0 "`myalias` takes no type parameter"
+                    Expect.equal typars.Length 0<sigSlot> "`myalias` takes no type parameter"
                 | other -> failtestf "expected Test.A.myalias to publish as an abbreviation, got %A" other
             }
 
@@ -1744,7 +1744,7 @@ module N =
 
                 match ExternalSymbols.tryMetaType all.[0].View "Test.A.pair`1" with
                 | ValueSome(ExternalTypeShape.Abbrev { Typars = typars }) ->
-                    Expect.equal typars.Length 1 "`pair` takes one type parameter"
+                    Expect.equal typars.Length 1<sigSlot> "`pair` takes one type parameter"
                 | other -> failtestf "expected Test.A.pair to publish as an abbreviation, got %A" other
             }
 

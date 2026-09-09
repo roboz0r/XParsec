@@ -80,8 +80,8 @@ type ExternalTypeShape =
         | Abbrev {
                      Typars = typars
                      Body = FTKeyed(key, args)
-                 } when args.Length = typars.Length ->
-            let arity = typars.Length
+                 } when args.Length = int typars.Length ->
+            let arity = int typars.Length
             let seen = Array.zeroCreate<bool> arity
 
             let isAlias =

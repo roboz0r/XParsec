@@ -13,8 +13,8 @@ replaces. The constraint stages already landed are in the git log: `TyparConstra
 
 ## Preconditions
 
-- `measure-resolution-plan.md` has landed and merged. This plan reads `TyparKind`,
-  `DeclaredTypar`, `MeasureTerm` keyed by `TypeKey` and `FTMeasure`.
+- Measure resolution has landed and merged. This plan reads `TyparKind`, `DeclaredTypar`,
+  `MeasureTerm` and `FTMeasure`, whose atom is a `MeasureAtom` since step 4a.
 - Nothing else is open in SemanticAnalysis. Step 3 rewrites `SemanticInfo.fs`,
   `SideTypes.fs`, the frozen codecs and every backend's typar encoding.
 - `delegates-plan.md` stage 2 has either landed alone or waits until step 3 has. Two format
@@ -235,13 +235,14 @@ separate change.
    interface unify their arguments under FS0064, where `addConstraintByKind` only dedupes
    structurally equal constraints.
 
-4a. **Typar slots.** `typar-slot-plan.md`, sequenced here. Step 4's review found two
-   producers still numbering a leaf by signature slot (`mkDeclTyparEnv`, `publishedScheme`'s
-   trait indices) against a `Types`-indexed consumer, and that a measure typar has no leaf to
-   freeze to. That plan tags the three numberings as measures (`sigSlot`, `typeSlot`,
-   `measureSlot`) over an `BlockM`, moves the tag onto `FTTypar` / `TyTypar`, and adds
-   `MeasureAtom.Typar`. It lands before step 5, whose rows index a type slot, and absorbs
-   step 6. Format versions 13 and 14.
+4a. **Typar slots.** Landed, and it absorbed step 6. Step 4's review found two producers
+   still numbering a leaf by signature slot (`mkDeclTyparEnv`, `publishedScheme`'s trait
+   indices) against a `Types`-indexed consumer, and that a measure typar had no leaf to
+   freeze to. The three numberings are now measure-tagged (`sigSlot`, `typeSlot`,
+   `measureSlot`) over a `BlockM`, the tag sits on `FTTypar` / `TyTypar`, `MeasureAtom.Typar`
+   exists, a `TypeKey` spells a `KeyArity`, and a measure argument is a `RootState`. The
+   model is in `typar-scope.md` (*Leaves*, *Slot numbering*, *Measure arguments*). Format
+   version 22; step 5's rows index a type slot.
 
 5. **`GenericParamConstraint` rows.** No code in `src/` emits one. The table is added to the
    assembler with its row-order prediction, the same prefix-sum discipline as every other
@@ -263,12 +264,13 @@ separate change.
    | `'a : equality` / `comparison` | none; F# has no CLI encoding for these either |
    | SRTP member trait | none; an `inline` binding resolves it at the splice |
 
-6. **`MeasureAtom.Typar`.** Absorbed by `typar-slot-plan.md` step 3, which gives the atom a
-   `measureSlot`-tagged index. `[<Measure>]` on a member or binding typar is read at
-   `TypeBodyExtraction.memberTypars` and at `Infer`'s binding-typar read, the two sites
-   `measure-resolution-plan.md` step 2 left type-kinded by construction (done in step 2 of
-   `typar-slot-plan.md`). Measure-generic
-   abbreviations (`type Meters<[<Measure>] 'u> = float<'u>`) leave `NotYetSupported`.
+6. **`MeasureAtom.Typar`.** Landed under step 4a. The atom carries a `measureSlot`-tagged
+   index and is minted at translation from the live `ScopedTypar` scope. `[<Measure>]` on a
+   member or binding typar is read at `TypeBodyExtraction.memberTypars` and at `Infer`'s
+   binding-typar read, so a module `let` and a member kind the same source the same way.
+   Measure inference and measure-generic abbreviations
+   (`type Meters<[<Measure>] 'u> = float<'u>`) remain out; `typar-scope.md` *Not yet
+   inferred* holds the gaps and names their pins.
 
 7. **Import.** A foreign generic's constraints are read off its metadata into the typar's
    `ConstraintSet`, so enforcement against a BCL or third-party generic exists. The

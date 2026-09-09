@@ -1,8 +1,8 @@
 # Type parameter scopes
 
-*Decision record, agreed 2026-09-05, revised 2026-09-06. Durable: it describes the domain
-model the code is to match, and it is revised rather than deleted when the code lands. F#
-verdicts were probed with `dotnet fsi` on the same days.*
+*Decision record, agreed 2026-09-05, revised 2026-09-06 and 2026-09-09. Durable: it
+describes the domain model the code is to match, and it is revised rather than deleted when
+the code lands. F# verdicts were probed with `dotnet fsi` on the same days.*
 
 This document retires the terms **declaring-axis** and **method-axis**, and the
 `TyparAxis = Declaring | Method` type at `SemanticScalars.fs`, in favour of **typar scope**.
@@ -119,7 +119,7 @@ One leaf shape serves every scope. `FTLocalTypar of SchemeId * index` retires wi
 local scope key is instead minted when the binding is generalised.
 
 ```fsharp
-| FTTypar of scope: TyparScope * index: int     // indexes the scope's Types
+| FTTypar of scope: TyparScope * index: int<typeSlot>     // indexes the scope's Types
 ```
 
 A measure variable is an atom of `MeasureTerm`, so the atom widens from `TypeKey` to:
@@ -127,8 +127,17 @@ A measure variable is an atom of `MeasureTerm`, so the atom widens from `TypeKey
 ```fsharp
 type MeasureAtom =
     | Named of TypeKey
-    | Typar of scope: TyparScope * index: int   // indexes the scope's Measures
+    | Typar of scope: TyparScope * index: int<measureSlot> // indexes the scope's Measures
 ```
+
+A measure atom is minted at translation: a measured type's term lives in the store's root
+state, outside the `SemType` tree walked by the deferred `TyVar -> TyTypar` cut. The live
+scope entry is a `ScopedTypar` — `Type of TyVarId` for a
+type-kinded parameter, `Measure of MeasureAtom` for a measure-kinded one — and
+`ScopedTypar.declare` is its one constructor, assigning the measure slots as a declaration
+pushes its parameters. `Translate.translateMeasure` reads the atom out by source name;
+a `Measure` entry in type position is FS0703 and a type-kinded name in measure position is
+FS0702.
 
 ## Typars and constraints
 
@@ -138,24 +147,25 @@ carry none. They share only their lexical position, which matters for signature 
 and display.
 
 ```fsharp
-type TypeTypar    = { Name: string; Constraints: ConstraintSet }
-type MeasureTypar = { Name: string }
+type TypeTypar    = { Name: TyparName; Constraints: ConstraintSet }
+type MeasureTypar = { Name: TyparName }
 
 [<RequireQualifiedAccess>]
 type TyparSlot =
-    | Type of int       // index into Types
-    | Measure of int    // index into Measures
+    | Type of typeSlot: int<typeSlot>
+    | Measure of measureSlot: int<measureSlot>
 
 type TyparList =
     {
-        Types: Block<TypeTypar>
-        Measures: Block<MeasureTypar>
-        /// Source order, one slot per typar.
-        Order: Block<TyparSlot>
+        Types: BlockM<TypeTypar, typeSlot>
+        Measures: BlockM<MeasureTypar, measureSlot>
+        /// Source order, one slot per parameter.
+        Order: BlockM<TyparSlot, sigSlot>
     }
 ```
 
-`ConstraintSet` holds the existing `TyparConstraintKindG` cases plus `Default`, per typar.
+`ConstraintSet` holds the existing `TyparConstraintKindG` cases as `Kinds`, plus `Defaults`,
+per typar.
 `TyparConstraintG.TyparIndex` retires: a constraint's typar is the record holding it. A
 constraint's embedded type may reference sibling typars, as `Coercion` and `Default` already
 do.
@@ -164,6 +174,34 @@ Measure typars keep a scope even where a backend erases them. The CLR erases the
 `typeof<D<1, int>>.GetGenericArguments()` on `type D<[<Measure>] 'u, 'T>` reports one
 argument, so the CLR index of a type typar is its index into `Types`, never into `Order`. The
 TAST keeps the measure scope regardless, because a future backend may want it.
+
+### Slot numbering
+
+Three numberings run over one declaration's parameters. Each is a measure-tagged `int`
+declared in `TyparSlots.fs`, and a `BlockM` accepts only its own tag:
+
+| Tag | Indexes | Read by |
+| --- | --- | --- |
+| `sigSlot` | `Order`, every parameter in source order | name resolution, a written `<'a, 'u>` argument list, FS0033 |
+| `typeSlot` | `Types` | the CLR `GenericParam` rows, `FTTypar` / `TyTypar` leaves, `MemberTrait.TyparIndices`, `FunctionScheme.TyparArity` |
+| `measureSlot` | `Measures` | measure resolution and `MeasureAtom.Typar`; erased by both backends |
+
+`TyparList.typeSlotOf` and `measureSlotOf` project a signature slot onto its kind's
+numbering and `sigSlotOf` is the reverse; these three are the only bridges. An `int` erasure
+belongs at a metadata, codec, reflection or manifest boundary, and a cast anywhere else
+names a mistyped parameter.
+
+A `TypeKey` spells one of the two counts and its case says which. `KeyArity.Compiled` is a
+nominal type's type-slot count, the `` `N `` of its metadata name, so a key minted from a
+metadata row equals one minted from source, which is what lets a signature file overlay a
+referenced assembly's type. `KeyArity.Written` is an abbreviation's signature-slot count,
+because an abbreviation has no compiled name and F# keys it at every parameter.
+`Compiled 1` and `Written 1` are distinct keys, so `float` and `float<'u>` stay apart.
+
+A declaration's written arity is `Order.Length`, carried on the claim as
+`TypeIdentity.TyparArity` and outside the identity, so a backend that needs the written
+count reads the declaration. Two nominals differing only in measure parameters share one
+key, and the second is refused at declaration although F# admits both.
 
 ## Schemes and traits
 
@@ -183,10 +221,11 @@ type FunctionScheme =
     }
 ```
 
-`MemberTrait` is the shape `ExternalConstraint.MemberTrait` has today, with the
-`typarIndices` resolved against the scheme's own `Types`. `GenericFnScheme` at
-`SideTypes.fs` becomes `FunctionScheme`; `MemberKey.MethodTyparArity` reads off the scheme's
-`Types.Length` rather than being a parallel integer.
+`MemberTrait` is the shape `ExternalConstraint.MemberTrait` has today, with
+`TyparIndices: Block<int<typeSlot>>` resolved against the scheme's own `Types`; a measure
+typar in a support set is FS0703. `GenericFnScheme` at `SideTypes.fs` becomes
+`FunctionScheme`, whose `TyparArity` is `int<typeSlot>`, and `MemberKey.MethodTyparArity`
+is the same count rather than a parallel integer.
 
 ## Class preamble lets
 
@@ -245,21 +284,45 @@ the claim's `Order.[i]` is `Measure`. A `FTMeasure` in type position is FS0704 a
 by the front end, so it is unrepresentable past `Freeze`. `FTMeasure` never reaches `unify`.
 
 A measure typar is a `MeasureAtom.Typar` inside that term, so the measure leaf needs no case of
-its own. A backend lowers a measured nominal by expanding its abbreviation body
-(`type float<[<Measure>] 'M> = float`) and dropping the measure arguments.
+its own.
 
-This case is introduced by `measure-resolution-plan.md` step 6 and is inherited unchanged.
+Before `Freeze` a measure argument is a store state rather than a type. `RootState` is a
+union-find root's kind — `Free`, `Linked of target`, `Measure of units`,
+`Measured of units * carrier` — and `PassContext.MeasureTy` mints the third of them.
+`unify` matches on the state pair: two measure arguments merge through `mergeUnits`, which
+requires equal terms and reports `MeasureMismatch` otherwise; a measured value meeting a type
+unifies its carrier against that type; a measure argument meeting a type reports FS0704 and
+leaves the two classes apart.
+
+A written measure argument stays an argument, placed at its signature slot, and attaches to
+the expansion instead for a transparent abbreviation, whose body carries no slot for it. The
+two placements are `Translate.MeasureSite`, chosen by the `KeyArity` case.
+
+Both backends erase measures. `MeasureErasure` in `Codegen.Common` expands a measured
+nominal's abbreviation body (`type float<[<Measure>] 'M> = float`) and drops the measure
+arguments, and the CLR `GenericParam` rows and every `GENERICINST` read `Types` alone,
+through `FrozenType.typeSlotArgs`.
+
+### Not yet inferred
+
+A declared measure typar is a rigid atom within its declaration, equal only to itself.
+Generalising an unannotated measure (`let f x = x * 1.0<m>`) and instantiating a declared one
+at a call site (`scale 1.0<m>` on `let scale<[<Measure>] 'u> (x: float<'u>) = x`, which
+reports `Measure mismatch: <m> vs <'m0>`) each need measure variables in the store and
+Abelian-group unification over them, which is its own plan. Measure-generic abbreviations
+(`type Meters<[<Measure>] 'u> = float<'u>`), a measure wildcard (`float<_>`) and an
+undeclared measure typar (`float<'zz>`, which fsc generalises) are `NotYetSupported`.
+`MeasureResolutionTests` and `GenericParamFlagsTests` pin each gap, quoted in the test name.
 
 ## Sequencing
 
-The implementation steps are in `typar-scope-plan.md`, which interleaves the remaining
-typar-constraint emission and import stages with the model change. The ordering constraints
-are:
+The scope model, the slot tags, `MeasureAtom.Typar` and the store's measure states have
+landed, at format version 22. The remaining implementation steps are in
+`typar-scope-plan.md`, which interleaves the remaining typar-constraint emission and import
+stages with the model change. The ordering constraints are:
 
-- `measure-resolution-plan.md` lands and merges first. Typar-scope reads its outputs:
-  `TyparKind`, `DeclaredTypar`, `MeasureTerm` keyed by `TypeKey`, `FTMeasure`.
-- Typar-scope rewrites `SemanticInfo.fs`, `SideTypes.fs`, the frozen codecs and every
-  backend's typar encoding, so it lands on a branch from `main` with nothing else open in
-  SemanticAnalysis.
-- Typar-scope is a format bump and lands alone. `delegates-plan.md` stage 2 is another; the
-  two never interleave, and the `delegate<_,_>` constraint import waits on it.
+- `typar-scope-plan.md` rewrites `SemanticInfo.fs`, `SideTypes.fs`, the frozen codecs and
+  every backend's typar encoding, so each step lands on a branch from `main` with nothing
+  else open in SemanticAnalysis.
+- A step that bumps the format lands alone. `delegates-plan.md` stage 2 is another format
+  bump; the two never interleave, and the `delegate<_,_>` constraint import waits on it.

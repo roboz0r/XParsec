@@ -522,12 +522,14 @@ module internal UnificationTranslate =
                 let known = RuntimeNames.targetOptionalPrimitiveTypars key
                 let bare = TyConst(key, Block.empty)
 
-                match known |> List.tryFind (fun typars -> typars.Length = args.Length) with
+                match known |> List.tryFind (fun typars -> int typars.Length = args.Length) with
                 // A measured primitive's claim abbreviates its unmeasured self.
                 | Some typars -> apply typars MeasureSite.Carrier (fun _ -> bare)
                 | None ->
-                    let nearest = known |> List.minBy (fun typars -> abs (typars.Length - args.Length))
-                    ctx.Report(site.Tok, Kind.TypeArgArity(name, nearest.Length, args.Length))
+                    let nearest =
+                        known |> List.minBy (fun typars -> abs (int typars.Length - args.Length))
+
+                    ctx.Report(site.Tok, Kind.TypeArgArity(name, int nearest.Length, args.Length))
                     bare
 
     /// The written `args` read by the kind of the parameter each fills, one of `typars` per
@@ -578,11 +580,11 @@ module internal UnificationTranslate =
                     ctx.Report(tok, Kind.MeasureExpected)
                     ValueNone
 
-        if typars.Length <> args.Length then
+        if int typars.Length <> args.Length then
             failwithf
                 "type reference '%s' resolved to %d parameters for %d written arguments"
                 (ctx.NameOf nameTok)
-                typars.Length
+                (int typars.Length)
                 args.Length
 
         // Argument `i` occupies signature slot `i`.

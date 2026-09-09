@@ -214,7 +214,7 @@ let tests =
                 // The alias must resolve as `Abbrev` so its use sites expand to the target.
                 match ExternalSymbols.tryMetaType boxProviderRaw "Count" with
                 | ValueSome(ExternalTypeShape.Abbrev { Typars = typars; Body = target }) ->
-                    Expect.equal typars.Length 0 "Count is non-generic"
+                    Expect.equal typars.Length 0<sigSlot> "Count is non-generic"
 
                     match target with
                     | FTConst(key, _) ->

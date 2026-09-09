@@ -860,7 +860,7 @@ let tests =
                     |> Option.defaultWith (fun () -> failwithf "expected a TDecl.Type, got %A" tast.Decls)
 
                 Expect.equal typeDecl.Name "Point" "type name"
-                Expect.equal typeDecl.TypeParams.Length 0 "no generic typars"
+                Expect.equal typeDecl.TypeParams.Length 0<sigSlot> "no generic typars"
 
                 match typeDecl.Kind with
                 | TTypeKind.Class c ->

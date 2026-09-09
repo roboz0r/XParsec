@@ -398,7 +398,10 @@ let testProviderResolves (path: string) =
                 // its `typeParams`.
                 match ExternalSymbols.tryMetaType prov name with
                 | ValueSome(ExternalTypeShape.Abbrev { Typars = typars }) ->
-                    Expect.equal typars.Length typeParams $"type alias '{name}' arity must equal its typeParams"
+                    Expect.equal
+                        typars.Length
+                        (TyparIndex.sigSlot typeParams)
+                        $"type alias '{name}' arity must equal its typeParams"
                 | _ -> ()
             | Schema.Export.Enum(name, _) ->
                 // The enum NAME resolves; its MEMBERS are stubbed on the provider, so only

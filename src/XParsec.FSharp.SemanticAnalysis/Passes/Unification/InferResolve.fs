@@ -134,7 +134,7 @@ module internal UnificationInferResolve =
 
     /// One fresh TyVar per declared parameter, in signature order.
     let private freshDeclaringArgs (ctx: PassContext) (typars: TyparList) : SemType[] =
-        Array.init typars.Length (fun _ -> TyVar(ctx.FreshTyVar()))
+        Array.init (int typars.Length) (fun _ -> TyVar(ctx.FreshTyVar()))
 
     /// The union type and per-field types of a resolved external case, instantiating the
     /// declaring union's typars fresh (one TyVar per declared arity). The union is the

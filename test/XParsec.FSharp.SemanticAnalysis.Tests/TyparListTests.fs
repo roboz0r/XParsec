@@ -38,7 +38,7 @@ let tests =
                     [ for (_, k) in written -> k ]
                     "kinds read back in source order"
 
-                Expect.equal typars.Length written.Length "arity counts both kinds"
+                Expect.equal typars.Length (TyparIndex.sigSlot written.Length) "arity counts both kinds"
                 Expect.equal (Block.toList typars.Names) [ for (n, _) in written -> n ] "names in source order"
             }
 
@@ -74,7 +74,7 @@ let tests =
                 let typars: TyparList =
                     TyparList.ofSeq [ "'u", TyparKind.Measure; "'a", TyparKind.Type; "'b", TyparKind.Type ]
 
-                Expect.equal typars.Length 3 "the signature arity counts both kinds"
+                Expect.equal typars.Length 3<sigSlot> "the signature arity counts both kinds"
                 Expect.equal typars.TypeArity 2<typeSlot> "the type-kinded count"
                 Expect.equal typars.MeasureArity 1<measureSlot> "the measure-kinded count"
 
