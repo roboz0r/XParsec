@@ -58,7 +58,7 @@ module Emit =
     /// Build the `Main` body from the lowered decls: each top-level `let` binds a
     /// `Main` local, each effectful expression is emitted in source order, then
     /// `ldc.i4.0; ret`.
-    let buildMain (ctx: EmitContext) (decls: TastAccessor.DeclId list) : ILBody =
+    let buildMain (ctx: EmitContext) (decls: Block<TastAccessor.DeclId>) : ILBody =
         let b = IlBuilder()
         let env = EmitEnv.ofContext ctx (Dictionary())
 
@@ -114,7 +114,7 @@ module Emit =
 
         // A flat closure's extra (peeled inner-`Lambda`) parameters: extra param `i`,
         // 0-based, is `ldarg.(2+i)`.
-        closure.ExtraParams |> List.iteri (fun i (pk, _, _) -> args.[pk] <- 2 + i)
+        closure.ExtraParams |> Block.iteri (fun i ep -> args.[ep.Key] <- 2 + i)
 
         let env = EmitEnv.create ctx closure.SelfKey captureFields args
 
@@ -137,15 +137,15 @@ module Emit =
     /// stack, then `ret`.
     let private buildFlatStaticBody
         (ctx: EmitContext)
-        (leading: BoundVarId list)
+        (leading: Block<BoundVarId>)
         (flatParams: StaticParam list)
         (returnsVoid: bool)
         (body: TastAccessor.ExprId)
         : ILBody =
         let b = IlBuilder()
         let args = Dictionary<BoundVarId, int>()
-        leading |> List.iteri (fun i k -> args.[k] <- i)
-        let offset = List.length leading
+        leading |> Block.iteri (fun i k -> args.[k] <- i)
+        let offset = leading.Length
         flatParams |> List.iteri (fun i p -> args.[p.Slot] <- offset + i)
         let env = EmitEnv.ofContext ctx args
 
@@ -168,11 +168,11 @@ module Emit =
 
     /// Build a static-method function's body over its flattened parameters alone.
     let buildStaticMethod (ctx: EmitContext) (fn: StaticFn) : ILBody =
-        buildFlatStaticBody ctx [] fn.Params.Flat fn.ReturnsVoid fn.Body
+        buildFlatStaticBody ctx Block.empty fn.Params.Flat fn.ReturnsVoid fn.Body
 
     /// Build a lifted local's body: its captures lead the flattened parameters.
     let buildLiftedLocal (ctx: EmitContext) (ll: LiftedLocal) : ILBody =
-        buildFlatStaticBody ctx (List.map fst ll.Captures) ll.Fn.Params.Flat ll.Fn.ReturnsVoid ll.Fn.Body
+        buildFlatStaticBody ctx (Block.map fst ll.Captures) ll.Fn.Params.Flat ll.Fn.ReturnsVoid ll.Fn.Body
 
     /// Build a nominal member's body: an instance member's `this` is `ldarg.0` and its
     /// parameters `ldarg.1…`, a static member's parameters start at `ldarg.0`.
@@ -224,9 +224,9 @@ module Emit =
     let buildSecondaryCtor
         (ctx: EmitContext)
         (prms: Block<BoundVarKeyG<BoundVarId> * FrozenType>)
-        (lets: TastAccessor.CtorLet list)
+        (lets: Block<TastAccessor.CtorLet>)
         (primaryCtor: EntityHandle)
-        (primaryArgs: TastAccessor.ExprId list)
+        (primaryArgs: Block<TastAccessor.ExprId>)
         : ILBody =
         let b = IlBuilder()
         let args = Dictionary<BoundVarId, int>()
@@ -244,7 +244,7 @@ module Emit =
         for a in primaryArgs do
             buildExpr env b a
 
-        b.Add(ILInstr.Call(primaryCtor, List.length primaryArgs + 1, 0))
+        b.Add(ILInstr.Call(primaryCtor, primaryArgs.Length + 1, 0))
         b.Add ILInstr.Ret
         b.Body
 
@@ -254,8 +254,8 @@ module Emit =
     let buildSecondaryCtorFieldInit
         (ctx: EmitContext)
         (prms: Block<BoundVarKeyG<BoundVarId> * FrozenType>)
-        (lets: TastAccessor.CtorLet list)
-        (fieldInits: (EntityHandle * TastAccessor.ExprId) list)
+        (lets: Block<TastAccessor.CtorLet>)
+        (fieldInits: Block<EntityHandle * TastAccessor.ExprId>)
         : ILBody =
         let b = IlBuilder()
         let args = Dictionary<BoundVarId, int>()
@@ -283,16 +283,16 @@ module Emit =
         (ctx: EmitContext)
         (chain: CtorChain)
         (thisKey: BoundVarKeyG<BoundVarId>)
-        (ctorParams: (BoundVarKeyG<BoundVarId> * FrozenType) list)
-        (fields: EntityHandle list)
-        (preamble: PreambleStep list)
+        (ctorParams: Block<BoundVarKeyG<BoundVarId> * FrozenType>)
+        (fields: Block<EntityHandle>)
+        (preamble: Block<PreambleStep>)
         : ILBody =
         let b = IlBuilder()
         let args = Dictionary<BoundVarId, int>()
         args.[BoundVarKey.identity thisKey] <- 0
 
         ctorParams
-        |> List.iteri (fun i (k, _) -> args.[BoundVarKey.identity k] <- 1 + i)
+        |> Block.iteri (fun i (k, _) -> args.[BoundVarKey.identity k] <- 1 + i)
         // `this` as `SelfKey`: on a value type `ldarg.0` is the byref `this`, so a
         // self-call must load it directly rather than spill a copy.
         let env =
@@ -306,10 +306,10 @@ module Emit =
             for a in baseArgs do
                 buildExpr env b a
 
-            b.Add(ILInstr.Call(baseCtor, List.length baseArgs + 1, 0))
+            b.Add(ILInstr.Call(baseCtor, baseArgs.Length + 1, 0))
 
         fields
-        |> List.iteri (fun i field ->
+        |> Block.iteri (fun i field ->
             b.Add(ILInstr.Ldarg 0)
             b.Add(ILInstr.Ldarg(i + 1))
             b.Add(ILInstr.Stfld field)
@@ -329,7 +329,7 @@ module Emit =
     /// Build a `.cctor` body from a static preamble, in declaration order: a `let`
     /// initialiser `stsfld`ed into its backing field, a `static do` body run for
     /// effect. A `.cctor` is parameterless, so the env carries no args.
-    let buildStaticCctor (ctx: EmitContext) (steps: PreambleStep list) : ILBody =
+    let buildStaticCctor (ctx: EmitContext) (steps: Block<PreambleStep>) : ILBody =
         let b = IlBuilder()
         let env = EmitEnv.ofContext ctx (Dictionary())
 
@@ -345,9 +345,9 @@ module Emit =
 
     /// `this.<field_i> = arg_(i+1)`, fields in declaration order = the ctor's parameter
     /// order. Every constructor body here ends this way.
-    let private storeCtorArgs (b: IlBuilder) (fields: EntityHandle list) : unit =
+    let private storeCtorArgs (b: IlBuilder) (fields: Block<EntityHandle>) : unit =
         fields
-        |> List.iteri (fun i field ->
+        |> Block.iteri (fun i field ->
             b.Add(ILInstr.Ldarg 0)
             b.Add(ILInstr.Ldarg(i + 1))
             b.Add(ILInstr.Stfld field)
@@ -355,23 +355,23 @@ module Emit =
 
     /// Build a `.ctor` body that chains `baseCtor` with `baseArgs` pushed ahead of the
     /// call, then stores each of its own arguments into the matching field.
-    let buildChainedCtor (baseCtor: EntityHandle) (baseArgs: ILInstr list) (fields: EntityHandle list) : ILBody =
+    let buildChainedCtor (baseCtor: EntityHandle) (baseArgs: Block<ILInstr>) (fields: Block<EntityHandle>) : ILBody =
         let b = IlBuilder()
         b.Add(ILInstr.Ldarg 0)
-        baseArgs |> List.iter b.Add
-        b.Add(ILInstr.Call(baseCtor, List.length baseArgs + 1, 0))
+        baseArgs |> Block.iter b.Add
+        b.Add(ILInstr.Call(baseCtor, baseArgs.Length + 1, 0))
         storeCtorArgs b fields
         b.Add ILInstr.Ret
         b.Body
 
     /// Build a `.cctor` that fills each `static initonly` field once, in the given order.
-    /// Each entry's instruction list leaves the instance to cache on the stack; a cached
+    /// Each entry's instructions leave the instance to cache on the stack; a cached
     /// closure, a string/mixed enum case and a union's nullary case all take this shape.
-    let buildCachedFieldCctor (entries: (ILInstr list * EntityHandle) list) : ILBody =
+    let buildCachedFieldCctor (entries: Block<Block<ILInstr> * EntityHandle>) : ILBody =
         let b = IlBuilder()
 
         for (push, cachedField) in entries do
-            push |> List.iter b.Add
+            push |> Block.iter b.Add
             b.Add(ILInstr.Stsfld cachedField)
 
         b.Add ILInstr.Ret
@@ -380,7 +380,7 @@ module Emit =
     /// A value-type (`[<Struct>]`) primary constructor: store each ctor param into its
     /// backing field and return. NO chained base `.ctor`, because `System.ValueType` has
     /// none accessible. `ldarg 0` is the managed pointer `newobj` passes (`&temp`).
-    let buildStructCtor (fields: EntityHandle list) : ILBody =
+    let buildStructCtor (fields: Block<EntityHandle>) : ILBody =
         let b = IlBuilder()
         storeCtorArgs b fields
         b.Add ILInstr.Ret
@@ -419,7 +419,7 @@ module Emit =
     /// Build an instance getter over a field chain: `ldarg.0`, `ldfld` each field of the
     /// non-empty `path` in turn, then `castclass` to `castTo` where the chain ends on a slot
     /// stored erased to `object`.
-    let buildFieldPathGetter (path: EntityHandle list) (castTo: EntityHandle voption) : ILBody =
+    let buildFieldPathGetter (path: Block<EntityHandle>) (castTo: EntityHandle voption) : ILBody =
         let b = IlBuilder()
         b.Add(ILInstr.Ldarg 0)
 
@@ -466,7 +466,7 @@ module Emit =
     type PayloadStore =
         {
             Arg: int
-            Via: EntityHandle list
+            Via: Block<EntityHandle>
             Field: EntityHandle
         }
 
@@ -478,7 +478,7 @@ module Emit =
         (tag: int)
         (payloadTy: FrozenType)
         (payloadToken: EntityHandle)
-        (stores: PayloadStore list)
+        (stores: Block<PayloadStore>)
         : ILBody =
         let b = IlBuilder()
         let payload = b.Local payloadTy

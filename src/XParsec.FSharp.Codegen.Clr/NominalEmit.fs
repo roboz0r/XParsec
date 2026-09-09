@@ -194,21 +194,16 @@ module internal NominalEmit =
         : unit =
         let provider = asm.Provider
 
-        let fieldHandles =
-            [
-                for f in fields -> toEntity (asm.FieldDef(FieldKey.RecordField(td.Key, f.Name)))
-            ]
-
         // A raw `FieldDefinition` token in `ldfld` / `stfld` resolves to the wrong slot for
         // a field at index >= 1 of a generic type, so the `.ctor` and the accessors alike
         // reach a field through its `MemberRef` on the open self-`TypeSpec` (`R\`1<!0>::Y`).
         let fieldRefs =
-            List.map2
-                (fun (f: Frozen.TRecordField) handle ->
-                    selfMemberRef asm td (UserMemberKind.RecordMember(RecordMember.Field f.Name)) handle
-                )
-                fields
-                fieldHandles
+            Block.ofList
+                [
+                    for f in fields ->
+                        toEntity (asm.FieldDef(FieldKey.RecordField(td.Key, f.Name)))
+                        |> selfMemberRef asm td (UserMemberKind.RecordMember(RecordMember.Field f.Name))
+                ]
 
         // `System.ValueType` has no accessible ctor and value types do not chain,
         // so a struct record's `.ctor` only stores fields; a reference record
@@ -217,7 +212,7 @@ module internal NominalEmit =
             if recordIsStruct then
                 Emit.buildStructCtor fieldRefs
             else
-                Emit.buildChainedCtor provider.ObjectCtorRef [] fieldRefs
+                Emit.buildChainedCtor provider.ObjectCtorRef Block.empty fieldRefs
 
         let ctorMethodBody = bodyOf asm ctorBody
 
@@ -232,7 +227,7 @@ module internal NominalEmit =
         )
 
         // A struct record's `ldarg.0` is a byref, which `ldfld` and `stfld` accept.
-        for (f, fieldRef) in List.zip fields fieldRefs do
+        for (f, fieldRef) in Seq.zip fields fieldRefs do
             for role in RecordFieldAccessors.rolesOf f do
                 let body, paramNames =
                     match role with
@@ -292,7 +287,7 @@ module internal NominalEmit =
             let argTypes = bcc.Args |> Block.map TastAccessor.exprTy
 
             match icodegen.TryEmitCtor(baseKey, bcc.ChosenCtor, Block.empty, argTypes) with
-            | ValueSome recipe -> Emit.CtorChain.Base(recipe.Handle, Block.toList bcc.Args)
+            | ValueSome recipe -> Emit.CtorChain.Base(recipe.Handle, bcc.Args)
             | ValueNone ->
                 failwithf
                     "Emit: class '%s' inherits external base %A but no '.ctor' overload matches its %d base-ctor argument(s)"
@@ -301,7 +296,7 @@ module internal NominalEmit =
                     bcc.Args.Length
         | BaseShape.ExternalBase(baseKey, _), _ ->
             match icodegen.ExternalParameterlessBaseCtor baseKey with
-            | ValueSome extCtor -> Emit.CtorChain.Base(extCtor, [])
+            | ValueSome extCtor -> Emit.CtorChain.Base(extCtor, Block.empty)
             | ValueNone ->
                 failwithf
                     "Emit: class '%s' inherits external base %A but its parameterless '.ctor()' could not be minted"
@@ -325,9 +320,9 @@ module internal NominalEmit =
                 | false, _ ->
                     failwithf "Emit: base class '%A' of '%s' is not an emitted project-local class" baseKey td.Name
 
-            Emit.CtorChain.Base(baseCtorHandle, Block.toList bcc.Args)
+            Emit.CtorChain.Base(baseCtorHandle, bcc.Args)
         | _, ValueNone when isStruct -> Emit.CtorChain.None
-        | _, ValueNone -> Emit.CtorChain.Base(provider.ObjectCtorRef, [])
+        | _, ValueNone -> Emit.CtorChain.Base(provider.ObjectCtorRef, Block.empty)
 
     // The `.cctor` runs stores and effects interleaved, in declaration order,
     // which is load-bearing:
@@ -342,12 +337,13 @@ module internal NominalEmit =
             let staticFields = asm.Classes.[td.TypeKey].StaticFields
 
             let cctorSteps =
-                [
-                    for entry in staticPreamble ->
-                        match entry with
-                        | TPreambleEntryG.Let sl -> Emit.PreambleStep.Store(staticFields.[sl.Name], sl.Init)
-                        | TPreambleEntryG.Do e -> Emit.PreambleStep.Run e
-                ]
+                Block.ofList
+                    [
+                        for entry in staticPreamble ->
+                            match entry with
+                            | TPreambleEntryG.Let sl -> Emit.PreambleStep.Store(staticFields.[sl.Name], sl.Init)
+                            | TPreambleEntryG.Do e -> Emit.PreambleStep.Run e
+                    ]
 
             let cctorBody = bodyOf asm (Emit.buildStaticCctor emitCtx cctorSteps)
 
@@ -385,8 +381,6 @@ module internal NominalEmit =
             |> List.iteri (fun i sc ->
                 let paramTys = sc.Params |> Block.map snd
 
-                let lets = Block.toList sc.Lets
-
                 let ctorIr =
                     match sc.Body with
                     | TSecondaryCtorBodyG.ExplicitFieldInit inits ->
@@ -406,11 +400,11 @@ module internal NominalEmit =
                             else
                                 failwithf "Emit: class '%s' secondary ctor inits unknown field '%s'" td.Name name
 
-                        let fieldInits = [ for fi in inits -> fieldHandleOf fi.Field, fi.Init ]
+                        let fieldInits = Block.ofList [ for fi in inits -> fieldHandleOf fi.Field, fi.Init ]
 
-                        Emit.buildSecondaryCtorFieldInit emitCtx sc.Params lets fieldInits
+                        Emit.buildSecondaryCtorFieldInit emitCtx sc.Params sc.Lets fieldInits
                     | TSecondaryCtorBodyG.Chain primaryArgs ->
-                        Emit.buildSecondaryCtor emitCtx sc.Params lets primaryCtorRef (Block.toList primaryArgs)
+                        Emit.buildSecondaryCtor emitCtx sc.Params sc.Lets primaryCtorRef primaryArgs
 
                 let scBody = bodyOf asm ctorIr
 
@@ -467,14 +461,15 @@ module internal NominalEmit =
         // `MemberRef` on the open self-`TypeSpec` (`Box\`1<!0>::n`): the raw
         // `FieldDefinition` token resolves to the wrong slot at index >= 1.
         let ctorFieldRefs =
-            [
-                for p in ctorParams ->
-                    selfMemberRef
-                        asm
-                        td
-                        (UserMemberKind.ClassMember(ClassMember.Field p.Name))
-                        (toEntity (asm.FieldDef(FieldKey.ClassCtorParamField(td.Key, p.Name))))
-            ]
+            Block.ofList
+                [
+                    for p in ctorParams ->
+                        selfMemberRef
+                            asm
+                            td
+                            (UserMemberKind.ClassMember(ClassMember.Field p.Name))
+                            (toEntity (asm.FieldDef(FieldKey.ClassCtorParamField(td.Key, p.Name))))
+                ]
 
         let ctorChain = classCtorChain asm td isStruct baseShape baseCtorCall
 
@@ -483,26 +478,27 @@ module internal NominalEmit =
         // backing field), so this is empty for every other chain shape.
         let ctorParamArgs =
             match baseCtorCall with
-            | ValueSome bcc -> Block.toList bcc.CtorParams
-            | ValueNone -> []
+            | ValueSome bcc -> bcc.CtorParams
+            | ValueNone -> Block.empty
 
         // The instance preamble, resolved through the same self-`MemberRef` shape as
         // the ctor-param stores.
         let instanceSteps =
-            [
-                for entry in cd.InstancePreamble ->
-                    match entry with
-                    | TPreambleEntryG.Let l ->
-                        Emit.PreambleStep.Store(
-                            selfMemberRef
-                                asm
-                                td
-                                (UserMemberKind.ClassMember(ClassMember.Field l.Name))
-                                (toEntity (asm.FieldDef(FieldKey.ClassLetField(td.Key, l.Name)))),
-                            l.Init
-                        )
-                    | TPreambleEntryG.Do e -> Emit.PreambleStep.Run e
-            ]
+            Block.ofList
+                [
+                    for entry in cd.InstancePreamble ->
+                        match entry with
+                        | TPreambleEntryG.Let l ->
+                            Emit.PreambleStep.Store(
+                                selfMemberRef
+                                    asm
+                                    td
+                                    (UserMemberKind.ClassMember(ClassMember.Field l.Name))
+                                    (toEntity (asm.FieldDef(FieldKey.ClassLetField(td.Key, l.Name)))),
+                                l.Init
+                            )
+                        | TPreambleEntryG.Do e -> Emit.PreambleStep.Run e
+                ]
 
         let ctorBody =
             Emit.buildClassPrimaryCtor emitCtx ctorChain cd.ThisKey ctorParamArgs ctorFieldRefs instanceSteps

@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.Codegen.Js
 
 open System.Globalization
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
@@ -140,7 +141,7 @@ module JsEmitHelpers =
         | ExprShape.Var -> not (TastPoolBuilder.boundVarIsMutable e.Pool (TastAccessor.exprVarBoundVar e))
         | ExprShape.ILIntrinsic ->
             not (touchesMemory (TastAccessor.exprILIntrinsicOpCode e))
-            && TastAccessor.exprChildren e |> Array.forall isPureValue
+            && TastAccessor.exprChildren e |> Block.forall isPureValue
         | ExprShape.Let ->
             let l = TastAccessor.exprLet e
 
@@ -155,7 +156,7 @@ module JsEmitHelpers =
         match TastAccessor.exprKind v with
         | ExprShape.ILIntrinsic when not (touchesMemory (TastAccessor.exprILIntrinsicOpCode v)) ->
             TastAccessor.exprChildren v
-            |> Array.forall (fun c -> substitutableValue k c body)
+            |> Block.forall (fun c -> substitutableValue k c body)
         | ExprShape.Let ->
             let l = TastAccessor.exprLet v
 

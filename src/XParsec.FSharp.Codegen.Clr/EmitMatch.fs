@@ -3,6 +3,7 @@ namespace XParsec.FSharp.Codegen.Clr
 open System.Collections.Generic
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 open EmitTypes
 open EmitLower
@@ -70,7 +71,7 @@ module EmitMatch =
         let n = items.Length
 
         items
-        |> Array.iteri (fun i it ->
+        |> Block.iteri (fun i it ->
             if i = n - 1 then
                 recur pos env b it
             else

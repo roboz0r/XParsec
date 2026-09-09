@@ -478,7 +478,17 @@ separate change.
    key, type and pattern, and the two `Assembler` comprehensions that splice `c.ParamTy` in
    front of its types read the record's field.
 
-   Not started.
+   Landed from the step 9 review. `TastAccessor.exprChildren` returns a `Block` and `childArray`
+   is the private array behind it, for `ExprPayload.cursor` and the `Children` row rebuild.
+   `EmitJs`'s intrinsic arms and `EmitIntrinsic`'s `ldloca` read their operands through
+   `BlockOne` / `BlockTwo` / `BlockThree`, and `EmitJsFormat.expandTemplate` takes the `Block`.
+
+   `EmitTypes.ClosureExtraParam` carries the key, type and pattern; `Closure.Captures`,
+   `LiftedLocal.Captures` and `LiftedLocalRef.Captures` are `Block`s, `freeVars` returns one
+   through `Block.ofResizeArray`, and `LayoutNodes`' capture-field rows are a `Block.mapi` in
+   place of `c.Captures.[i]` under a counted loop. `Assembler`'s `fieldHandles` is a
+   `Block.mapi`, and its consumers `Emit.buildStructCtor` and `buildChainedCtor` take
+   `Block<EntityHandle>`.
 
 ## Verify
 
@@ -544,6 +554,6 @@ Before this document is deleted, each row is in code or in a test:
 - [x] `ICodegenProvider` carries no `FrozenType list` and no `string list`;
       `FlatStep.TupleValue` and the `ValueTupleRefs` memo key are `Block`s, pinned in
       `TupleTests` (step 8).
-- [ ] `TastAccessor.exprChildren` returns a `Block` and `exprChildrenBlock` is gone; the
+- [x] `TastAccessor.exprChildren` returns a `Block` and `exprChildrenBlock` is gone; the
       closure and lifted-local `Captures` are `Block`s produced by `freeVars`, and
       `Closure.ExtraParams` is a `Block` of records (step 9).

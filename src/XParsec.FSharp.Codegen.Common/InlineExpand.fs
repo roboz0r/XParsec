@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.Codegen.Common
 
 open System.Collections.Generic
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 
 /// Splice each `TExprG.InlineCall` edge with the body of the specialization it identifies, and
@@ -317,8 +318,9 @@ module InlineExpand =
                 | _ -> ValueNone
 
             let kids =
-                TastAccessor.exprChildren e
-                |> Array.map (fun c -> (go domain entered (Copied copy) c).Id)
+                [|
+                    for c in TastAccessor.exprChildren e -> (go domain entered (Copied copy) c).Id
+                |]
 
             // The payload's own positions move with the node; its loop variable is the one bound above.
             let payload (p: ExprPayload) : ExprPayload =
@@ -384,7 +386,7 @@ module InlineExpand =
 
             // The arguments are the CALLER's material: read in the site and domain the edge
             // itself sits in, never in the entry's.
-            let args = TastAccessor.exprChildren e |> Array.map (go domain entered site)
+            let args = TastAccessor.exprChildren e |> Block.map (go domain entered site)
 
             // The body is the ENTRY's, and the entry states where it was written.
             let body =
@@ -398,7 +400,7 @@ module InlineExpand =
                         })
                     entry.Value
 
-            betaReduce at body (List.ofArray args)
+            betaReduce at body (Block.toList args)
 
         // Lower an application of a curried lambda to its arguments into a `Let` chain. A
         // leftover lambda is a partial application and stands. The `Let` sits at the call site

@@ -113,8 +113,8 @@ module internal UnionEmit =
     let private handleOf (pass: FlatPass) (step: LayoutStep) : EntityHandle =
         pass.Refs.[EmitTypes.FieldStep.field step]
 
-    let private handlesOf (pass: FlatPass) (steps: LayoutStep list) : EntityHandle list =
-        [ for s in steps -> handleOf pass s ]
+    let private handlesOf (pass: FlatPass) (steps: LayoutStep list) : Block<EntityHandle> =
+        Block.ofList [ for s in steps -> handleOf pass s ]
 
     /// A flat case's structural fields in declaration order: the walk every structural body
     /// over that case takes, `castclass`ing an erased slot back to the declared type.
@@ -140,8 +140,8 @@ module internal UnionEmit =
         (asm: Assembler)
         (td: TastAccessor.TypeDecl)
         (c: Frozen.TUnionCase)
-        : EntityHandle list =
-        [ for fi in 0 .. c.Fields.Length - 1 -> stepRef asm td (caseFieldStep td c fi) ]
+        : Block<EntityHandle> =
+        Block.init c.Fields.Length (fun fi -> stepRef asm td (caseFieldStep td c fi))
 
     /// A hierarchy case's structural fields in declaration order, each its own field on
     /// the case type.
@@ -150,10 +150,14 @@ module internal UnionEmit =
         (td: TastAccessor.TypeDecl)
         (c: Frozen.TUnionCase)
         : EmitStructural.StructuralField list =
+        let refs = caseFieldRefsOf asm td c
+
         [
-            for (h, (_, t)) in List.zip (caseFieldRefsOf asm td c) (Block.toList c.Fields) ->
+            for i in 0 .. c.Fields.Length - 1 ->
+                let _, t = c.Fields.[i]
+
                 {
-                    Path = [ h ]
+                    Path = Block.singleton refs.[i]
                     Ty = t
                     Cast = ValueNone
                     Compare = asm.FieldCompareOf t
@@ -176,11 +180,11 @@ module internal UnionEmit =
         (asm: Assembler)
         (td: TastAccessor.TypeDecl)
         (pass: FlatPass)
-        (root: EntityHandle list)
+        (root: Block<EntityHandle>)
         (access: UnionFieldAccess)
         : ILBody =
         Emit.buildFieldPathGetter
-            [ yield! root; yield! handlesOf pass (fieldStepsOf td access) ]
+            (Block.append root (handlesOf pass (fieldStepsOf td access)))
             (UnionFieldAccess.cast access |> ValueOption.map asm.Icodegen.TypeToken)
 
     /// One `Payload_<Case>` view's bodies: its `.ctor` writing the wrapped `Payload`, one
@@ -214,7 +218,7 @@ module internal UnionEmit =
             MethodKey.UnionCaseViewCtor(td.Key, caseName),
             {
                 Signature = provider.RecordCtorSignature(Block.singleton (payloadTyOf td))
-                Body = bodyOf asm (Emit.buildStructCtor [ viewPayloadField ])
+                Body = bodyOf asm (Emit.buildStructCtor (Block.singleton viewPayloadField))
                 ParamNames = [ UnionPayloadType.payloadFieldName ]
                 MethodTypars = []
             }
@@ -225,7 +229,7 @@ module internal UnionEmit =
                 MethodKey.UnionCaseViewGetter(td.Key, caseName, f.Index),
                 {
                     Signature = provider.InstanceMethodSignature(Block.empty, f.FieldTy)
-                    Body = bodyOf asm (fieldGetterIr asm td pass [ viewPayloadField ] f.Access)
+                    Body = bodyOf asm (fieldGetterIr asm td pass (Block.singleton viewPayloadField) f.Access)
                     ParamNames = []
                     MethodTypars = []
                 }
@@ -312,7 +316,7 @@ module internal UnionEmit =
         // The `.ctor` stores `_tag` where the regime declares one, then its payload
         // parameters. A value type chains no base `.ctor`.
         let ctorFields =
-            [ yield! ValueOption.toList tagRef; for p in ctorParams -> p.Field ]
+            Block.ofList [ yield! ValueOption.toList tagRef; for p in ctorParams -> p.Field ]
 
         asm.AddPrepared(
             MethodKey.NominalCtor td.Key,
@@ -332,7 +336,7 @@ module internal UnionEmit =
                         (if isStruct then
                              Emit.buildStructCtor ctorFields
                          else
-                             Emit.buildChainedCtor provider.ObjectCtorRef [] ctorFields)
+                             Emit.buildChainedCtor provider.ObjectCtorRef Block.empty ctorFields)
                 ParamNames =
                     [
                         if ud.HasTag then
@@ -380,12 +384,12 @@ module internal UnionEmit =
 
         // The arguments one case passes to the union's own `.ctor`: `TagOnly` stamps the
         // discriminant.
-        let ctorTagArgs (tag: int) =
+        let ctorTagArgs (tag: int) : Block<ILInstr> =
             match ud.CtorShape with
-            | UnionCtorShape.TagOnly -> [ ILInstr.LdcI4 tag ]
+            | UnionCtorShape.TagOnly -> Block.singleton (ILInstr.LdcI4 tag)
             | UnionCtorShape.Nullary
             | UnionCtorShape.Flat
-            | UnionCtorShape.FlatTagged -> []
+            | UnionCtorShape.FlatTagged -> Block.empty
 
         if isHierarchy then
             // Each case's `.ctor(payload…)` chains the union's own `.ctor`, passing its tag
@@ -407,19 +411,21 @@ module internal UnionEmit =
         | [] -> ()
         | singletons ->
             let entries =
-                [
-                    for (tag, c) in singletons ->
-                        // A hierarchy case constructs its own type over no arguments; a
-                        // flat one IS the union, stamped with its tag where the `.ctor`
-                        // declares one.
-                        let ctor, ctorArgs =
-                            if isHierarchy then
-                                caseCtorRef c, []
-                            else
-                                ctorRef, ctorTagArgs tag
+                Block.ofList
+                    [
+                        for (tag, c) in singletons ->
+                            // A hierarchy case constructs its own type over no arguments; a
+                            // flat one IS the union, stamped with its tag where the `.ctor`
+                            // declares one.
+                            let ctor, ctorArgs =
+                                if isHierarchy then
+                                    caseCtorRef c, Block.empty
+                                else
+                                    ctorRef, ctorTagArgs tag
 
-                        ctorArgs @ [ ILInstr.Newobj(ctor, List.length ctorArgs) ], singletonRef c
-                ]
+                            Block.append ctorArgs (Block.singleton (ILInstr.Newobj(ctor, ctorArgs.Length))),
+                            singletonRef c
+                    ]
 
             asm.AddPrepared(
                 MethodKey.NominalCctor td.Key,
@@ -443,17 +449,18 @@ module internal UnionEmit =
                     // Each parameter lands in this case's own placement; every other slot
                     // keeps the `initobj` zero.
                     let stores =
-                        [
-                            for f in placed.Fields ->
-                                let via, field = fieldPathOf td f.Access
+                        Block.ofList
+                            [
+                                for f in placed.Fields ->
+                                    let via, field = fieldPathOf td f.Access
 
-                                ({
-                                    Arg = f.Index
-                                    Via = handlesOf pass via
-                                    Field = handleOf pass field
-                                }
-                                : Emit.PayloadStore)
-                        ]
+                                    ({
+                                        Arg = f.Index
+                                        Via = handlesOf pass via
+                                        Field = handleOf pass field
+                                    }
+                                    : Emit.PayloadStore)
+                            ]
 
                     let payloadTy = payloadTyOf td
 

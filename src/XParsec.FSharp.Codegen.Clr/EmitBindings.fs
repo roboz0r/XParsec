@@ -96,13 +96,13 @@ module EmitBindings =
             let c = env.ClosureByNode.[m.Value]
 
             c.Captures
-            |> List.iteri (fun j cap ->
+            |> Block.iteri (fun j cap ->
                 match cap.Fill with
                 | CaptureFill.BackPatched ->
                     b.Add(ILInstr.Ldloc slots.[i])
                     b.Add(ILInstr.Castclass(closureToken env c ClosureToken.Type))
                     buildVarLoad env b cap.Key
-                    b.Add(ILInstr.Stfld(closureToken env c (ClosureToken.CaptureField j)))
+                    b.Add(ILInstr.Stfld(closureToken env c (ClosureToken.CaptureField(int j))))
                 | CaptureFill.ByCtor -> ()
             )
         )

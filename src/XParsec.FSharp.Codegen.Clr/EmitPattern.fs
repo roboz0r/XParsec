@@ -337,7 +337,7 @@ module EmitPattern =
                 b.Add(ILInstr.Call(env.Provider.EqualityComparerDefault fieldTy, 0, 1))
                 b.Add(ILInstr.Ldloc scrutSlot)
                 b.Add(ILInstr.Ldfld backingField)
-                pushLit |> List.iter b.Add
+                pushLit |> Block.iter b.Add
                 b.Add(ILInstr.Callvirt(env.Provider.EqualityComparerEquals fieldTy, 3, 1))
                 b.Add(ILInstr.Brfalse nextLabel)
             | _ ->

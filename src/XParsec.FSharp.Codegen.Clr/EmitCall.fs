@@ -188,7 +188,7 @@ module EmitCall =
                 env
                 b
                 callHandle
-                (List.length ll.Captures + List.length flatActualTys)
+                (int ll.Captures.Length + List.length flatActualTys)
                 ll.ReturnsVoid
                 ll.ResultTy
                 rest

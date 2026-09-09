@@ -99,14 +99,14 @@ module TastAccessor =
     /// where no source spells it (a minted node, a contract's rebuilt pattern).
     let exprTok (e: ExprId) : Anchor = TastPoolBuilder.exprTok e.Pool e.Id
 
+    /// A fresh array per call, so the caller may take ownership of it.
+    let private childArray (e: ExprId) : ExprId[] =
+        TastPoolBuilder.exprChildren e.Pool e.Id |> Array.map (at e)
+
     /// The immediate child *expressions*, in evaluation order. Sub-patterns are NOT among
     /// them; the sub-expressions of composite carriers (match arms, format segments,
     /// static-opt clauses) are flattened in, each appearing exactly once.
-    let exprChildren (e: ExprId) : ExprId[] =
-        TastPoolBuilder.exprChildren e.Pool e.Id |> Array.map (at e)
-
-    /// `exprChildren` as a `Block`.
-    let exprChildrenBlock (e: ExprId) : Block<ExprId> = exprChildren e |> Block.unsafeOfArray
+    let exprChildren (e: ExprId) : Block<ExprId> = childArray e |> Block.unsafeOfArray
 
     /// The immediate child *patterns* an expression owns directly, in source order. `ForTo`'s
     /// loop variable is a `BoundVarId`, so it is not among them.
@@ -304,7 +304,7 @@ module TastAccessor =
     let private (|ERecordCons|_|) (e: ExprId) : (string * ExprId)[] voption =
         match payload e with
         | ExprPayload.RecordCons fieldNames ->
-            let values = exprChildren e
+            let values = childArray e
 
             if fieldNames.Length <> values.Length then
                 failwithf
@@ -505,7 +505,7 @@ module TastAccessor =
         ExprPayload.arms
             guardPresent
             (ExprPayload.cursor (exprPatChildren e) 0)
-            (ExprPayload.cursor (exprChildren e) lead)
+            (ExprPayload.cursor (childArray e) lead)
 
     [<return: Struct>]
     let (|EMatch|_|) (e: ExprId) : MatchView voption =
@@ -618,7 +618,7 @@ module TastAccessor =
             // Cursor 0: the sink's sub-expression is the first `exprChildren` entry, the
             // node having no leading children of its own.
             let sink, segments =
-                ExprPayload.format p.Sink p.Segments (ExprPayload.cursor (exprChildren e) 0)
+                ExprPayload.format p.Sink p.Segments (ExprPayload.cursor (childArray e) 0)
 
             ValueSome { Sink = sink; Segments = segments }
         | _ -> ValueNone
@@ -903,7 +903,7 @@ module TastAccessor =
     /// Rebuild `e` with `f` applied to each immediate child expression. Its owned
     /// sub-patterns are untouched, so a rewrite that must reach them walks `exprPatChildren`.
     let mapChildren (f: ExprId -> ExprId) (e: ExprId) : ExprId =
-        let kids = exprChildren e |> Array.map (fun c -> (f c).Id)
+        let kids = childArray e |> Array.map (fun c -> (f c).Id)
         at e (TastPoolBuilder.copyExprWith e.Pool e.Id (fun row -> { row with Children = kids }))
 
     /// Visit each immediate child expression. NOT `mapChildren` with the result thrown

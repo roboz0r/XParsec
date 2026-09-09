@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.Codegen.Clr
 
 open System.Reflection.Metadata
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 open EmitTypes
@@ -46,7 +47,7 @@ module internal EmitStructural =
             /// The non-empty `ldfld` chain from the value to the field: `Def` tokens, or
             /// `MemberRef`s on the type's own `TypeSpec` where the type is generic
             /// (`Box\`1<!0>::Value`).
-            Path: EntityHandle list
+            Path: Block<EntityHandle>
             /// The declared type, which the comparer, the hasher and `%A`'s `box` are
             /// instantiated at.
             Ty: FrozenType

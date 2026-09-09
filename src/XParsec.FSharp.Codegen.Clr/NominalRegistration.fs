@@ -167,7 +167,7 @@ module internal NominalRegistration =
                 provider.RegisterClosure(
                     c.Name,
                     c.Frame,
-                    Block.ofList [ for cap in c.Captures -> cap.Ty ],
+                    Block.map (fun (cap: EmitTypes.Capture) -> cap.Ty) c.Captures,
                     c.ParamTy,
                     c.ResultTy,
                     toEntity (handles.TypeDefOf(TypeSlotKey.Closure c.Name))

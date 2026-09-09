@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.Codegen.Js
 
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.PrintfHoleForm
 open JsEmitHelpers
@@ -407,7 +408,7 @@ module EmitJsFormat =
         (buildExpr: WalkCtx -> TastAccessor.ExprId -> JsExpr)
         (ctx: WalkCtx)
         (template: string)
-        (args: TastAccessor.ExprId[])
+        (args: Block<TastAccessor.ExprId>)
         : JsRawSeg list =
         let segs = ResizeArray<JsRawSeg>()
         let buf = System.Text.StringBuilder()

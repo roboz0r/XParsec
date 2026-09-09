@@ -483,7 +483,7 @@ module TastLower =
         // it at module load.
         let isBareTemplateValue (e: TastAccessor.ExprId) : bool =
             match TastAccessor.exprKind e with
-            | ExprShape.ILIntrinsic -> (TastAccessor.exprChildren e).Length = 0
+            | ExprShape.ILIntrinsic -> (TastAccessor.exprChildren e).IsEmpty
             | _ -> false
 
         let lowerOne (d: TastAccessor.DeclId) =

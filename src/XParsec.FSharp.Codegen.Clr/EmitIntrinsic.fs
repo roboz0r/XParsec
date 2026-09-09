@@ -3,6 +3,7 @@ namespace XParsec.FSharp.Codegen.Clr
 open System.Collections.Generic
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 open EmitTypes
 open EmitLower
@@ -71,7 +72,7 @@ module EmitIntrinsic =
             // parameter can write through it. The sole operand is the local `Var`;
             // emit `ldloca <slot>` rather than recurring, which would `ldloc` the value.
             match args with
-            | [| var |] ->
+            | BlockOne var ->
                 match var with
                 | LocalSlot env slot -> b.Add(ILInstr.Ldloca slot)
                 | _ -> failwithf "Emit: address-of (&) requires an addressable mutable local, got %A" var

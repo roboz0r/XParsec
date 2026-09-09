@@ -25,6 +25,14 @@ module EmitTypes =
             Fill: CaptureFill
         }
 
+    /// One flat parameter of a closure's `Invoke` beyond the first.
+    type ClosureExtraParam =
+        {
+            Key: BoundVarId
+            Ty: FrozenType
+            Pat: TastAccessor.PatId
+        }
+
     /// One synthesised closure class: a `System.Object` implementing
     /// `Vesper.Fun\`2<ParamTy, ResultTy>`. `Node`, its pool id, keys every `…ByNode` table.
     /// `Captures` order = field order = ctor-arg order = order pushed at construction.
@@ -40,7 +48,7 @@ module EmitTypes =
             ParamPat: TastAccessor.PatId
             ResultTy: FrozenType
             Body: TastAccessor.ExprId
-            Captures: Capture list
+            Captures: Block<Capture>
             /// Binding key of the `let [rec] f = <this lambda>` this is the value of. A
             /// recursive self-reference resolves to `this` (`ldarg.0`), so it is not
             /// captured. `ValueNone` for an anonymous lambda.
@@ -63,7 +71,7 @@ module EmitTypes =
             /// The extra flat parameters beyond the first, in flat order. Peeled from
             /// successive inner `Lambda`s of a curried `fun x y … -> …` so they do NOT
             /// become their own closures. `Invoke` binds extra param `i` to `ldarg.(2+i)`.
-            ExtraParams: (BoundVarId * FrozenType * TastAccessor.PatId) list
+            ExtraParams: Block<ClosureExtraParam>
         }
 
         /// The total `GenericParam` row count on the closure's `TypeDefinition`.
@@ -84,7 +92,7 @@ module EmitTypes =
             Own: FrameScope
             /// The free variables of the local's body, in first-occurrence order: the leading
             /// parameters of the lifted method.
-            Captures: (BoundVarId * FrozenType) list
+            Captures: Block<BoundVarId * FrozenType>
         }
 
         member x.Key: BoundVarId = x.Fn.Key
@@ -98,7 +106,7 @@ module EmitTypes =
             Handle: EntityHandle
             Enclosing: TyparFrame
             Own: FrameScope
-            Captures: (BoundVarId * FrozenType) list
+            Captures: Block<BoundVarId * FrozenType>
             Params: CompiledFns.FlatParams<FrozenType>
             ResultTy: FrozenType
             ReturnsVoid: bool
@@ -108,7 +116,7 @@ module EmitTypes =
     /// suffices: it is `newobj`'d once into a singleton field by the closure's `.cctor`
     /// and every construction site `ldsfld`s that instead of allocating.
     let closureIsCached (c: Closure) : bool =
-        List.isEmpty c.Captures && c.TypeArity = 0<_> && not c.IsValueStruct
+        c.Captures.IsEmpty && c.TypeArity = 0<_> && not c.IsValueStruct
 
     /// The `Def` tokens of a MONOMORPHIC closure, valid in every body. A generic closure has
     /// none: its `TypeSpec` and `MemberRef`s encode `FTTypar` relative to the referencing
@@ -238,7 +246,7 @@ module EmitTypes =
         /// `inherit Base(args)`, an external base's `.ctor`, or `System.Object::.ctor()`
         /// for an `inherit`-less reference class. The args are evaluated before
         /// `this` is constructed, so they may only reference the ctor params (`ldarg`).
-        | Base of ctor: EntityHandle * args: TastAccessor.ExprId list
+        | Base of ctor: EntityHandle * args: Block<TastAccessor.ExprId>
         /// A value type: `System.ValueType` has no accessible ctor and value types do
         /// not chain.
         | None

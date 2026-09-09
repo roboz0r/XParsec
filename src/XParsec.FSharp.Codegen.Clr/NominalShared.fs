@@ -75,9 +75,9 @@ module internal NominalShared =
                 f.Name,
                 {
                     Path =
-                        [
+                        Block.singleton (
                             selfMemberRef asm td (UserMemberKind.RecordMember(RecordMember.Field f.Name)) f.Field
-                        ]
+                        )
                     Ty = f.Ty
                     Cast = ValueNone
                     Compare = asm.FieldCompareOf f.Ty

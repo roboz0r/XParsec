@@ -68,7 +68,7 @@ module CompiledFns =
 
     let private tupleElemsOf (a: TastAccessor.ExprId) : TastAccessor.ExprId list voption =
         match TastAccessor.exprKind a with
-        | ExprShape.Tuple -> ValueSome(List.ofArray (TastAccessor.exprChildren a))
+        | ExprShape.Tuple -> ValueSome(Block.toList (TastAccessor.exprChildren a))
         | _ -> ValueNone
 
     /// A member call opened at its argument groups.
@@ -112,7 +112,7 @@ module CompiledFns =
                 | ArgGroupG.GSimple _ -> FlatStep.Arg a
                 | ArgGroupG.GTuple _ ->
                     match TastAccessor.exprKind a with
-                    | ExprShape.Tuple -> FlatStep.TupleLiteral(TastAccessor.exprChildrenBlock a)
+                    | ExprShape.Tuple -> FlatStep.TupleLiteral(TastAccessor.exprChildren a)
                     | _ ->
                         match TastAccessor.exprTy a with
                         | FTTuple xs -> FlatStep.TupleValue(a, xs)

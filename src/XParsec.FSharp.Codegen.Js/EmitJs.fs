@@ -308,11 +308,7 @@ module EmitJs =
                 JsExpr.New(nominalCtorRef ctx klass loc, [ for a in args -> buildExpr ctx a ], loc)
             | ValueSome(NewTarget.ExnRoot klass) ->
                 // Only the leading message argument is kept: `Error` has no slot for further ones.
-                let errArgs =
-                    if Array.isEmpty args then
-                        []
-                    else
-                        [ buildExpr ctx args.[0] ]
+                let errArgs = if args.IsEmpty then [] else [ buildExpr ctx args.[0] ]
 
                 JsExpr.New(nominalCtorRef ctx klass loc, errArgs, loc)
             | ValueNone ->
@@ -363,7 +359,7 @@ module EmitJs =
             applyArgs
                 ctx
                 (Members.localFn ctx (TastAccessor.exprStaticMethodCallKey e) true false loc)
-                (TastAccessor.exprChildrenBlock e)
+                (TastAccessor.exprChildren e)
 
         // A member on an external type, reached WITHOUT being applied; the call forms fold at
         // the applied function off the same `MemberDispatch`. A STATIC member has no native
@@ -488,7 +484,7 @@ module EmitJs =
                 // `new Array(count)`, so `Object.keys` / iteration observe every slot. Unset
                 // slots read as `null`, not the element type's zero.
                 match args with
-                | [| count |] ->
+                | BlockOne count ->
                     let alloc =
                         JsExpr.Call(JsExpr.Identifier("Array", ValueNone), [ buildExpr ctx count ], ValueNone)
 
@@ -501,13 +497,13 @@ module EmitJs =
             // `arr.[i]` → `arr[i]` (a computed member read).
             | "ldelem" ->
                 match args with
-                | [| arr; idx |] -> JsExpr.Member(buildExpr ctx arr, buildExpr ctx idx, true, loc)
+                | BlockTwo(arr, idx) -> JsExpr.Member(buildExpr ctx arr, buildExpr ctx idx, true, loc)
                 | _ -> failwith "EmitJs: 'ldelem' expects two operands (array, index)"
 
             // `arr.[i] <- v` → `(arr[i] = v)` (a computed-member assignment expression).
             | "stelem" ->
                 match args with
-                | [| arr; idx; value |] ->
+                | BlockThree(arr, idx, value) ->
                     let target = JsExpr.Member(buildExpr ctx arr, buildExpr ctx idx, true, ValueNone)
                     JsExpr.Assign(target, buildExpr ctx value, loc)
                 | _ -> failwith "EmitJs: 'stelem' expects three operands (array, index, value)"
@@ -515,7 +511,7 @@ module EmitJs =
             // `arr.Length` → `arr.length`.
             | "ldlen" ->
                 match args with
-                | [| arr |] -> JsExpr.Member(buildExpr ctx arr, JsExpr.Identifier("length", ValueNone), false, loc)
+                | BlockOne arr -> JsExpr.Member(buildExpr ctx arr, JsExpr.Identifier("length", ValueNone), false, loc)
                 | _ -> failwith "EmitJs: 'ldlen' expects one operand (the array)"
 
             // The empty-string identity intrinsic `(# "" x : 'U #)` is FSharp.Core's erasing

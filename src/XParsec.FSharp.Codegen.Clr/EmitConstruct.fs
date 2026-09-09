@@ -18,7 +18,7 @@ module EmitConstruct =
     let buildNew (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let className = TastAccessor.exprNewClassName e
         let chosenCtor = TastAccessor.exprNewChosenCtor e
-        let args = TastAccessor.exprChildrenBlock e
+        let args = TastAccessor.exprChildren e
         let ty = TastAccessor.exprTy e
 
         let tyArgs =
@@ -235,7 +235,7 @@ module EmitConstruct =
         b.Add(ILInstr.Newarr elemTok)
 
         elems
-        |> Array.iteri (fun i el ->
+        |> Block.iteri (fun i el ->
             b.Add ILInstr.Dup
             b.Add(ILInstr.LdcI4 i)
             recur env b el
@@ -261,13 +261,13 @@ module EmitConstruct =
         let slot = b.Local closureFt
         b.Add(ILInstr.Ldloca slot)
 
-        if List.isEmpty closure.Captures then
+        if closure.Captures.IsEmpty then
             b.Add(ILInstr.Initobj emitted.Type)
         else
             for cap in closure.Captures do
                 buildVarLoad env b cap.Key
 
-            b.Add(ILInstr.Call(emitted.Ctor, List.length closure.Captures + 1, 0))
+            b.Add(ILInstr.Call(emitted.Ctor, int closure.Captures.Length + 1, 0))
 
         b.Add(ILInstr.Ldloc slot)
 
@@ -281,7 +281,7 @@ module EmitConstruct =
             | CaptureFill.ByCtor -> buildVarLoad env b cap.Key
             | CaptureFill.BackPatched -> b.Add ILInstr.Ldnull
 
-        b.Add(ILInstr.Newobj(closureToken env closure ClosureToken.Ctor, List.length closure.Captures))
+        b.Add(ILInstr.Newobj(closureToken env closure ClosureToken.Ctor, int closure.Captures.Length))
 
     /// A `Lambda` value: construct its closure by value if it is a value-struct, else a
     /// stateless one `ldsfld`s the singleton cached for it, else `newobj` on the heap.

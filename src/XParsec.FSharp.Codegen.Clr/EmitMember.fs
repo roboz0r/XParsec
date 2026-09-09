@@ -306,7 +306,7 @@ module EmitMember =
         : unit =
         let key = TastAccessor.exprStaticMethodCallKey e
         // A `StaticMethodCall`'s arguments ARE its `exprChildren` (no object arg to merge).
-        let args = TastAccessor.exprChildrenBlock e
+        let args = TastAccessor.exprChildren e
         let ty = TastAccessor.exprTy e
         // A consumer's SRTP `+` dispatching to an imported type's static operator
         // (`Vesper.Set`'s `op_Addition`) reaches here as a LOCAL-shaped `StaticMethodCall`, so

@@ -348,7 +348,7 @@ type internal Assembler
                         Ctor = toEntity (layoutHandles.MethodDefOf(MethodKey.ClosureCtor c.Name))
                         CaptureFields =
                             [|
-                                for i in 0 .. List.length c.Captures - 1 ->
+                                for i in 0 .. int c.Captures.Length - 1 ->
                                     toEntity fieldDefHandles.[FieldKey.ClosureCapture(c.Name, i)]
                             |]
                         CachedField =
@@ -658,7 +658,7 @@ type internal Assembler
                 | other -> failwithf "Emit: struct enum '%A' has a non-struct repr %A" td.Key other
 
             // The single-arg value-type `.ctor(value)` storing the backing field.
-            let ctorBody = methodBody (Emit.buildStructCtor [ backingField ])
+            let ctorBody = methodBody (Emit.buildStructCtor (Block.singleton backingField))
 
             this.AddPrepared(
                 MethodKey.NominalCtor td.Key,
@@ -676,12 +676,14 @@ type internal Assembler
             // Each case pushes its literal (`ldstr`, or `ldc;box` for a mixed int) and
             // `newobj`s the wrapper over it.
             let cctorCases =
-                [
-                    for (caseName, lit) in sed.Cases ->
-                        EmitResolve.enumLiteralPush icodegen.TypeToken ctx.UserString lit
-                        @ [ ILInstr.Newobj(ctorHandle, 1) ],
-                        caseFields.[caseName]
-                ]
+                Block.ofList
+                    [
+                        for (caseName, lit) in sed.Cases ->
+                            Block.append
+                                (EmitResolve.enumLiteralPush icodegen.TypeToken ctx.UserString lit)
+                                (Block.singleton (ILInstr.Newobj(ctorHandle, 1))),
+                            caseFields.[caseName]
+                    ]
 
             let cctorBody = methodBody (Emit.buildCachedFieldCctor cctorCases)
 
@@ -718,19 +720,20 @@ type internal Assembler
             let prepare () =
                 let fieldHandles =
                     c.Captures
-                    |> List.mapi (fun i _ ->
-                        Emit.closureTokenWith icodegen f.EmitCtx.Closures c (Emit.ClosureToken.CaptureField i)
+                    |> Block.mapi (fun i _ ->
+                        Emit.closureTokenWith icodegen f.EmitCtx.Closures c (Emit.ClosureToken.CaptureField(int i))
                     )
 
                 let captureFields = Dictionary<BoundVarId, EntityHandle>()
 
-                List.iter2 (fun (cap: Emit.Capture) h -> captureFields.[cap.Key] <- h) c.Captures fieldHandles
+                c.Captures
+                |> Block.iteri (fun i (cap: Emit.Capture) -> captureFields.[cap.Key] <- fieldHandles.[i])
 
                 let ctorMethodBody =
                     if isStack then
                         methodBody (Emit.buildStructCtor fieldHandles)
                     else
-                        methodBody (Emit.buildChainedCtor provider.ObjectCtorRef [] fieldHandles)
+                        methodBody (Emit.buildChainedCtor provider.ObjectCtorRef Block.empty fieldHandles)
 
                 let invokeMethodBody =
                     methodBody (Emit.buildClosureInvoke f.EmitCtx c captureFields)
@@ -738,7 +741,7 @@ type internal Assembler
                 this.AddPrepared(
                     MethodKey.ClosureCtor c.Name,
                     {
-                        Signature = provider.ClosureCtorSignature(Block.ofList [ for cap in c.Captures -> cap.Ty ])
+                        Signature = provider.ClosureCtorSignature(Block.map (fun (cap: Emit.Capture) -> cap.Ty) c.Captures)
                         Body = ctorMethodBody
                         ParamNames = paramNames f.EmitCtx.Pool (c.Captures |> Seq.map (fun cap -> cap.Key))
                         MethodTypars = []
@@ -750,11 +753,11 @@ type internal Assembler
                         Block.ofList
                             [
                                 c.ParamTy
-                                for (_, ty, _) in c.ExtraParams do
-                                    ty
+                                for ep in c.ExtraParams do
+                                    ep.Ty
                             ]
 
-                    let paramKeys = c.ParamKey :: (c.ExtraParams |> List.map (fun (k, _, _) -> k))
+                    let paramKeys = c.ParamKey :: [ for ep in c.ExtraParams -> ep.Key ]
                     provider.InvokeSignatureN(paramTys, c.ResultTy), paramNames f.EmitCtx.Pool paramKeys
 
                 this.AddPrepared(
@@ -776,7 +779,11 @@ type internal Assembler
                       Ctor = ctor
                   } ->
                     let cctorMethodBody =
-                        methodBody (Emit.buildCachedFieldCctor [ [ ILInstr.Newobj(ctor, 0) ], cachedField ])
+                        methodBody (
+                            Emit.buildCachedFieldCctor (
+                                Block.singleton (Block.singleton (ILInstr.Newobj(ctor, 0)), cachedField)
+                            )
+                        )
 
                     this.AddPrepared(
                         MethodKey.ClosureCctor c.Name,
@@ -800,8 +807,8 @@ type internal Assembler
                             Block.ofList
                                 [
                                     c.ParamTy
-                                    for (_, ty, _) in c.ExtraParams do
-                                        ty
+                                    for ep in c.ExtraParams do
+                                        ep.Ty
                                     c.ResultTy
                                 ]
 
@@ -865,7 +872,8 @@ type internal Assembler
                         provider.GenericStaticFnSignature(frame.Count, paramTys, fn.ResultTy)
 
                 let paramKeys =
-                    (ll.Captures |> List.map fst) @ (fn.Params.Flat |> List.map (fun p -> p.Slot))
+                    [ for (k, _) in ll.Captures -> k ]
+                    @ (fn.Params.Flat |> List.map (fun p -> p.Slot))
 
                 this.AddPrepared(
                     MethodKey.LiftedLocal ll.Name,
@@ -922,10 +930,11 @@ type internal Assembler
         // static analogue of a class's `static let` cctor.
         let prepareModuleClassCctor (h: Emit.ModuleClassKey) =
             let lets =
-                [
-                    for mv in ModuleClassPlan.moduleClassValues plan h ->
-                        Emit.PreambleStep.Store(moduleValueFields.[mv.Key], retypeBody mv.Init)
-                ]
+                Block.ofList
+                    [
+                        for mv in ModuleClassPlan.moduleClassValues plan h ->
+                            Emit.PreambleStep.Store(moduleValueFields.[mv.Key], retypeBody mv.Init)
+                    ]
 
             let staticBody = methodBody (Emit.buildStaticCctor emitCtx lets)
 
@@ -943,10 +952,11 @@ type internal Assembler
         // module class's, over the leading-prefix top-level values.
         let prepareProgramCctor () =
             let lets =
-                [
-                    for mv in plan.ProgramCctorValues ->
-                        Emit.PreambleStep.Store(moduleValueFields.[mv.Key], retypeBody mv.Init)
-                ]
+                Block.ofList
+                    [
+                        for mv in plan.ProgramCctorValues ->
+                            Emit.PreambleStep.Store(moduleValueFields.[mv.Key], retypeBody mv.Init)
+                    ]
 
             let staticBody = methodBody (Emit.buildStaticCctor emitCtx lets)
 
@@ -970,7 +980,7 @@ type internal Assembler
     /// point. A non-entry file contributes no `Main` row, so this is a no-op for it.
     member this.PrepareMain(f: FileEmit) =
         if f.Layout.EmitEntryPoint then
-            let mainDecls = f.Layout.Lowered |> List.map f.Verdict.RetypeDecl
+            let mainDecls = Block.ofList [ for d in f.Layout.Lowered -> f.Verdict.RetypeDecl d ]
 
             let mainMethodBody = methodBody (Emit.buildMain f.EmitCtx mainDecls)
 

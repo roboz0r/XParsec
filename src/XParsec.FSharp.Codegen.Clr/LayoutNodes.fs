@@ -584,26 +584,26 @@ module internal LayoutNodes =
                 let cached = Emit.closureIsCached c
 
                 let captureFields =
-                    [
-                        for i, cap in List.indexed c.Captures ->
-                            // A capture is read by `Invoke`. A captured `let mutable` arrives
-                            // as a `Vesper.Ref`, so the field holds the cell. A back-patched
-                            // capture is stored from another type and outside a `.ctor`.
-                            let attrs =
-                                match cap.Fill with
-                                | EmitTypes.CaptureFill.ByCtor ->
-                                    instanceFieldAttrs FieldReach.OwnType FieldWrites.ByCtor
-                                | EmitTypes.CaptureFill.BackPatched ->
-                                    instanceFieldAttrs FieldReach.Assembly FieldWrites.Anywhere
+                    c.Captures
+                    |> Block.mapi (fun i cap ->
+                        // A capture is read by `Invoke`. A captured `let mutable` arrives
+                        // as a `Vesper.Ref`, so the field holds the cell. A back-patched
+                        // capture is stored from another type and outside a `.ctor`.
+                        let attrs =
+                            match cap.Fill with
+                            | EmitTypes.CaptureFill.ByCtor -> instanceFieldAttrs FieldReach.OwnType FieldWrites.ByCtor
+                            | EmitTypes.CaptureFill.BackPatched ->
+                                instanceFieldAttrs FieldReach.Assembly FieldWrites.Anywhere
 
-                            {
-                                Key = FieldKey.ClosureCapture(c.Name, i)
-                                Name = sprintf "capture%d" i
-                                Attrs = attrs
-                                Ty = cap.Ty
-                                ClosureScope = (if isGeneric then ValueSome c.Frame else ValueNone)
-                            }
-                    ]
+                        {
+                            Key = FieldKey.ClosureCapture(c.Name, i)
+                            Name = sprintf "capture%d" i
+                            Attrs = attrs
+                            Ty = cap.Ty
+                            ClosureScope = (if isGeneric then ValueSome c.Frame else ValueNone)
+                        }
+                    )
+                    |> Block.toList
 
                 // The singleton field: `static readonly` of the closure's own type. Its
                 // `Ty` is unused, because the writer mints the self-type signature from the

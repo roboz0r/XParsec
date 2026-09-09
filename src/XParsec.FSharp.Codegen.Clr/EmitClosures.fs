@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.Codegen.Clr
 
 open System.Collections.Generic
+open Vesper
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 open EmitTypes
@@ -42,10 +43,10 @@ module EmitClosures =
 
     /// A lifted local's captures, by its key. A reference to a lifted local is a `call` that
     /// pushes the captures, so the reference frees THEM rather than the local.
-    type private LiftedCaptures = IReadOnlyDictionary<BoundVarId, (BoundVarId * FrozenType) list>
+    type private LiftedCaptures = IReadOnlyDictionary<BoundVarId, Block<BoundVarId * FrozenType>>
 
     let private noLifted: LiftedCaptures =
-        Dictionary<BoundVarId, (BoundVarId * FrozenType) list>()
+        Dictionary<BoundVarId, Block<BoundVarId * FrozenType>>()
 
     /// Walk `body`, invoking `onFree key ty` once per `Var` not shadowed by `bound`, which is
     /// mutated in place, so pass a private set. `let rec f = <lambda>` scopes `f` across its own
@@ -133,7 +134,7 @@ module EmitClosures =
         (paramKeys: BoundVarId list)
         (selfKey: BoundVarId voption)
         (body: TastAccessor.ExprId)
-        : (BoundVarId * FrozenType) list =
+        : Block<BoundVarId * FrozenType> =
         let bound = HashSet<BoundVarId>()
         // Every bound variable the parameter pattern introduces: for `fun (a, b) -> …` that
         // is `a` and `b`, not the placeholder slot.
@@ -158,7 +159,7 @@ module EmitClosures =
             )
             body
 
-        List.ofSeq acc
+        Block.ofResizeArray acc
 
     /// Like `freeVars` but keeps only keys (no types, no static-method exclusion):
     /// the capture test in `collectStaticFns` must *see* every referenced binding.
@@ -591,7 +592,7 @@ module EmitClosures =
         let order = ResizeArray<TastAccessor.ExprId>()
         let lookup = Dictionary<TastAccessor.ExprId, Closure>()
         let lifted = ResizeArray<LiftedLocal>()
-        let liftedCaptures = Dictionary<BoundVarId, (BoundVarId * FrozenType) list>()
+        let liftedCaptures = Dictionary<BoundVarId, Block<BoundVarId * FrozenType>>()
 
         // Source lambdas threaded through a constrained `Fun`2`/`Fun`3` slot, mapped to
         // their flat arity (1 or 2).
@@ -605,7 +606,7 @@ module EmitClosures =
         // The captures are filed in `liftedCaptures` BEFORE the body is walked, so a closure
         // there that references the local frees THEM instead. `walkFreeRefs` descends into a
         // nested `let`'s value directly, so an inner local is covered without an entry yet.
-        let liftedCapturesOf (fn: CompiledFns.CompiledFn) : (BoundVarId * FrozenType) list =
+        let liftedCapturesOf (fn: CompiledFns.CompiledFn) : Block<BoundVarId * FrozenType> =
             let paramBound =
                 fn.Params.Flat
                 |> List.collect (fun p ->
@@ -738,7 +739,7 @@ module EmitClosures =
                         match curTy with
                         | FTFun(_, r) ->
                             if n = 0 then
-                                ValueSome(List.rev extrasRev, curBody, r)
+                                ValueSome(Block.ofList (List.rev extrasRev), curBody, r)
                             else
                                 match curBody with
                                 | TastAccessor.ELambda lam ->
@@ -746,7 +747,12 @@ module EmitClosures =
                                     | ValueSome pk ->
                                         loop
                                             (n - 1)
-                                            ((pk, TastAccessor.patTy lam.Param, lam.Param) :: extrasRev)
+                                            ({
+                                                Key = pk
+                                                Ty = TastAccessor.patTy lam.Param
+                                                Pat = lam.Param
+                                             }
+                                             :: extrasRev)
                                             lam.Body
                                             (TastAccessor.exprTy curBody)
                                     | ValueNone -> ValueNone
@@ -757,7 +763,7 @@ module EmitClosures =
 
                 let funArity, extraParams, body, resultTy =
                     match peeled with
-                    | ValueSome(extras, innerBody, r) when arity >= 2 && not (List.isEmpty extras) ->
+                    | ValueSome(extras, innerBody, r) when arity >= 2 && not extras.IsEmpty ->
                         arity, extras, innerBody, r
                     | _ ->
                         let resultTy =
@@ -765,7 +771,7 @@ module EmitClosures =
                             | FTFun(_, r) -> r
                             | _ -> failwithf "Emit: closure type is not a function: %A" lamTy
 
-                        1, [], body, resultTy
+                        1, Block.empty, body, resultTy
 
                 // The front-end regions snapshot, keyed by the closure's bound variable (`let f = …`).
                 // An anonymous lambda or a bound variable the snapshot didn't reach defaults to `Heap`.
@@ -782,11 +788,14 @@ module EmitClosures =
                 // A flat closure binds the peeled inner lambdas' bound variables too.
                 let paramBound =
                     patKeys paramPat
-                    @ (extraParams |> List.collect (fun (_, _, ppat) -> patKeys ppat))
+                    @ [
+                        for ep in extraParams do
+                            yield! patKeys ep.Pat
+                    ]
 
                 let captures =
                     freeVars liftedCaptures nonCaptured paramBound selfKey body
-                    |> List.map (fun (k, ty) ->
+                    |> Block.map (fun (k, ty) ->
                         let fill =
                             match anchor with
                             | Anchor.GroupMember(_, siblings) when siblings.Contains k -> CaptureFill.BackPatched

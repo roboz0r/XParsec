@@ -338,12 +338,12 @@ module EmitResolve =
         (typeToken: FrozenType -> EntityHandle)
         (internString: string -> UserStringHandle)
         (lit: TEnumLiteral)
-        : ILInstr list =
+        : Block<ILInstr> =
         match lit with
-        | TEnumLiteral.String s -> [ ILInstr.Ldstr(internString s) ]
+        | TEnumLiteral.String s -> Block.singleton (ILInstr.Ldstr(internString s))
         | TEnumLiteral.Int v ->
             let load, ty = enumIntLoad v
-            [ load; ILInstr.Box(typeToken ty) ]
+            Block.ofList [ load; ILInstr.Box(typeToken ty) ]
 
     /// The IL load of an enum case used as a value (`E.A` / `| E.A`). A NUMERIC enum value IS
     /// its integer at runtime and its `literal` field is metadata-only, so this pushes the
