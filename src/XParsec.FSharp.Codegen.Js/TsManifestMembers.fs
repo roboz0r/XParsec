@@ -46,7 +46,14 @@ module internal TsManifestMembers =
         : ExternalMember list =
         overloadArgSigs ctx mem
         |> List.map (fun (argSig, sg) ->
-            { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey mem.Name (Block.ofList argSig) sg.TypeParams kind) with
+            { ExternalMember.OfKey(
+                  SymbolKeyOps.memberKeyOf
+                      declKey
+                      mem.Name
+                      (Block.ofList argSig)
+                      (TyparIndex.typeSlot sg.TypeParams)
+                      kind
+              ) with
                 IsStatic = mem.Static
                 Signature = signatureOf ctx declTyparArity sg
                 Origin = origin
@@ -74,7 +81,9 @@ module internal TsManifestMembers =
                 | None -> unitFrozen
 
             [
-                { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey mem.Name Block.empty 0 MemberKind.Property) with
+                { ExternalMember.OfKey(
+                      SymbolKeyOps.memberKeyOf declKey mem.Name Block.empty 0<typeSlot> MemberKind.Property
+                  ) with
                     IsStatic = mem.Static
                     Storage = MemberStorage.Property
                     Signature = ExternalSignature.value (declTyparArity, 0<_>, ret)
@@ -211,9 +220,9 @@ module internal TsManifestMembers =
         | Schema.Export.Class(name, tp, members, heritage, _import, _index) -> build name tp members heritage false
         | Schema.Export.TypeAlias(name, tp, target) ->
             // `type X = …` is a transparent abbreviation: a use of `name` expands to the
-            // target's `FrozenType`. `mint`, not `declaredIdentity`, because an alias never
-            // enters the ctx table, so it stays `FTConst` and expands through this `Abbrev`.
-            let minted = mint nsPath name tp
+            // target's `FrozenType`. `mintAlias`, not `declaredIdentity`, because an alias
+            // never enters the ctx table, so it stays `FTConst` and expands through this `Abbrev`.
+            let minted = mintAlias nsPath name tp
             let ctx = ctx.InScope(TyparScope.Type minted.Key)
 
             Some(

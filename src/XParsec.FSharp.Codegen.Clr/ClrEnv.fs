@@ -677,7 +677,7 @@ type internal ClrEnv
     /// Referenced-assembly record shape by key + arity.
     let externalRecordShape (key: TypeKey) (arity: int) : (Block<ExternalFieldShape> * SymbolOrigin) voption =
         match symbols.TryLookupType key with
-        | ValueSome(ExternalTypeShape.Record r) when r.TyparArity = arity && r.Origin.Home <> SymbolHome.Unstamped ->
+        | ValueSome(ExternalTypeShape.Record r) when int r.TyparArity = arity && r.Origin.Home <> SymbolHome.Unstamped ->
             ValueSome(r.Fields, r.Origin)
         | _ -> ValueNone
 
@@ -690,7 +690,7 @@ type internal ClrEnv
     /// construction (`Some` / `None`).
     let externalUnionShape (key: TypeKey) (arity: int) : ExternalUnionShape voption =
         match symbols.TryLookupType key with
-        | ValueSome(ExternalTypeShape.Union u) when u.TyparArity = arity && u.Origin.Home <> SymbolHome.Unstamped ->
+        | ValueSome(ExternalTypeShape.Union u) when int u.TyparArity = arity && u.Origin.Home <> SymbolHome.Unstamped ->
             ValueSome u
         | _ -> ValueNone
 

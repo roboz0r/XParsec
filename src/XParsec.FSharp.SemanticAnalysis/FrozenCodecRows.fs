@@ -12,6 +12,25 @@ module FrozenCodecRows =
     //
     // One pair per row array; each is an `int` on the wire and a distinct type off it.
 
+    let private writeTyparArity (w: FrozenWriter) (arity: int<typeSlot>) = w.Write(int arity)
+
+    let private readTyparArity (r: FrozenReader) : int<typeSlot> = TyparIndex.typeSlot (r.ReadInt32())
+
+    let private writeKeyArity (w: FrozenWriter) (arity: KeyArity) =
+        match arity with
+        | KeyArity.Compiled n ->
+            w.Write 0uy
+            w.Write(int n)
+        | KeyArity.Written n ->
+            w.Write 1uy
+            w.Write(int n)
+
+    let private readKeyArity (r: FrozenReader) : KeyArity =
+        match r.ReadByte() with
+        | 0uy -> KeyArity.Compiled(TyparIndex.typeSlot (r.ReadInt32()))
+        | 1uy -> KeyArity.Written(TyparIndex.sigSlot (r.ReadInt32()))
+        | b -> failwithf "FrozenCodec: unknown KeyArity tag %d" b
+
     let private writeStrId (w: FrozenWriter) (StrId i) = w.Write i
     let private readStrId (r: FrozenReader) : StrId = StrId(r.ReadInt32())
 
@@ -104,12 +123,12 @@ module FrozenCodecRows =
     let private writeTypeKeyRow (w: FrozenWriter) (row: TypeKeyRow) =
         writeTypeContainerRow w row.Container
         writeStrId w row.Name
-        w.Write row.TyparArity
+        writeKeyArity w row.TyparArity
 
     let private readTypeKeyRow (r: FrozenReader) : TypeKeyRow =
         let container = readTypeContainerRow r
         let name = readStrId r
-        let arity = r.ReadInt32()
+        let arity = readKeyArity r
 
         {
             Container = container
@@ -190,14 +209,14 @@ module FrozenCodecRows =
         writeTypeKeyId w row.Decl
         writeStrId w row.Name
         writeTypeIds w row.ArgSig
-        w.Write row.MethodTyparArity
+        writeTyparArity w row.MethodTyparArity
         writeMemberKindRow w row.Kind
 
     let private readMemberKeyRow (r: FrozenReader) : MemberKeyRow =
         let decl = readTypeKeyId r
         let name = readStrId r
         let argSig = readTypeIds r
-        let methodTyparArity = r.ReadInt32()
+        let methodTyparArity = readTyparArity r
         let kind = readMemberKindRow r
 
         {

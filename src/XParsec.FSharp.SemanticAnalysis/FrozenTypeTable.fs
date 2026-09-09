@@ -59,12 +59,12 @@ type TypeContainerRow =
     | InModule of parent: ModuleId
     | InType of outer: TypeKeyId
 
-/// `TyparArity` stays an int: it is part of the identity, not a reference.
+/// `TyparArity` is part of the identity, so it is stored inline rather than pooled.
 type TypeKeyRow =
     {
         Container: TypeContainerRow
         Name: StrId
-        TyparArity: int
+        TyparArity: KeyArity
     }
 
 type BindingKeyRow =
@@ -87,7 +87,7 @@ type MemberKeyRow =
         Decl: TypeKeyId
         Name: StrId
         ArgSig: Block<TypeId>
-        MethodTyparArity: int
+        MethodTyparArity: int<typeSlot>
         Kind: MemberKindRow
     }
 

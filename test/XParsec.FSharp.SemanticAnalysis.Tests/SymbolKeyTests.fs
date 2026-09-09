@@ -41,7 +41,11 @@ let tests =
                     "the namespace is segmented from the name"
 
                 Expect.equal key.Name "seq" "the simple name is the last segment, PLAIN — no `` `N ``"
-                Expect.equal key.TyparArity 1 "the arity is an int field, not a suffix in the name"
+
+                Expect.equal
+                    key.TyparArity
+                    (KeyArity.Compiled 1<typeSlot>)
+                    "the arity is a field of its own, not a suffix in the name"
             }
 
             // Parsing `` List`1+Enumerator `` lands the nesting in the containment chain and
@@ -52,9 +56,13 @@ let tests =
                 match k.Container with
                 | TypeContainer.InType outer ->
                     Expect.equal outer.Name "List" "the outer's Name is plain"
-                    Expect.equal outer.TyparArity 1 "the outer owns the typar"
+                    Expect.equal outer.TyparArity (KeyArity.Compiled 1<typeSlot>) "the outer owns the typar"
                     Expect.equal k.Name "Enumerator" "the inner Name is the bare segment, not `+`-mangled"
-                    Expect.equal k.TyparArity 0 "the enumerator declares no typar of its own"
+
+                    Expect.equal
+                        k.TyparArity
+                        (KeyArity.Compiled 0<typeSlot>)
+                        "the enumerator declares no typar of its own"
                 | other -> failtestf "expected InType, got %A" other
 
                 Expect.equal
@@ -90,16 +98,28 @@ let tests =
 
                     k
 
-                Expect.equal (roundTrip "N" "Plain").TyparArity 0 "non-generic ⇒ arity 0, no suffix rendered"
-                Expect.equal (roundTrip "N" "List`1").TyparArity 1 "a generic's suffix parses to its arity"
-                Expect.equal (roundTrip "" "Global`2").TyparArity 2 "the global namespace round-trips too"
+                Expect.equal
+                    (roundTrip "N" "Plain").TyparArity
+                    (KeyArity.Compiled 0<typeSlot>)
+                    "non-generic ⇒ arity 0, no suffix rendered"
+
+                Expect.equal
+                    (roundTrip "N" "List`1").TyparArity
+                    (KeyArity.Compiled 1<typeSlot>)
+                    "a generic's suffix parses to its arity"
+
+                Expect.equal
+                    (roundTrip "" "Global`2").TyparArity
+                    (KeyArity.Compiled 2<typeSlot>)
+                    "the global namespace round-trips too"
 
                 let nested = roundTrip "N" "Outer`1+Inner`1"
 
-                Expect.equal nested.TyparArity 1 "the INNER declares one typar of its own"
+                Expect.equal nested.TyparArity (KeyArity.Compiled 1<typeSlot>) "the INNER declares one typar of its own"
 
                 match nested.Container with
-                | TypeContainer.InType outer -> Expect.equal outer.TyparArity 1 "the OUTER declares one of its own"
+                | TypeContainer.InType outer ->
+                    Expect.equal outer.TyparArity (KeyArity.Compiled 1<typeSlot>) "the OUTER declares one of its own"
                 | other -> failtestf "expected InType, got %A" other
 
                 // `type 'T ``[]`` ` spells its name backtick-escaped, F# having no bare `[]`
@@ -108,7 +128,7 @@ let tests =
 
                 Expect.equal arr.Name "[]" "the array's key holds the bare name"
 
-                Expect.equal arr.TyparArity 0 "a structural constructor takes no arity"
+                Expect.equal arr.TyparArity (KeyArity.Compiled 0<typeSlot>) "a structural constructor takes no arity"
 
                 Expect.equal
                     (SymbolKeyOps.qualifiedTypeKeyOf "Vesper.[]" 1)
@@ -116,7 +136,7 @@ let tests =
                     "the array's element type is carried on its args, so no arity is supplied however it is minted"
 
                 Expect.equal
-                    (SymbolKeyOps.typeKeyOfArity "Vesper" (SymbolKeyOps.arrayName 1) 1)
+                    (SymbolKeyOps.typeKeyOfArity "Vesper" (SymbolKeyOps.arrayName 1) 1<typeSlot>)
                     arr
                     "the DECLARATION's one typar keys the same, so a use site and a declaration agree"
             }
@@ -199,7 +219,7 @@ let memberKeyIdentity =
     let methodTypar: FrozenType = FTTypar(TyparScope.Member cKey, 0<typeSlot>)
 
     let mk (argSig: FrozenType list) (methodTyparArity: int) : MemberKey =
-        SymbolKeyOps.memberKeyOf cKey "M" (Block.ofList argSig) methodTyparArity MemberKind.Method
+        SymbolKeyOps.memberKeyOf cKey "M" (Block.ofList argSig) (TyparIndex.typeSlot methodTyparArity) MemberKind.Method
 
     testList
         "MemberKey overload identity"
@@ -236,7 +256,7 @@ let memberKeyIdentity =
 // `M`, so the module name is neither folded into the namespace path nor dropped.
 module private Local =
 
-    let typeKeyOf (arity: int) (name: string) (src: string) : TypeKey =
+    let typeKeyOf (arity: int<sigSlot>) (name: string) (src: string) : TypeKey =
         let ctx, _ = analyseNameRes (realProvider.Force()) src
 
         match TypeRegistry.tryTypeClaim ctx.Types UseSite.unbounded name arity with
@@ -252,7 +272,7 @@ let localTypeContainment =
         [
             test "a type declared directly in a namespace is held by the NAMESPACE" {
                 let k =
-                    Local.typeKeyOf 0 "T" (Local.source [ "namespace N"; ""; "type T = { x: int }" ])
+                    Local.typeKeyOf 0<sigSlot> "T" (Local.source [ "namespace N"; ""; "type T = { x: int }" ])
 
                 match k.Container with
                 | TypeContainer.InNamespace ns ->
@@ -262,7 +282,10 @@ let localTypeContainment =
 
             test "a type declared inside a module is held by the MODULE" {
                 let k =
-                    Local.typeKeyOf 0 "T" (Local.source [ "namespace N"; ""; "module M ="; "    type T = { x: int }" ])
+                    Local.typeKeyOf
+                        0<sigSlot>
+                        "T"
+                        (Local.source [ "namespace N"; ""; "module M ="; "    type T = { x: int }" ])
 
                 match k.Container with
                 | TypeContainer.InModule m ->
@@ -290,7 +313,7 @@ let localTypeContainment =
             test "a NESTED module produces a nested InModule chain" {
                 let k =
                     Local.typeKeyOf
-                        0
+                        0<sigSlot>
                         "T"
                         (Local.source
                             [
@@ -322,7 +345,7 @@ let localTypeContainment =
             test "the module's key carries the name its SOURCE writes, though it compiles suffixed" {
                 let k =
                     Local.typeKeyOf
-                        0
+                        0<sigSlot>
                         "T"
                         (Local.source
                             [
@@ -353,7 +376,7 @@ let localTypeContainment =
                     SymbolKeyOps.typeKeyOfContainer
                         (TypeContainer.InModule(SymbolKeyOps.moduleKeyOf (SymbolKeyOps.inNamespace "A") "B"))
                         "C"
-                        0
+                        0<typeSlot>
 
                 Expect.equal inNamespace.DeclaredPath inModule.DeclaredPath "the two paths render alike"
                 Expect.notEqual (compare inNamespace inModule) 0 "the keys still order apart"

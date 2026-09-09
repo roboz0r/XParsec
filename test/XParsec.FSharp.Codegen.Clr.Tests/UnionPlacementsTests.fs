@@ -241,6 +241,9 @@ printfn "%d" (match B("a", 1) with | B(_, n) -> n)
                         overlayKey
                         entry.Union
 
-                    Expect.equal overlayKey.TyparArity 0 (entry.Union + "'s overlay is non-generic")
+                    Expect.equal
+                        overlayKey.TyparArity
+                        (KeyArity.Compiled 0<typeSlot>)
+                        (entry.Union + "'s overlay is non-generic")
             }
         ]

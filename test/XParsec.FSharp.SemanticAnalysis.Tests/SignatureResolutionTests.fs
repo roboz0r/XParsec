@@ -205,7 +205,7 @@ let tests =
                 let dep =
                     providerOfTypes
                         [
-                            SymbolKeyOps.typeKeyOfArity "Dep" "Widget" 1,
+                            SymbolKeyOps.typeKeyOfArity "Dep" "Widget" 1<typeSlot>,
                             ExternalTypeShape.Union
                                 {
                                     Typars = TyparList.positional 1<typeSlot>
@@ -825,7 +825,7 @@ let tests =
                     {
                         Container = TypeContainer.InModule(SymbolKeyOps.moduleInNamespace "Test.A" "M")
                         Name = "T"
-                        TyparArity = 0
+                        TyparArity = KeyArity.Compiled 0<typeSlot>
                     }
 
                 Expect.equal
@@ -850,7 +850,7 @@ let tests =
                     {
                         Container = TypeContainer.InModule(SymbolKeyOps.moduleInNamespace "Test.A" "M")
                         Name = "T"
-                        TyparArity = 0
+                        TyparArity = KeyArity.Compiled 0<typeSlot>
                     }
 
                 let scope = r.Provider.Scope

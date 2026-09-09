@@ -10,15 +10,15 @@ open XParsec.FSharp.Parser
 
 module internal LocalSymbolKey =
 
-    /// `name` is AS WRITTEN and `arity` the declared typar count: the `` `N `` spelling is
-    /// rendered for metadata, never stored.
-    let ofType (container: TypeContainer) (name: string) (arity: int) : TypeKey =
-        SymbolKeyOps.typeKeyOfContainer container name arity
+    /// `name` is AS WRITTEN and `arity` the count the declaration keys at: the `` `N ``
+    /// spelling is rendered for metadata, never stored.
+    let ofType (container: TypeContainer) (name: string) (arity: KeyArity) : TypeKey =
+        SymbolKeyOps.typeKeyOfContainerAt container name arity
 
     /// A property's `ArgSig` is empty: its name is unique on a type, since properties do not
     /// overload by argument.
     let ofProperty (declKey: TypeKey) (name: string) : SymbolKey =
-        SymbolKeyOps.memberKey declKey name Block.empty 0 MemberKind.Property
+        SymbolKeyOps.memberKey declKey name Block.empty 0<typeSlot> MemberKind.Property
 
 [<Sealed>]
 type RecordFieldInfo(name: string, ty: SemType, isMutable: bool, attributeSite: NodeKey) =

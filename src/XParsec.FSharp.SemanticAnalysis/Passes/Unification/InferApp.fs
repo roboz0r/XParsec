@@ -245,7 +245,7 @@ module internal UnificationInferApp =
                             // The sink slot ids (`System.IO.TextWriter`, …) are FIXED and fully
                             // qualified, so the type resolves by KEY, not an opens-aware lookup.
                             match ctx.Provider.TryLookupType(SymbolKeyOps.qualifiedTypeKeyOf id.Value 0) with
-                            | ValueSome(ExternalTypeShape.Class info) when info.TyparArity = 0 ->
+                            | ValueSome(ExternalTypeShape.Class info) when info.TyparArity = 0<sigSlot> ->
                                 ValueSome(TyClass(SymbolKeyOps.qualifiedTypeKeyOf id.Value 0, Block.empty))
                             | _ -> ValueNone
                         )

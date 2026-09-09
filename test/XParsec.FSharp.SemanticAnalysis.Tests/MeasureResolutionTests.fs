@@ -98,7 +98,7 @@ let private lastLetTypeClaim (units: SourceUnit list) : string * int =
             ]
 
         match lets with
-        | [ FTKeyed(key, _) ] -> key.Name, key.TyparArity
+        | [ FTKeyed(key, _) ] -> key.Name, key.TyparArity.Count
         | [ other ] -> failtestf "expected the let to freeze to a keyed type, got %A" other
         | other -> failtestf "expected a single let, got %A" other
 
@@ -111,7 +111,7 @@ let private vesperTypeClaims (name: string) : (int * TyparKind list) list =
     | ValueSome container ->
         [
             for struct (key, shape) in scope.TypesNamed(container, name) ->
-                key.TyparArity, Block.toList (TyparList.kinds shape.Typars)
+                int shape.TyparArity, Block.toList (TyparList.kinds shape.Typars)
         ]
 
 // A measured numeric type is not a special form. FSharp.Core claims each numeric primitive
@@ -167,6 +167,8 @@ let tests =
                     }
 
                     // Both forms register no typar list, so their kinds are read off the `TypeName`.
+                    // A metadata name spells TYPE slots, so a measure-only-generic type spells
+                    // none and its shape is published under the bare name.
                     test "an `extern` declaration's kinds reach its published shape" {
                         let r =
                             SignatureResolutionTests.resolveFsi
@@ -174,7 +176,7 @@ let tests =
                                 "namespace Vesper\n\ntype carrier<[<Measure>] 'u> = extern\n"
 
                         Expect.equal
-                            (SignatureResolutionTests.shapeOf r "carrier`1").Typars
+                            (SignatureResolutionTests.shapeOf r "carrier").Typars
                             (TyparList.ofSeq [ "'u", TyparKind.Measure ])
                             "an extern primitive carries its declared kinds"
                     }
@@ -186,7 +188,7 @@ let tests =
                                 "namespace App\n\nmodule M =\n    type Carrier<[<Measure>] 'u>\n"
 
                         Expect.equal
-                            (SignatureResolutionTests.shapeOf r "Carrier`1").Typars
+                            (SignatureResolutionTests.shapeOf r "Carrier").Typars
                             (TyparList.ofSeq [ "'u", TyparKind.Measure ])
                             "an opaque type carries its declared kinds"
                     }
@@ -195,8 +197,101 @@ let tests =
             testList
                 "a measure typar is an atom of its declaration"
                 [
+                    // An abbreviation keys at every parameter, so its `.fsi` claim, its `.fs`
+                    // claim and the lowering that reads the claim back mint one key.
+                    test "an abbreviation over a measure parameter conforms between `.fsi` and `.fs`" {
+                        let decl =
+                            "namespace Test.P
+
+type Money<[<Measure>] 'u> = float
+"
+
+                        let units =
+                            [
+                                SourceUnit.paired (SourceFile.ofText "p.fsi" decl) (SourceFile.ofText "p.fs" decl)
+                            ]
+
+                        let errs = assemblyErrors units
+                        Expect.isEmpty errs (sprintf "expected no errors; diagnostics were %A" errs)
+                    }
+
                     test "`float<'u>` in a record field resolves" {
                         expectClean "type Pair<[<Measure>] 'u, 'a> = { V: 'a; W: float<'u> }\n"
+                    }
+
+                    test "a measure-generic record written at a measure resolves" {
+                        expectClean
+                            "[<Measure>] type m
+type Pair<[<Measure>] 'u, 'a> = { V: 'a; W: float<'u> }
+let first (p: Pair<m, int>) = p.V
+ignore first
+"
+                    }
+
+                    test "another file's measure-generic record resolves at a measure" {
+                        let producer =
+                            "namespace Test.A
+
+[<Measure>] type m
+type Pair<[<Measure>] 'u, 'a> = { V: 'a; W: float<'u> }
+"
+
+                        let consumer =
+                            "namespace Test.B
+
+open Test.A
+
+module N =
+    let first (p: Pair<m, int>) = p.V
+"
+
+                        let es = assemblyErrors [ impl "file1.fs" producer; impl "file2.fs" consumer ]
+                        Expect.isEmpty es (sprintf "expected no errors; diagnostics were %A" es)
+                    }
+
+                    // A referenced package carries the two counts apart: the name is written at
+                    // two arguments, and the metadata name spells the one type slot.
+                    test "a referenced package's measure-generic record resolves at a measure" {
+                        let pairKey =
+                            {
+                                Container = TypeContainer.InNamespace(SymbolKeyOps.namespaceKey "Dep")
+                                Name = "Pair"
+                                TyparArity = KeyArity.Compiled 1<typeSlot>
+                            }
+
+                        let dep =
+                            providerOfTypes
+                                [
+                                    pairKey,
+                                    ExternalTypeShape.Record
+                                        {
+                                            Typars = TyparList.ofSeq [ "'u", TyparKind.Measure; "'a", TyparKind.Type ]
+                                            Fields =
+                                                Block.singleton
+                                                    {
+                                                        Name = "V"
+                                                        IsMutable = false
+                                                        Frozen = FTTypar(TyparScope.Type pairKey, 0<typeSlot>)
+                                                    }
+                                            Origin = SymbolOrigin.Empty
+                                            IsValueType = false
+                                            RequiresQualifiedAccess = false
+                                        }
+                                ]
+
+                        let provider = ExternalSymbolProviders.composite [ dep; realProvider.Value ]
+
+                        let lexed, file =
+                            parseFile
+                                "[<Measure>] type m
+let first (p: Dep.Pair<m, int>) = p.V
+"
+
+                        let tast =
+                            Pipeline.analyseSemFor testCompiling provider (LexedFile.ofText lexed) file
+
+                        let es = errorMessages tast.Diagnostics
+                        Expect.isEmpty es (sprintf "expected no errors; diagnostics were %A" es)
                     }
 
                     test "`float<'u>` in a class field and a member signature resolves" {
@@ -591,7 +686,7 @@ let x: MyFloat<m> = 1.0<m>
                     // `string` is language-known at arity 0 alone, so `string<m>` is FS0033 on
                     // every target; on one that lacks `string` the platform error stands beside it.
                     test "`string<m>` on a target without `string` reports the arity and the platform" {
-                        let m = SymbolKeyOps.typeKeyOfArity "Units" "m" 0
+                        let m = SymbolKeyOps.typeKeyOfArity "Units" "m" 0<typeSlot>
 
                         let provider =
                             ExternalSymbolProviders.stack
@@ -698,9 +793,9 @@ module N =
                             | UnitOutcome.Analysed u :: _ -> u.Published
                             | _ -> failtest "the producer did not analyse"
 
-                        let m = SymbolKeyOps.typeKeyOfArity "Test.A" "m" 0
-                        let s = SymbolKeyOps.typeKeyOfArity "Test.A" "s" 0
-                        let v = SymbolKeyOps.typeKeyOfArity "Test.A" "v" 0
+                        let m = SymbolKeyOps.typeKeyOfArity "Test.A" "m" 0<typeSlot>
+                        let s = SymbolKeyOps.typeKeyOfArity "Test.A" "s" 0<typeSlot>
+                        let v = SymbolKeyOps.typeKeyOfArity "Test.A" "v" 0<typeSlot>
 
                         Expect.equal
                             (published.TryLookupType m)
@@ -791,8 +886,8 @@ module N =
                         let decoded = FrozenCodec.thaw (FrozenCodec.flatten frozen)
                         Expect.equal (TastUnpool.ofPools decoded) (TastUnpool.ofPools frozen) "the tree round-trips"
 
-                        let m = SymbolKeyOps.typeKeyOfArity "Test.A" "m" 0
-                        let s = SymbolKeyOps.typeKeyOfArity "Test.A" "s" 0
+                        let m = SymbolKeyOps.typeKeyOfArity "Test.A" "m" 0<typeSlot>
+                        let s = SymbolKeyOps.typeKeyOfArity "Test.A" "s" 0<typeSlot>
 
                         let terms =
                             [
@@ -819,7 +914,7 @@ module N =
                     // the contract's own prelude is passed through: `float` at arity 1 is a
                     // `Vesper` claim, and a `Vesper` left closed leaves it unresolved.
                     test "a measure published by a referenced assembly resolves" {
-                        let m = SymbolKeyOps.typeKeyOfArity "Units" "m" 0
+                        let m = SymbolKeyOps.typeKeyOfArity "Units" "m" 0<typeSlot>
 
                         let provider =
                             ExternalSymbolProviders.stack

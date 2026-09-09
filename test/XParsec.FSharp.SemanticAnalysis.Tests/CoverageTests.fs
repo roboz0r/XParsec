@@ -1318,7 +1318,7 @@ let tests =
                 | [ SymbolKey.Member mk ] ->
                     Expect.equal mk.Name "Inc" "member name"
                     Expect.equal mk.Kind MemberKind.Method "method kind"
-                    Expect.equal mk.MethodTyparArity 0 "no method typars"
+                    Expect.equal mk.MethodTyparArity 0<typeSlot> "no method typars"
                     Expect.equal mk.ArgSig.Length 1 "one declared value parameter"
 
                     match mk.ArgSig.[0] with
@@ -1341,7 +1341,7 @@ let tests =
                 | [ SymbolKey.Member mk ] ->
                     Expect.equal mk.Name "M" "member name"
                     Expect.equal mk.Kind MemberKind.Method "method kind"
-                    Expect.equal mk.MethodTyparArity 0 "no method typars"
+                    Expect.equal mk.MethodTyparArity 0<typeSlot> "no method typars"
 
                     match mk.ArgSig |> Block.toList with
                     | [ FTConst(sk, _) ] ->
@@ -1386,7 +1386,7 @@ let tests =
             let extMember2 (p2: FrozenType) : ExternalMember =
                 let ps = Block.ofList [ intFt; p2 ]
 
-                { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf extDeclKey "M" ps 0 MemberKind.Method) with
+                { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf extDeclKey "M" ps 0<typeSlot> MemberKind.Method) with
                     IsStatic = true
                     Signature = TestHelpers.mkSignature 0<_> 0<_> (FTTuple ps) unitFt
                 }
@@ -1441,7 +1441,7 @@ let tests =
                 // mint is forced and equals `TryLookupMember`'s, operands or not.
                 let m1 =
                     { ExternalMember.OfKey(
-                          SymbolKeyOps.memberKeyOf extDeclKey "N" (Block.singleton intFt) 0 MemberKind.Method
+                          SymbolKeyOps.memberKeyOf extDeclKey "N" (Block.singleton intFt) 0<typeSlot> MemberKind.Method
                       ) with
                         IsStatic = true
                         Signature = TestHelpers.mkSignature 0<_> 0<_> intFt unitFt
@@ -1488,8 +1488,8 @@ let tests =
                         | _ -> None
                     )
 
-                Expect.equal (arityOf "Id") (Some 1) "generic Id<'a> mints MethodTyparArity 1"
-                Expect.equal (arityOf "Plain") (Some 0) "non-generic Plain mints MethodTyparArity 0"
+                Expect.equal (arityOf "Id") (Some 1<typeSlot>) "generic Id<'a> mints MethodTyparArity 1"
+                Expect.equal (arityOf "Plain") (Some 0<typeSlot>) "non-generic Plain mints MethodTyparArity 0"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
         ]

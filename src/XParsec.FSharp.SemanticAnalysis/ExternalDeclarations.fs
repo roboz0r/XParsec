@@ -143,7 +143,7 @@ type ExternalRecordShape =
         RequiresQualifiedAccess: bool
     }
 
-    member this.TyparArity: int = this.Typars.Length
+    member this.TyparArity: int<sigSlot> = this.Typars.Order.Length
 
 /// The payload of `ExternalTypeShape.Union`. `Interfaces` are the union's directly-declared
 /// `interface <ty>` impls. `IsValueType` and `RequiresQualifiedAccess` carry the same
@@ -159,7 +159,7 @@ type ExternalUnionShape =
         RequiresQualifiedAccess: bool
     }
 
-    member this.TyparArity: int = this.Typars.Length
+    member this.TyparArity: int<sigSlot> = this.Typars.Order.Length
 
 /// The payload of `ExternalTypeShape.Abbrev`: a transparent `type t<'a> = body`.
 type ExternalAbbrevShape =
@@ -170,7 +170,7 @@ type ExternalAbbrevShape =
         Body: FrozenType
     }
 
-    member this.TyparArity: int = this.Typars.Length
+    member this.TyparArity: int<sigSlot> = this.Typars.Order.Length
 
 /// An external enum case's compile-time value.
 [<RequireQualifiedAccess>]
@@ -204,6 +204,7 @@ type ExternalUnionCase =
         /// `InModule` containment chain cannot be recut from a compiled-name string, which
         /// yields the same metadata NAME under an unequal identity.
         UnionKey: TypeKey
+        UnionTypars: TyparList
         Case: ExternalCaseShape
         IsRequireQualifiedAccess: bool
     }
@@ -216,7 +217,7 @@ type ExternalRecordCandidate =
         /// containment chain cannot be recut from a compiled-name string, which yields the same
         /// metadata NAME under an unequal identity.
         TypeKey: TypeKey
-        TyparArity: int
+        TyparArity: int<sigSlot>
         /// EVERY declared field name, not only the queried one.
         FieldNames: Block<string>
         /// `[<RequireQualifiedAccess>]`: a consumer excludes such a record from bare
@@ -448,7 +449,7 @@ type ExternalMember =
         (origin: SymbolOrigin)
         (optionalDefaults: OptionalDefault list)
         : ExternalMember =
-        { ExternalMember.OfKey(SymbolKeyOps.ctorKeyOf declKey argSig (int signature.MethodTyparArity)) with
+        { ExternalMember.OfKey(SymbolKeyOps.ctorKeyOf declKey argSig signature.MethodTyparArity) with
             Signature = signature
             Origin = origin
             OptionalDefaults = optionalDefaults
@@ -526,7 +527,7 @@ type ExternalClassShape =
         Origin: SymbolOrigin
     }
 
-    member this.TyparArity: int = this.Typars.Length
+    member this.TyparArity: int<sigSlot> = this.Typars.Order.Length
 
     member this.IsInterface: bool = this.Commitment = ClassCommitment.Interface
 
@@ -567,7 +568,7 @@ type IntrinsicIdentity =
         Platform: IntrinsicPlatform
     }
 
-    member this.TyparArity: int = this.Typars.Length
+    member this.TyparArity: int<sigSlot> = this.Typars.Order.Length
 
 /// The declared SUPERTYPE surface a primitive carries: what a subtype walk off it can
 /// reach. Instance members (`exn.Message`) are NOT here, because they route through the
@@ -673,4 +674,4 @@ type IntrinsicInterfaceShape =
         Origin: SymbolOrigin
     }
 
-    member this.TyparArity: int = this.Typars.Length
+    member this.TyparArity: int<sigSlot> = this.Typars.Order.Length

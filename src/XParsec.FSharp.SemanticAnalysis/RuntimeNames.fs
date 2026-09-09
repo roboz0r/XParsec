@@ -31,13 +31,16 @@ module RuntimeNames =
     let listPackageName = "Vesper.List"
 
     let vesperListKey: TypeKey =
-        SymbolKeyOps.typeKeyOfArity collectionsNamespace "List" 1
+        SymbolKeyOps.typeKeyOfArity collectionsNamespace "List" 1<typeSlot>
 
     /// The cons-list's second accepted nominal form. No producer mints it: it is matched
     /// alongside `vesperListKey`, and a `[…]` literal probes the project's own abbreviation
     /// table by the SPELLING it carries.
     let vesperListAbbrevKey: TypeKey =
-        SymbolKeyOps.typeKeyOfArity collectionsNamespace "list" 1
+        SymbolKeyOps.typeKeyOfContainerAt
+            (TypeContainer.InNamespace(SymbolKeyOps.namespaceKey collectionsNamespace))
+            "list"
+            (KeyArity.Written 1<sigSlot>)
 
     /// The one cons-list `[…]`, `h :: t` and `for … in` all default to, over `elemTy`.
     let consListTy (elemTy: SemType) : SemType =
@@ -51,7 +54,8 @@ module RuntimeNames =
     [<Literal>]
     let emptyCaseName = "Empty"
 
-    let vesperRefKey: TypeKey = SymbolKeyOps.typeKeyOfArity intrinsicNamespace "Ref" 1
+    let vesperRefKey: TypeKey =
+        SymbolKeyOps.typeKeyOfArity intrinsicNamespace "Ref" 1<typeSlot>
 
     let structuralFormattableKey: TypeKey =
         SymbolKeyOps.typeKeyOf intrinsicNamespace "IStructuralFormattable"
@@ -60,29 +64,30 @@ module RuntimeNames =
 
     /// Curried at 2, the flat overloads at 3–5: one name, distinguished by arity.
     let vesperFunKey (genericArity: int) : TypeKey =
-        SymbolKeyOps.typeKeyOfArity intrinsicNamespace "Fun" genericArity
+        SymbolKeyOps.typeKeyOfArity intrinsicNamespace "Fun" (TyparIndex.typeSlot genericArity)
 
     /// The type a format literal freezes to, and what a source-level format ANNOTATION
     /// resolves to.
     let printfFormatKey: TypeKey =
-        SymbolKeyOps.typeKeyOfArity intrinsicNamespace "PrintfFormat" 4
+        SymbolKeyOps.typeKeyOfArity intrinsicNamespace "PrintfFormat" 4<typeSlot>
 
     // The five language-capability ANCHORS, as the contract declares them: what the
     // capability resolution asks the provider for, and the canon each resolved identity
     // carries when the provider supplies no platform name of its own.
 
-    let seqKey: TypeKey = SymbolKeyOps.typeKeyOfArity collectionsNamespace "seq" 1
+    let seqKey: TypeKey =
+        SymbolKeyOps.typeKeyOfArity collectionsNamespace "seq" 1<typeSlot>
 
     let enumeratorKey: TypeKey =
-        SymbolKeyOps.typeKeyOfArity collectionsNamespace "enumerator" 1
+        SymbolKeyOps.typeKeyOfArity collectionsNamespace "enumerator" 1<typeSlot>
 
     let disposableKey: TypeKey = SymbolKeyOps.typeKeyOf intrinsicNamespace "disposable"
 
     let equatableKey: TypeKey =
-        SymbolKeyOps.typeKeyOfArity intrinsicNamespace "equatable" 1
+        SymbolKeyOps.typeKeyOfArity intrinsicNamespace "equatable" 1<typeSlot>
 
     let comparableKey: TypeKey =
-        SymbolKeyOps.typeKeyOfArity intrinsicNamespace "comparable" 1
+        SymbolKeyOps.typeKeyOfArity intrinsicNamespace "comparable" 1<typeSlot>
 
     /// The suffix every declared attribute class carries, and F#'s optional one at a use.
     [<Literal>]
@@ -330,7 +335,9 @@ module RuntimeNames =
     /// too, confining the name test to keys already established to be intrinsics. A
     /// classification with FIXED membership lists its keys instead.
     let isIntrinsicKeyWhere (nameSatisfies: string -> bool) (k: TypeKey) : bool =
-        k.TyparArity = 0 && k.Container = intrinsicContainer && nameSatisfies k.Name
+        k.TyparArity = KeyArity.Compiled 0<typeSlot>
+        && k.Container = intrinsicContainer
+        && nameSatisfies k.Name
 
     /// An array of any rank or a managed by-ref, compared as an IDENTITY so a user type named
     /// `byref` in its own namespace cannot claim the dedicated backend path reserved for these.
@@ -587,7 +594,10 @@ module IntrinsicTypePatterns =
 
     /// A key onto the platform type id axis: refuses any key with a declaring namespace.
     let (|PlatformName|_|) (k: TypeKey) : PlatformTypeId option =
-        if k.TyparArity = 0 && k.Container = TypeContainer.InNamespace NamespaceKey.Global then
+        if
+            k.TyparArity = KeyArity.Compiled 0<typeSlot>
+            && k.Container = TypeContainer.InNamespace NamespaceKey.Global
+        then
             Some(PlatformTypeId k.Name)
         else
             None

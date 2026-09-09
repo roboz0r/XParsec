@@ -1,4 +1,4 @@
-namespace XParsec.FSharp.SemanticAnalysis
+﻿namespace XParsec.FSharp.SemanticAnalysis
 
 open Vesper
 open XParsec.FSharp.Lexer

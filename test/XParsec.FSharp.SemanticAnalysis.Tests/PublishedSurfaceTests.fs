@@ -11,7 +11,7 @@ open XParsec.FSharp.SemanticAnalysis
 // asserted here rather than left to a downstream consumer to discover.
 
 let private key (ns: string) (name: string) (arity: int) : TypeKey =
-    SymbolKeyOps.typeKeyOfArity ns name arity
+    SymbolKeyOps.typeKeyOfArity ns name (TyparIndex.typeSlot arity)
 
 let private shapeOf (arity: int) : ExternalTypeShape =
     ExternalTypeShape.Class(
@@ -35,6 +35,7 @@ let private surfaceOf (names: string list) : PublishedSurface =
             b
             {
                 UnionKey = k
+                UnionTypars = TyparList.empty
                 Case =
                     {
                         Name = "Case" + n

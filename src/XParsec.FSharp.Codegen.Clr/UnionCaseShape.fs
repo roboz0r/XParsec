@@ -38,7 +38,7 @@ module UnionCaseType =
     /// `TypeContainer.InType` container spells the emitted `Ns.Union`1+Case`, and the
     /// arity is 0 because a case adds no typars of its own.
     let key (unionKey: TypeKey) (caseName: string) : TypeKey =
-        SymbolKeyOps.typeKeyOfContainer (TypeContainer.InType unionKey) caseName 0
+        SymbolKeyOps.typeKeyOfContainer (TypeContainer.InType unionKey) caseName 0<typeSlot>
 
     /// The case type at the union's own type arguments. Registered in `UserTypes`, and as a
     /// generic shape when the union is generic, so it encodes like any nominal.
@@ -59,7 +59,7 @@ module UnionPayloadType =
     /// unions differing only in arity own distinct overlays. `$` is outside F# and C# source
     /// syntax, and the spelling carries no `` ` ``, so the name reads back as an arity-0 segment.
     let overlayName (unionKey: TypeKey) : string =
-        match unionKey.TyparArity with
+        match unionKey.TyparArity.Count with
         | 0 -> unionKey.Name + "$Data"
         | n -> sprintf "%s$Data$%d" unionKey.Name n
 
@@ -69,14 +69,14 @@ module UnionPayloadType =
     let overlayFieldName = "_data"
 
     let private nestedIn (outer: TypeKey) (name: string) : TypeKey =
-        SymbolKeyOps.typeKeyOfContainer (TypeContainer.InType outer) name 0
+        SymbolKeyOps.typeKeyOfContainer (TypeContainer.InType outer) name 0<typeSlot>
 
     let payloadKey (unionKey: TypeKey) : TypeKey = nestedIn unionKey payloadName
     let viewKey (unionKey: TypeKey) (caseName: string) : TypeKey = nestedIn unionKey (viewName caseName)
 
     /// The overlay, a sibling of the union in the union's own container.
     let overlayKey (unionKey: TypeKey) : TypeKey =
-        SymbolKeyOps.typeKeyOfContainer unionKey.Container (overlayName unionKey) 0
+        SymbolKeyOps.typeKeyOfContainer unionKey.Container (overlayName unionKey) 0<typeSlot>
 
     /// One case's data struct, nested in the overlay.
     let caseDataKey (unionKey: TypeKey) (caseName: string) : TypeKey =

@@ -76,7 +76,12 @@ let mkSignature
 /// declaring type `C`.
 let mkMember (name: string) : ExternalMember =
     { ExternalMember.OfKey(
-          SymbolKeyOps.memberKeyOf (SymbolKeyOps.qualifiedTypeKeyOf "C" 0) name Block.empty 0 MemberKind.Method
+          SymbolKeyOps.memberKeyOf
+              (SymbolKeyOps.qualifiedTypeKeyOf "C" 0)
+              name
+              Block.empty
+              0<typeSlot>
+              MemberKind.Method
       ) with
         IsStatic = true
         Signature =
@@ -296,19 +301,29 @@ let providerOfTypes (types: (TypeKey * ExternalTypeShape) list) : IExternalSymbo
             PublishedSurfaceBuilder.addType b key shape
     )
 
+/// The type-kinded count a nominal key spells.
+let compiledArityOf (key: TypeKey) : int<typeSlot> =
+    match key.TyparArity with
+    | KeyArity.Compiled n -> n
+    | KeyArity.Written _ -> failtestf "%s keys as an abbreviation" key.DeclaredPath
+
+/// Positional type-kinded parameters at the count a nominal key spells.
+let positionalTyparsOf (key: TypeKey) : TyparList =
+    TyparList.positional (compiledArityOf key)
+
 /// A static get-only property `decl.name : ret`. Copy it with `{ … with … }` for an instance
 /// member, a method or an overload.
 let mkStaticProperty (decl: TypeKey) (name: string) (ret: FrozenType) : ExternalMember =
-    { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf decl name Block.empty 0 MemberKind.Property) with
+    { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf decl name Block.empty 0<typeSlot> MemberKind.Property) with
         IsStatic = true
         Storage = MemberStorage.Property
-        Signature = ExternalSignature.value (TyparIndex.typeSlot decl.TyparArity, 0<_>, ret)
+        Signature = ExternalSignature.value (compiledArityOf decl, 0<_>, ret)
     }
 
 let private unionShape (key: TypeKey) (cases: ExternalCaseShape list) (rqa: bool) : ExternalTypeShape =
     ExternalTypeShape.Union
         {
-            Typars = TyparList.positional (TyparIndex.typeSlot key.TyparArity)
+            Typars = positionalTyparsOf key
             Cases = Block.ofList cases
             Interfaces = Block.empty
             Origin = SymbolOrigin.Empty
@@ -329,7 +344,7 @@ let publishRecord (b: PublishedSurfaceBuilder) (key: TypeKey) (fields: ExternalF
         key
         (ExternalTypeShape.Record
             {
-                Typars = TyparList.positional (TyparIndex.typeSlot key.TyparArity)
+                Typars = positionalTyparsOf key
                 Fields = Block.ofList fields
                 Origin = SymbolOrigin.Empty
                 IsValueType = false
@@ -343,11 +358,7 @@ let publishClass (b: PublishedSurfaceBuilder) (key: TypeKey) (members: ExternalM
         b
         key
         (ExternalTypeShape.Class
-            { ExternalClassShape.basic (
-                  TyparList.positional (TyparIndex.typeSlot key.TyparArity),
-                  ClassCommitment.Class,
-                  SymbolOrigin.Empty
-              ) with
+            { ExternalClassShape.basic (positionalTyparsOf key, ClassCommitment.Class, SymbolOrigin.Empty) with
                 Members = Block.ofList members
             })
         members

@@ -517,7 +517,7 @@ module SignatureResolution =
             let name = ctx.NameOf nameLi.Idents.[0]
 
             let key =
-                SymbolKeyOps.typeKeyOfContainer (localTypeContainer ctx containment) name typars.Length
+                SymbolKeyOps.typeKeyOfContainer (localTypeContainer ctx containment) name typars.TypeArity
 
             publishShape sctx key (ExternalTypeShape.Unmodelled(reason, typars))
 

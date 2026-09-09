@@ -73,7 +73,19 @@ module internal TsManifestTranslate =
     let mint (nsPath: string) (name: string) (arity: int) : MintedType =
         {
             QualifiedName = qualify nsPath (SymbolKeyOps.arityName name arity)
-            Key = SymbolKeyOps.typeKeyOfArity nsPath name arity
+            Key = SymbolKeyOps.typeKeyOfArity nsPath name (TyparIndex.typeSlot arity)
+        }
+
+    /// `mint` for a `type X = …` alias, which has no compiled name and keys at its written
+    /// count. A TS alias declares only type-kinded parameters, so the two counts agree.
+    let mintAlias (nsPath: string) (name: string) (arity: int) : MintedType =
+        {
+            QualifiedName = qualify nsPath (SymbolKeyOps.arityName name arity)
+            Key =
+                SymbolKeyOps.typeKeyOfContainerAt
+                    (TypeContainer.InNamespace(SymbolKeyOps.namespaceKey nsPath))
+                    name
+                    (KeyArity.Written(TyparIndex.sigSlot arity))
         }
 
     /// `IsInterface` picks a heritage entry's slot: interface list vs single base class.

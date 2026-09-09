@@ -19,7 +19,7 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
     let typeKey = SymbolKeyOps.qualifiedTypeKeyOf name 0
 
     let taggedMember =
-        { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf typeKey name Block.empty 0 MemberKind.Method) with
+        { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf typeKey name Block.empty 0<typeSlot> MemberKind.Method) with
             IsStatic = true
             Signature =
                 TestHelpers.mkSignature

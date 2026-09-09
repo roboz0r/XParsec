@@ -250,7 +250,7 @@ module NameResolutionDeclRegistration =
 
         // A measure-GENERIC declaration (`type Area<[<Measure>] 'u>`) is claimed at its arity,
         // so a bare reference to it is FS0033. Its entry is `Broken` from registration.
-        if arityOfTypeName ctx tn > 0 then
+        if not (typarListOfTypeName ctx tn).IsEmpty then
             ctx.Report(id.DeclSite.Tok, Kind.NotYetSupported "a measure declaration with type parameters")
             info.State <- FillState.Broken
 

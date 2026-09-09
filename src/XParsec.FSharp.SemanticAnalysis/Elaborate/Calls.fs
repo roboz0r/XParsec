@@ -214,7 +214,7 @@ module internal ElaborateCalls =
         match ctx.Resolution.StaticDeclaringArgs.TryGetValue key with
         | ValueSome a -> Block.map (Unification.zonk ctx.Store) a
         | ValueNone ->
-            if declKey.TyparArity > 0 then
+            if declKey.TyparArity.Count > 0 then
                 ctx.Report(tok, Kind.Internal(InternalBreak.UnstampedStaticDeclArgs(string declKey)))
 
             Block.empty

@@ -41,7 +41,7 @@ let private declAssembly (provider: IExternalSymbolProvider) (decl: TypeKey) : A
         failtestf "the declaring type %s did not resolve through the provider" (SymbolKeyOps.typeMetaName decl)
 
 let private eqComparerKey =
-    SymbolKeyOps.typeKeyOfArity "System.Collections.Generic" "EqualityComparer" 1
+    SymbolKeyOps.typeKeyOfArity "System.Collections.Generic" "EqualityComparer" 1<typeSlot>
 
 /// The `let`-bound value of `tast`, whichever declaration position an `open` leaves it in.
 let private letValue (tast: TastFile) : TExpr option =
@@ -342,7 +342,11 @@ let tests =
                             (declAssembly provider decl)
                             "Out's declaring type is homed in the defining assembly"
 
-                        Expect.equal decl (SymbolKeyOps.typeKeyOfArity "System" "Console" 0) "Out declaring type"
+                        Expect.equal
+                            decl
+                            (SymbolKeyOps.typeKeyOfArity "System" "Console" 0<typeSlot>)
+                            "Out declaring type"
+
                         Expect.isTrue argSig.IsEmpty "Out is a property: empty argSig"
                     | other -> failtestf "unexpected Out key %A" other
                 | other -> failtestf "expected a static `Out` ExternalMember, got %A" other
@@ -411,7 +415,7 @@ let tests =
                                          }) ] ->
                     Expect.equal
                         decl
-                        (SymbolKeyOps.typeKeyOfArity "System.Collections.Generic" "EqualityComparer" 1)
+                        (SymbolKeyOps.typeKeyOfArity "System.Collections.Generic" "EqualityComparer" 1<typeSlot>)
                         "Default declaring type"
                 | other -> failtestf "expected a static `Default` ExternalMember, got %A" other
             }

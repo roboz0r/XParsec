@@ -132,11 +132,16 @@ module internal UnificationInferResolve =
 
     let ctorType (ctx: PassContext) (info: UnionCaseInfo) : SemType = snd (ctorTypeInstance ctx info)
 
+    /// One fresh TyVar per declared parameter, in signature order.
+    let private freshDeclaringArgs (ctx: PassContext) (typars: TyparList) : SemType[] =
+        Array.init typars.Length (fun _ -> TyVar(ctx.FreshTyVar()))
+
     /// The union type and per-field types of a resolved external case, instantiating the
     /// declaring union's typars fresh (one TyVar per declared arity). The union is the
     /// pattern's own type; the field types are what its sub-patterns unify against.
     let externalCasePattern (ctx: PassContext) (uc: ExternalUnionCase) : SemType * SemType[] =
-        let freshArgs = Array.init uc.UnionKey.TyparArity (fun _ -> TyVar(ctx.FreshTyVar()))
+        let freshArgs = freshDeclaringArgs ctx uc.UnionTypars
+
         let unionTy = TyUnion(uc.UnionKey, Block.ofArray freshArgs)
         let fields = ExternalSymbols.instantiateCaseFieldTypes ctx uc.Case freshArgs
         unionTy, fields
@@ -361,7 +366,7 @@ module internal UnificationInferResolve =
             // Precompute the args array once (not per field): one fresh TyVar per declared
             // typar slot, instantiating each field's `FTTypar(Type _, i)` template.
             let args =
-                Block.ofArray [| for _ in 1 .. candidate.TyparArity -> TyVar(ctx.FreshTyVar()) |]
+                Block.ofArray [| for _ in 1 .. int candidate.TyparArity -> TyVar(ctx.FreshTyVar()) |]
 
             let argsArr = args.AsSpan().ToArray()
 
@@ -407,36 +412,44 @@ module internal UnificationInferResolve =
             | ValueNone -> ValueNone
         | _ -> ValueNone
 
-    /// Split a folded static-member LongIdent (`System.Console.Out`) into the qualifier
-    /// PREFIX's resolved type identity and the trailing member token, reading the qualifier
-    /// NameResolution stamped rather than re-resolving here.
+    /// The qualifier PREFIX of a folded static-member LongIdent (`System.Console.Out`): its
+    /// resolved type identity and declared parameters, plus the trailing member token.
+    [<Struct; NoEquality; NoComparison>]
+    type ExternalStaticPrefix =
+        {
+            DeclTypeKey: TypeKey
+            DeclTypars: TyparList
+            MemberTok: SyntaxToken
+        }
+
+    /// Split `li` into its `ExternalStaticPrefix`, reading the qualifier NameResolution
+    /// stamped rather than re-resolving here.
     let splitExternalStaticPrefix
         (ctx: PassContext)
         (key: NodeKey)
         (li: LongIdent<SyntaxToken>)
-        : (TypeKey * SyntaxToken) voption =
-        let lastTok = li.Idents.[li.Idents.Length - 1]
-
+        : ExternalStaticPrefix voption =
         match ResolvedStamps.tryStaticQualifier ctx.Resolution.Resolved key with
-        | ValueSome declTypeKey -> ValueSome(declTypeKey, lastTok)
+        | ValueSome(struct (declTypeKey, declTypars)) ->
+            ValueSome
+                {
+                    DeclTypeKey = declTypeKey
+                    DeclTypars = declTypars
+                    MemberTok = li.Idents.[li.Idents.Length - 1]
+                }
         | ValueNone -> ValueNone
 
     /// Static member access on an external type, recorded in `ExternalAccess` for Elaborate to
-    /// emit as a keyed `TExpr.ExternalMember`. `typeArgs` instantiate the declaring type's
-    /// typars (`EqualityComparer<int>.Default` types at `<int>`), and are fresh vars when empty.
+    /// emit as a keyed `TExpr.ExternalMember`. `declaringArgs` instantiate the declaring
+    /// type's typars (`EqualityComparer<int>.Default` types at `<int>`).
     let inferExternalStaticMember
         (ctx: PassContext)
         (key: NodeKey)
         (declTypeKey: TypeKey)
-        (typeArgs: SemType list)
+        (declaringArgs: SemType[])
         (memberTok: SyntaxToken)
         : SemType =
         let memberName = ctx.NameOf memberTok
-
-        let declaringArgs =
-            match typeArgs with
-            | [] -> Array.init declTypeKey.TyparArity (fun _ -> TyVar(ctx.FreshTyVar()))
-            | written -> List.toArray written
 
         match ctx.Provider.TryLookupMember(declTypeKey, memberName) with
         | ValueSome m ->
@@ -480,11 +493,19 @@ module internal UnificationInferResolve =
         match e with
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length >= 2 ->
             match splitExternalStaticPrefix ctx key li with
-            | ValueSome(declTypeKey, lastTok) ->
+            | ValueSome prefix ->
                 // Claim it only if the member actually resolves; otherwise leave
                 // the node to the ctor/TyVar fallback without a spurious error.
-                match ctx.Provider.TryLookupMember(declTypeKey, ctx.NameOf lastTok) with
-                | ValueSome _ -> ValueSome(inferExternalStaticMember ctx key declTypeKey [] lastTok)
+                match ctx.Provider.TryLookupMember(prefix.DeclTypeKey, ctx.NameOf prefix.MemberTok) with
+                | ValueSome _ ->
+                    ValueSome(
+                        inferExternalStaticMember
+                            ctx
+                            key
+                            prefix.DeclTypeKey
+                            (freshDeclaringArgs ctx prefix.DeclTypars)
+                            prefix.MemberTok
+                    )
                 | ValueNone -> ValueNone
             | ValueNone -> ValueNone
         | _ -> ValueNone
@@ -499,9 +520,9 @@ module internal UnificationInferResolve =
             && not (ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent))
             ->
             match splitExternalStaticPrefix ctx (CstKeys.ofExpr e) li with
-            | ValueSome(declTypeKey, lastTok) when
-                (ctx.Provider.TryLookupMembers(declTypeKey, ctx.NameOf lastTok)).Length > 0
+            | ValueSome prefix when
+                (ctx.Provider.TryLookupMembers(prefix.DeclTypeKey, ctx.NameOf prefix.MemberTok)).Length > 0
                 ->
-                ValueSome(declTypeKey, lastTok)
+                ValueSome(prefix.DeclTypeKey, prefix.MemberTok)
             | _ -> ValueNone
         | _ -> ValueNone

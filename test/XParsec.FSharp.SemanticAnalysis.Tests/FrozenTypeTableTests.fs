@@ -36,28 +36,28 @@ let private boxKey: TypeKey =
     {
         Container = TypeContainer.InModule innerModule
         Name = "Box"
-        TyparArity = 1
+        TyparArity = KeyArity.Compiled 1<typeSlot>
     }
 
 let private nestedKey: TypeKey =
     {
         Container = TypeContainer.InType boxKey
         Name = "Enumerator"
-        TyparArity = 0
+        TyparArity = KeyArity.Compiled 0<typeSlot>
     }
 
 let private ifaceKey: TypeKey =
     {
         Container = TypeContainer.InNamespace globalNs
         Name = "IThing"
-        TyparArity = 0
+        TyparArity = KeyArity.Compiled 0<typeSlot>
     }
 
 let private colourKey: TypeKey =
     {
         Container = TypeContainer.InNamespace ns
         Name = "Colour"
-        TyparArity = 0
+        TyparArity = KeyArity.Compiled 0<typeSlot>
     }
 
 let private bindingKey: BindingKey =
@@ -78,7 +78,7 @@ let private memberKeyOf (kind: MemberKind) (argSig: FrozenType list) : MemberKey
         Decl = boxKey
         Name = "M"
         ArgSig = Block.ofList argSig
-        MethodTyparArity = 1
+        MethodTyparArity = 1<typeSlot>
         Kind = kind
     }
 

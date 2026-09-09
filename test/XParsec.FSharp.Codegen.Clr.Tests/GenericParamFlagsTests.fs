@@ -166,10 +166,9 @@ let tests =
                 Expect.equal (typeGenericParamsOf bytes "Pair`1") [ "a", valueType ] "one row, the type-kinded typar's"
             }
 
-            // Pending: translation builds `Pair<m, int>` as a measured `TyVar` over the carrier
-            // `Pair<_, int>`, and `freezeWith` accepts a primitive carrier alone
-            // (typar-slot-plan step 5).
-            ptest "a measure-generic record instantiated by name encodes over its type-slot args" {
+            // The written measure sits at its own signature slot, and the metadata name counts
+            // the type slots alone, so the `TypeRef` the use site spells is the `TypeDef`.
+            test "a measure-generic record instantiated by name encodes over its type-slot args" {
                 let bytes =
                     bytesOf
                         "GpMeasureUse"

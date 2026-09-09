@@ -13,6 +13,7 @@
     <Compile Include="RecordFieldClassifier.fs" />
     <Compile Include="Anchor.fs" />
     <Compile Include="NodeKey.fs" />
+    <Compile Include="TyparSlots.fs" />
     <Compile Include="CstKeys.fs" />
     <Compile Include="OpenScope.fs" />
     <Compile Include="TypeDefnPatterns.fs" />

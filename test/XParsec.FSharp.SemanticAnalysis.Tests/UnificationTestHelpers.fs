@@ -37,7 +37,7 @@ let overloadMember (paramFts: FrozenType list) (methodTyparArity: int) : Externa
               (SymbolKeyOps.qualifiedTypeKeyOf "C" 0)
               "M"
               (Block.ofList paramFts)
-              methodTyparArity
+              (TyparIndex.typeSlot methodTyparArity)
               MemberKind.Method
       ) with
         IsStatic = true
@@ -53,7 +53,7 @@ let boxMember (paramFt: FrozenType) : ExternalMember =
               (SymbolKeyOps.qualifiedTypeKeyOf "Box" 1)
               "M"
               (Block.singleton paramFt)
-              0
+              0<typeSlot>
               MemberKind.Method
       ) with
         IsStatic = false

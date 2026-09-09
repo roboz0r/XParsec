@@ -103,13 +103,13 @@ module ResolvedStamps =
         | _ -> ValueNone
 
     /// The referenced-assembly type a static access `T.member` stamped at `key` is qualified
-    /// by: a class by its key at its declared `TyparArity`, an intrinsic by its canon.
-    let tryStaticQualifier (stamps: SideTable<ResolvedItem>) (key: NodeKey) : TypeKey voption =
+    /// by, with its declared parameters: a class by its key, an intrinsic by its canon.
+    let tryStaticQualifier (stamps: SideTable<ResolvedItem>) (key: NodeKey) : struct (TypeKey * TyparList) voption =
         match stamps.TryGetValue key with
         | ValueSome(ResolvedItem.StaticMember(ResolvedTypeRef.External(typeKey, shape), _)) ->
             match shape with
-            | ExternalTypeShape.Class _ -> ValueSome typeKey
-            | ExternalTypeShape.Intrinsic { Id = { Canon = canon } } -> ValueSome canon
+            | ExternalTypeShape.Class info -> ValueSome(struct (typeKey, info.Typars))
+            | ExternalTypeShape.Intrinsic { Id = id } -> ValueSome(struct (id.Canon, id.Typars))
             | _ -> ValueNone
         | _ -> ValueNone
 
@@ -630,6 +630,12 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
         this.Store.SetLevel(UnionFind.find this.Store tv, this.CurrentLevel)
         tv
 
+    /// `IMeasuredThaw.Measure`: a fresh metavar carrying `units` and no carrier.
+    member this.MeasureTy(units: MeasureTerm) : SemType =
+        let tv = this.FreshTyVar()
+        this.Store.SetUnits(UnionFind.find this.Store tv, ValueSome units)
+        TyVar tv
+
     /// `carrier` measured by `units`: a fresh metavar whose `Link` is the carrier and whose
     /// `Units` are the term, the one representation of `1.0<m>`, `float<m>` and a thawed
     /// measured nominal.
@@ -644,6 +650,7 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
     /// (`Vesper.float`1`), whose body instantiates over the claim's type-slot args.
     interface IMeasuredThaw with
         member this.Store = this.Store
+        member this.Measure(units) = this.MeasureTy units
 
         member this.Measured(key, typeArgs, units) =
             match provider.TryLookupType key with
@@ -811,12 +818,12 @@ type PassContext(provider: IExternalSymbolProvider, file: LexedFile, assembly: C
 
     /// The `TypeKey` a type DECLARED where the walk stands would be minted with. A pass must
     /// not find the declaration it is walking by NAME: two sibling modules may each declare `T`.
-    member this.DeclaredTypeKey(name: string, arity: int) : TypeKey =
+    member this.DeclaredTypeKey(name: string, arity: KeyArity) : TypeKey =
         LocalSymbolKey.ofType (SymbolKeyOps.typeContainerOf this.CurrentContainer) name arity
 
     /// Both addresses of a type DECLARED where the walk stands, derived from the one declared
     /// `(name, arity)`.
-    member this.DeclaredTypeAddress(name: string, arity: int) : TypeRegistry.DeclaredTypeAddress =
+    member this.DeclaredTypeAddress(name: string, arity: KeyArity) : TypeRegistry.DeclaredTypeAddress =
         {
             Key = this.DeclaredTypeKey(name, arity)
             Name = name

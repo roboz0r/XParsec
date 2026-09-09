@@ -43,8 +43,11 @@ module SymbolKeyOps =
                 ok))
 
     /// The arity a key over `name` may hold, which is NONE for a structural constructor.
-    let private permittedArity (name: string) (arity: int) : int =
-        if isStructuralConstructorName name then 0 else arity
+    let private permittedArity (name: string) (arity: int<typeSlot>) : int<typeSlot> =
+        if isStructuralConstructorName name then
+            0<typeSlot>
+        else
+            arity
 
     /// Render `(name, arity)` as the CLR metadata spelling (`List` + 1 ⇒ `` List`1 ``);
     /// unchanged at arity ≤ 0. Never build a key's `Name` with it.
@@ -111,7 +114,7 @@ module SymbolKeyOps =
 
     /// The CLR metadata spelling of ONE segment of a type key: its own name plus its own
     /// `` `N `` (`` List`1 ``), the name a `TypeDef` / `TypeRef` row carries.
-    let typeSegmentName (t: TypeKey) : string = arityName t.Name t.TyparArity
+    let typeSegmentName (t: TypeKey) : string = arityName t.Name t.TyparArity.Count
 
     /// The parse half of `typeSegmentName`, for a producer meeting the name segment by segment.
     let typeKeyOfSegment (container: TypeContainer) (metaName: string) : TypeKey =
@@ -120,7 +123,7 @@ module SymbolKeyOps =
         {
             Container = container
             Name = bare
-            TyparArity = arity
+            TyparArity = KeyArity.Compiled(TyparIndex.typeSlot arity)
         }
 
     /// The `+`-joined chain of a module's SOURCE names, WITHOUT the namespace (`A+B` for
@@ -170,20 +173,28 @@ module SymbolKeyOps =
 
             k
 
-    /// A BARE source name plus its arity as an INT.
-    let typeKeyOfContainer (container: TypeContainer) (name: string) (arity: int) : TypeKey =
+    /// A BARE source name at the count its key spells. A structural constructor keys at
+    /// `Compiled 0` whatever count is supplied.
+    let typeKeyOfContainerAt (container: TypeContainer) (name: string) (arity: KeyArity) : TypeKey =
         {
             Container = container
             Name = name
-            TyparArity = permittedArity name arity
+            TyparArity =
+                match arity with
+                | KeyArity.Compiled n -> KeyArity.Compiled(permittedArity name n)
+                | KeyArity.Written _ -> arity
         }
 
+    /// A BARE source name plus the count its compiled name spells.
+    let typeKeyOfContainer (container: TypeContainer) (name: string) (arity: int<typeSlot>) : TypeKey =
+        typeKeyOfContainerAt container name (KeyArity.Compiled arity)
+
     /// `typeKeyOfContainer` for a type declared directly in a namespace.
-    let typeKeyOfArity (dottedNs: string) (name: string) (arity: int) : TypeKey =
+    let typeKeyOfArity (dottedNs: string) (name: string) (arity: int<typeSlot>) : TypeKey =
         typeKeyOfContainer (TypeContainer.InNamespace(namespaceKey dottedNs)) name arity
 
     let rec private spelledArity (t: TypeKey) : bool =
-        t.TyparArity > 0
+        t.TyparArity.Count > 0
         || (
             match t.Container with
             | TypeContainer.InType outer -> spelledArity outer
@@ -193,8 +204,12 @@ module SymbolKeyOps =
     /// Supply an arity the compiled NAME did not spell, to the INNERMOST segment. Declines
     /// when any segment spelled one: in `` List`1+Enumerator `` the typar belongs to `List`.
     let private withArity (arity: int) (t: TypeKey) : TypeKey =
-        if permittedArity t.Name arity > 0 && not (spelledArity t) then
-            { t with TyparArity = arity }
+        let supplied = permittedArity t.Name (TyparIndex.typeSlot arity)
+
+        if supplied > 0<typeSlot> && not (spelledArity t) then
+            { t with
+                TyparArity = KeyArity.Compiled supplied
+            }
         else
             t
 
@@ -223,7 +238,7 @@ module SymbolKeyOps =
     let typeKey (ns: string) (name: string) : SymbolKey = SymbolKey.Type(typeKeyOf ns name)
 
     /// `SymbolKey.Type` from `(dotted ns, BARE name, arity)`, so no suffix is parsed.
-    let typeKeyArity (ns: string) (name: string) (arity: int) : SymbolKey =
+    let typeKeyArity (ns: string) (name: string) (arity: int<typeSlot>) : SymbolKey =
         SymbolKey.Type(typeKeyOfArity ns name arity)
 
     let containerFullName (h: ModuleContainer) : string =
@@ -261,7 +276,7 @@ module SymbolKeyOps =
         (decl: TypeKey)
         (name: string)
         (argSig: Block<FrozenType>)
-        (methodTyparArity: int)
+        (methodTyparArity: int<typeSlot>)
         (kind: MemberKind)
         : MemberKey =
         {
@@ -273,7 +288,7 @@ module SymbolKeyOps =
         }
 
     /// The key of a constructor of `decl`: `.ctor` as a `MemberKind.Method` over `argSig`.
-    let ctorKeyOf (decl: TypeKey) (argSig: Block<FrozenType>) (methodTyparArity: int) : MemberKey =
+    let ctorKeyOf (decl: TypeKey) (argSig: Block<FrozenType>) (methodTyparArity: int<typeSlot>) : MemberKey =
         memberKeyOf decl ".ctor" argSig methodTyparArity MemberKind.Method
 
     /// `memberKeyOf` widened to `SymbolKey`, for the IR positions that carry the wide key.
@@ -281,7 +296,7 @@ module SymbolKeyOps =
         (decl: TypeKey)
         (name: string)
         (argSig: Block<FrozenType>)
-        (methodTyparArity: int)
+        (methodTyparArity: int<typeSlot>)
         (kind: MemberKind)
         : SymbolKey =
         SymbolKey.Member(memberKeyOf decl name argSig methodTyparArity kind)

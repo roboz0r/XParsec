@@ -27,14 +27,14 @@ module NameResolutionTypeRefStamp =
                 | TypeNameResolution.LocalAtOtherArity claim ->
                     ctx.Report(
                         typeRef.Site.Tok,
-                        Kind.TypeArgArity(written.Written, claim.TyparArity, typeRef.TyparArity)
+                        Kind.TypeArgArity(written.Written, int claim.TyparArity, int typeRef.TyparArity)
                     )
 
                     TypeRefVerdict.LocalTypeAtOtherArity claim
                 | TypeNameResolution.ExternalAtOtherArity(key, shape) ->
                     ctx.Report(
                         typeRef.Site.Tok,
-                        Kind.TypeArgArity(written.Written, shape.TyparArity, typeRef.TyparArity)
+                        Kind.TypeArgArity(written.Written, int shape.TyparArity, int typeRef.TyparArity)
                     )
 
                     TypeRefVerdict.ExternalTypeAtOtherArity(key, shape)

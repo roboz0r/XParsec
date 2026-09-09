@@ -42,7 +42,9 @@ module JsNativeSymbols =
 
     /// `Error.prototype.message : string`.
     let private errorMessage: ExternalMember =
-        { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf errorTypeKey "message" Block.empty 0 MemberKind.Property) with
+        { ExternalMember.OfKey(
+              SymbolKeyOps.memberKeyOf errorTypeKey "message" Block.empty 0<typeSlot> MemberKind.Property
+          ) with
             Storage = MemberStorage.Property
             Signature = ExternalSignature.value (0<_>, 0<_>, stringTy)
             Origin = errorOrigin
@@ -77,7 +79,7 @@ module JsNativeSymbols =
     let private directorySlots () : seq<struct (string * string * int)> =
         seq {
             for key, _ in types do
-                struct (SymbolKeyOps.typeNs key, key.Name, key.TyparArity)
+                struct (SymbolKeyOps.typeNs key, key.Name, key.TyparArity.Count)
         }
 
     let private scope: IScopeContents =

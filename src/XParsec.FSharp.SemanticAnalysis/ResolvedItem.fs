@@ -111,5 +111,5 @@ type ResolvedItem =
     | AmbiguousCase of name: string * claims: ResolvedUnionCase[]
     /// Types called `name` reach the use site at several arities. The bare name requires a
     /// written instantiation. `arities` is ascending.
-    | AmbiguousTypeArity of name: string * arities: Block<int>
+    | AmbiguousTypeArity of name: string * arities: Block<int<sigSlot>>
     | Unresolved of UnresolvedName

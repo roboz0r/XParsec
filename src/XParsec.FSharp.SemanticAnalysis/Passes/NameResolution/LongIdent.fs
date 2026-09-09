@@ -132,7 +132,9 @@ module NameResolutionLongIdent =
         match position, t with
         | Position.Pattern, _ -> ResolvedItem.Type t
         | Position.Expression, ResolvedTypeRef.Local claim when claim.Kind = TypeDeclKind.Class -> ResolvedItem.Ctor t
-        | Position.Expression, ResolvedTypeRef.External(_, ExternalTypeShape.Class info) when info.TyparArity = 0 ->
+        | Position.Expression, ResolvedTypeRef.External(_, ExternalTypeShape.Class info) when
+            info.TyparArity = 0<sigSlot>
+            ->
             ResolvedItem.Ctor t
         | Position.Expression, _ -> ResolvedItem.Type t
 
@@ -219,8 +221,8 @@ module NameResolutionLongIdent =
                     yield claim.TyparArity, localType ctx claim
 
                 for struct (key, shape) in external () do
-                    if not (claimedLocally.Contains key.TyparArity) then
-                        yield key.TyparArity, externalType ctx key shape
+                    if not (claimedLocally.Contains shape.TyparArity) then
+                        yield shape.TyparArity, externalType ctx key shape
             ]
             |> List.sortBy fst
             |> List.map snd
@@ -337,6 +339,7 @@ module NameResolutionLongIdent =
         | ResolvedTypeRef.External(key, shape) ->
             match shape with
             | ExternalTypeShape.Union {
+                                          Typars = typars
                                           Cases = cases
                                           RequiresQualifiedAccess = rqa
                                       } ->
@@ -345,6 +348,7 @@ module NameResolutionLongIdent =
                     let uc: ExternalUnionCase =
                         {
                             UnionKey = key
+                            UnionTypars = typars
                             Case = case
                             IsRequireQualifiedAccess = rqa
                         }
@@ -680,7 +684,12 @@ module NameResolutionLongIdent =
     /// A written type name at `arity`. An exact arity outranks the nearest other arity, and at
     /// each this file's claim outranks a referenced contract's.
     /// `int` inside `type int<[<Measure>] 'M> = int` reaches the contract's arity-0 claim.
-    let resolveType (ctx: PassContext) (useSite: UseSite) (written: WrittenTypeName) (arity: int) : TypeNameResolution =
+    let resolveType
+        (ctx: PassContext)
+        (useSite: UseSite)
+        (written: WrittenTypeName)
+        (arity: int<sigSlot>)
+        : TypeNameResolution =
         let external (writtenArity: WrittenArity) (pick: TypeKey -> ExternalTypeShape -> TypeNameResolution) =
             tryPickExternalWritten
                 ctx

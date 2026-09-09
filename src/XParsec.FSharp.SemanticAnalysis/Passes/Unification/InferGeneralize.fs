@@ -306,8 +306,14 @@ module internal UnificationInferGeneralize =
         let quantified = ResizeArray<TyVarId>()
         let seen = HashSet<TyVarId>()
 
+        // A root carrying a measure term is a measure ARGUMENT, which freezes to `FTMeasure`.
         let addRoot (root: Rep) =
-            if store.Level root > outerLevel && (store.Link root).IsNone && seen.Add(root.Id) then
+            if
+                store.Level root > outerLevel
+                && (store.Link root).IsNone
+                && (store.Units root).IsNone
+                && seen.Add(root.Id)
+            then
                 quantified.Add(root.Id)
 
         zonkedTy |> iterTypeVarRoots store addRoot

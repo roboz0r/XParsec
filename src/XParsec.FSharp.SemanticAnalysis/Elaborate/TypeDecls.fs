@@ -100,7 +100,7 @@ module internal ElaborateTypeDecls =
     let private tryInterfaceMethods
         (ctx: PassContext)
         (name: string)
-        (arity: int)
+        (arity: KeyArity)
         (body: ObjectModelBody<SyntaxToken>)
         : InterfaceShape option =
         let allAbstractMethods =
@@ -460,7 +460,7 @@ module internal ElaborateTypeDecls =
     let private tryClassType
         (ctx: PassContext)
         (name: string)
-        (arity: int)
+        (arity: KeyArity)
         (elements: TypeDefnElements<SyntaxToken>)
         : (TDecl * (TyVarId * SemType) list) option =
         // The key of the type being LOWERED, minted from the module the walk is in rather
@@ -603,12 +603,11 @@ module internal ElaborateTypeDecls =
                 []
             )
 
-    /// The identity NameResolution claimed for the declaration `tn` in this file. `ValueNone`
-    /// for an unclaimed header, such as a dotted name.
+    /// The identity NameResolution claimed for the declaration headed `tn` in this file.
+    /// `ValueNone` for an unclaimed header, such as a dotted name or a body-less `type t`.
     let private claimOfTypeName (ctx: PassContext) (tn: TypeName<SyntaxToken>) : TypeIdentity voption =
-        TypeRegistry.tryIdentityByKey
-            ctx.Types
-            (ctx.DeclaredTypeKey(typeNameSimple ctx tn, NameResolutionTypeRegistration.arityOfTypeName ctx tn))
+        let (TypeName(ident = nameLi)) = tn
+        TypeRegistry.tryIdentityByDeclSite ctx.Types (NodeSite.ofToken NodeKind.DeclType nameLi.Idents.[0])
 
     /// An INTERNAL artifact for `type X = (# … #) with member …`, consumed only by
     /// member-inline lifting and NEVER emitted. Each member's `ThisTy` is the abbrev's
@@ -651,14 +650,14 @@ module internal ElaborateTypeDecls =
         let classify tn (body: ObjectModelBody<SyntaxToken>) =
             let name = typeNameSimple ctx tn
 
-            let arity = NameResolutionTypeRegistration.arityOfTypeName ctx tn
+            let arity = NameResolutionTypeRegistration.nominalKeyArityOfTypeName ctx tn
 
             match tryInterfaceMethods ctx name arity body with
             | Some shape ->
                 // Mint the identity registration would, from the SAME containment-derived
                 // container, so a reference to the interface compares equal to this decl's key
                 // wherever the interface is declared.
-                let key = ctx.DeclaredTypeKey(name, shape.Typars.Length)
+                let key = ctx.DeclaredTypeKey(name, KeyArity.Compiled shape.Typars.TypeArity)
 
                 let attrs =
                     match TypeRegistry.tryClassByKey ctx.Types key with
@@ -678,7 +677,7 @@ module internal ElaborateTypeDecls =
             tryClassType
                 ctx
                 (typeNameSimple ctx tn)
-                (NameResolutionTypeRegistration.arityOfTypeName ctx tn)
+                (NameResolutionTypeRegistration.nominalKeyArityOfTypeName ctx tn)
                 body.elements
         | TypeDefn.Union(typeName = tn; extensions = ext) ->
             tryUnionType ctx (typeNameSimple ctx tn) (typeNameDeclKey ctx tn) ext

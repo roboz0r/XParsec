@@ -14,6 +14,9 @@ module FrozenTypeBridge =
     type IMeasuredThaw =
         abstract Store: TypeStore
         abstract Measured: key: TypeKey * typeArgs: BlockM<SemType, typeSlot> * units: MeasureTerm -> SemType
+        /// A measure ARGUMENT: the metavar carrying `units` that fills a measure-kinded
+        /// parameter slot.
+        abstract Measure: units: MeasureTerm -> SemType
 
     /// The assignment of types to a template's open typars. One value per instantiation
     /// event: templates instantiated through one value agree at every `(scope, index)`.
@@ -33,11 +36,18 @@ module FrozenTypeBridge =
                         "MeasuredThaw.noneOver: the measured type %s<%O> reached a surface that carries no measure"
                         key.DeclaredPath
                         units
+
+                member _.Measure(units) =
+                    failwithf "MeasuredThaw.noneOver: the measure <%O> reached a surface that carries no measure" units
             }
 
-    /// The arity-1 claim measuring `carrier`: `Vesper.float`1` for `Vesper.float`. Each
-    /// measurable primitive is declared at arity 0 and, under the same name, at arity 1.
-    let measuredClaimKey (carrier: TypeKey) : TypeKey = { carrier with TyparArity = 1 }
+    /// The claim measuring `carrier`: `Vesper.float<'u>` for `Vesper.float`. Each measurable
+    /// primitive is declared at arity 0 and, under the same name, as an abbreviation over one
+    /// measure parameter.
+    let measuredClaimKey (carrier: TypeKey) : TypeKey =
+        { carrier with
+            TyparArity = KeyArity.Written 1<sigSlot>
+        }
 
     let rec toFrozenWith (onVar: TyVarId -> FrozenType) (ty: SemType) : FrozenType =
         let go = toFrozenWith onVar
@@ -79,6 +89,8 @@ module FrozenTypeBridge =
             let root = UnionFind.find store tv
 
             match store.Units root, store.Link root with
+            // A measure filling a measure-kinded parameter slot: a term with no carrier.
+            | ValueSome units, ValueNone -> FTMeasure units
             | ValueSome units, ValueSome carrier ->
                 match UnionFind.zonk store carrier with
                 | TyConst(key, BlockEmpty) -> FTConst(measuredClaimKey key, Block.singleton (FTMeasure units))
@@ -101,7 +113,7 @@ module FrozenTypeBridge =
         match template with
         | FrozenType.MeasuredNominal m -> thaw.Measured(m.Key, Block.map go m.TypeArgs, m.Units)
         | FTConst(key, args) -> TyConst(key, Block.map go args)
-        | FTMeasure units -> failwithf "FrozenTypeBridge: the measure <%O> reached type position" units
+        | FTMeasure units -> thaw.Measure units
         | FTFun(arg, result) -> TyFun(go arg, go result)
         | FTTuple items -> TyTuple(Block.map go items)
         | FTRecord(key, args) -> TyRecord(key, Block.map go args)

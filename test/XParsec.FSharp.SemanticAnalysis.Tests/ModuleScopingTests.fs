@@ -23,7 +23,8 @@ let private typeDeclKeyInArity (tast: TastFile) (moduleName: string) (typeName: 
                     | SymbolKey.Type {
                                          Container = TypeContainer.InModule m
                                          TyparArity = a
-                                     } when m.Name = moduleName && a = arity -> yield td.Key
+                                     } when m.Name = moduleName && a = KeyArity.Compiled(TyparIndex.typeSlot arity) ->
+                        yield td.Key
                     | _ -> ()
                 | _ -> ()
         ]

@@ -278,11 +278,7 @@ module ConformanceBodies =
                         yield! checkCases typeName s.Cases d.Cases
                         yield! shapeFlag typeName "struct" s.IsValueType d.IsValueType
 
-                        let self =
-                            FTUnion(
-                                key,
-                                Block.init d.TyparArity (fun i -> FTTypar(TyparScope.Type key, TyparIndex.typeSlot i))
-                            )
+                        let self = FTUnion(key, FrozenType.openArgs (TyparScope.Type key) d.Typars)
 
                         yield! checkMembers typeName declared (Seq.append defined (Seq.map (caseShape self) d.Cases))
                     | ExternalTypeShape.Enum s, ExternalTypeShape.Enum d ->

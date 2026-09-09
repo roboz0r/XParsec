@@ -355,7 +355,7 @@ module CstKeys =
             LongIdent: LongIdent<SyntaxToken>
             /// Syntactic type-arg count: `NamedType` ⇒ 0, `GenericType` ⇒ arg count,
             /// `SuffixedType` ⇒ 1 (postfix `'T list`).
-            TyparArity: int
+            TyparArity: int<sigSlot>
         }
 
     /// The reference a bare or dotted NAME applies, at arity 0, whether written as a type
@@ -364,7 +364,7 @@ module CstKeys =
         {
             Site = NodeSite.ofToken NodeKind.TypeNamed li.Idents.[0]
             LongIdent = li
-            TyparArity = 0
+            TyparArity = 0<sigSlot>
         }
 
     /// The measure a type written in MEASURE position denotes. The parser produces a lone
@@ -388,14 +388,14 @@ module CstKeys =
                 {
                     Site = NodeSite.ofToken NodeKind.TypeGeneric li.Idents.[0]
                     LongIdent = li
-                    TyparArity = args.Length
+                    TyparArity = TyparIndex.sigSlot args.Length
                 }
         | Type.SuffixedType(longIdent = li) ->
             ValueSome
                 {
                     Site = NodeSite.ofToken NodeKind.TypeGeneric li.Idents.[0]
                     LongIdent = li
-                    TyparArity = 1
+                    TyparArity = 1<sigSlot>
                 }
         | _ -> ValueNone
 

@@ -262,6 +262,73 @@ separate change.
    No test fails today: the measure-generic declaration in `GenericParamFlagsTests` is never
    referenced by name, so the `TypeDef` and the `TypeRef` spellings are never compared.
 
+   Landed from the step 5 review, then reworked twice after review. `TypeKey.TyparArity` is
+   a `KeyArity`, a two-case DU in `TyparSlots.fs`: `Compiled of int<typeSlot>` is the count
+   a nominal type's metadata name spells, so a key minted from a CLR metadata row equals one
+   minted from source, which is what lets a signature file overlay a referenced assembly's
+   type; `Written of int<sigSlot>` is an abbreviation's written count, because an
+   abbreviation has no compiled name and keys at every parameter, as F# does (`dotnet fsi`
+   rejects `type T<'a> = 'a list` beside `type T<[<Measure>] 'u> = int` as a duplicate
+   `` T`1 ``). `Compiled 1` and `Written 1` are distinct keys, so `float` and `float<'u>`
+   stay apart with no cast between the two numberings. `TypeDeclKind.keyArity` is the rule
+   for a claim and `ExternalTypeShape.KeyArity` for a published shape, which
+   `PublishedSurfaceBuilder.addShape` checks against the key; `Translate.apply` reads the
+   measure site off the key's case. `Elaborate` reads a declaration's claim back by decl
+   site (`TypeRegistry.tryIdentityByDeclSite`) rather than re-deriving its key.
+   `MemberKey.MethodTyparArity` is `int<typeSlot>`. The measures live in `TyparSlots.fs`,
+   which moved out of `SemanticScalars.fs` so `CstKeys` can tag a written arity.
+
+   The written count is a fact of the declaration, `TyparList.Order.Length`, read as
+   `TypeIdentity.TyparArity` on a claim and `ExternalTypeShape.TyparArity` on a shape, and
+   is not part of the identity: a backend that needs it reads the declaration. A claim is
+   unique at its written count, so two nominals differing only in measure parameters are
+   refused at declaration, although F# admits them, because no use site can tell them apart;
+   `DuplicateTypeNameTests` pins the refusal.
+
+   `typeSegmentName` renders the key's count, so `type Pair<[<Measure>] 'u, 'a>` is
+   `` Pair`1 `` in the `TypeDef` row, in every `TypeRef` `ClrEnv` spells for it and in the
+   provider-store key. A measured primitive's claim (`Vesper.float<'u>`) is `` Vesper.float`1 ``.
+
+   The written arity carries `int<sigSlot>` from `CstKeys.TypeRef.TyparArity` through
+   `NameResolutionLongIdent.resolveType`, `TypeRegistry`'s claim lookups,
+   `NameResolutionContainers.WrittenArity.Exact`, `TypeIdentity.TyparArity`,
+   `ResolvedItem.AmbiguousTypeArity` and each `ExternalTypeShape` arity member. Format
+   version 22: a key's count crosses the wire with its case tag.
+
+   Also landed here, because the `` `N `` agreement is only observable through a use site: a
+   written measure argument stays an argument. `Translate.apply` places it at its signature
+   slot as a metavar carrying the term and no carrier (`PassContext.MeasureTy`), and attaches
+   it to the expansion instead only for a transparent abbreviation, which is what
+   `MeasureSite` names. Such a root freezes to `FTMeasure` and thaws through
+   `IMeasuredThaw.Measure`; `InferGeneralize.generalise` and `ResolvedTypes.addFreeRoots` read
+   it as ground rather than as a free type variable. `FrozenType.openArgs` is the one
+   projection from a declaration's `TyparList` to its open self-type's signature-order
+   arguments. A use that instantiates a referenced declaration fresh reads the declaration's
+   `TyparList` from the resolution that found it (`ExternalUnionCase.UnionTypars`,
+   `ResolvedStamps.tryStaticQualifier`) rather than re-resolving the key.
+
+   The erasure leaves one gap, unfixed: `type Pair<[<Measure>] 'u, 'a>` and `type Pair<'a>`
+   emit one metadata name between them.
+
+6. **A measure argument is a store state, not a type.** `PassContext.MeasureTy` mints a
+   root with `Units = ValueSome` and `Link = ValueNone`, a third state beside a free root
+   (`ValueNone, ValueNone`) and a measured carrier (`ValueSome, ValueSome`). The state is
+   recognised by a guard at each consumer: `InferGeneralize.generalise` skips it,
+   `ResolvedTypes.addFreeRoots` skips it, `FrozenTypeBridge.toFrozenWith` freezes it to
+   `FTMeasure`. `UnificationEngine.unify`'s `TyVar tv, other` arm does not recognise it: a
+   measure root meeting any non-`TyConst` type is silently linked and becomes a measured
+   record or function. Only the `TyConst` case reports `DimensionlessMeasureMismatch`.
+
+   Fix: make the root's kind a value. Either a `SemType` case for a measure argument, or a
+   store-level root kind, `Free | Measure of MeasureTerm | Measured of MeasureTerm * carrier`,
+   replacing the `Units` and `Link` pair. Each consumer's match becomes total, and the
+   `unify` hole becomes a compile error at the arm that must report a measure meeting a type.
+   `EngineCore.mergeUnits` and the `TyVar, TyVar` arm of `unify` are the merge rule and
+   move onto the kind. Verify with a program unifying a measure argument against a record
+   and against a function type, each pinned to report rather than link.
+
+   Not started.
+
 ## Verify
 
 - `TyparListTests`: a list with a measure typar before a type typar reports `TypeArity`,
@@ -281,7 +348,8 @@ separate change.
   pinned with the gap quoted in the name.
 - `GenericParamFlagsTests`: a measure-generic type USED by name from another declaration
   resolves, so the `TypeRef` and the `TypeDef` agree on `` `N ``; a cross-package reference to
-  one loads (step 5).
+  one loads (step 5), pinned in `MeasureResolutionTests` against a referenced package whose
+  key carries the two counts apart.
 - The `typar-*` conformance programs and goldens are byte-identical after steps 1 and 2.
 
 ## Migration checklist
@@ -309,7 +377,10 @@ Before this document is deleted, each row is in code or in a test:
       and a member, pinned in `MeasureResolutionTests`, `FrozenCodecRoundTripTests` and
       `FrozenCodecTreeRoundTripTests` (step 3).
 - [x] The erasure rule lives on the CLR encoder, not on `TyparListG` (step 4).
-- [ ] A metadata name's `` `N `` is a type-slot count wherever it is written and wherever it is
-      read; `TypeKey` and `MemberKey` carry the signature count and the type count apart
-      (step 5).
-- [ ] `typar-scope-plan.md` step 6 is struck and points here.
+- [x] A metadata name's `` `N `` is a type-slot count wherever it is written and wherever it is
+      read; `TypeKey.TyparArity` is a `KeyArity` whose `Compiled` case is the type count and
+      whose `Written` case is an abbreviation's signature count, with no cast between them;
+      `MemberKey.MethodTyparArity` is the type count (step 5).
+- [x] `typar-scope-plan.md` step 6 is struck and points here.
+- [ ] A measure argument root is a kind the store states, and `unify` reports a measure
+      meeting a type rather than linking it (step 6).

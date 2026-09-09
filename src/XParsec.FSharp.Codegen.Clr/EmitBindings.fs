@@ -199,7 +199,9 @@ module EmitBindings =
                     // `Dispose` may not exist on it (`MemoryStream` inherits `Stream.Dispose`).
                     match localNominal with
                     | ValueSome n ->
-                        emitLocalDispose (SymbolKeyOps.memberKey n.Key "Dispose" Block.empty 0 MemberKind.Method)
+                        emitLocalDispose (
+                            SymbolKeyOps.memberKey n.Key "Dispose" Block.empty 0<typeSlot> MemberKind.Method
+                        )
                     | ValueNone -> emitExternalDispose slot
                 // The carve-out: an own pattern `Dispose()`, called directly.
                 | Disposal.ViaOwnMember key when isLocalDisposeKey key -> emitLocalDispose key

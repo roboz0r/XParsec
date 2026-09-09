@@ -189,7 +189,7 @@ let tests =
                         cKey
                         "Id"
                         (Block.singleton (FTTypar(TyparScope.Member cKey, 0<typeSlot>)))
-                        1
+                        1<typeSlot>
                         MemberKind.Method)
                     "Id's key survives the round trip"
 

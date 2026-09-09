@@ -22,7 +22,7 @@ type Kind =
     | TypeArgArity of name: string * expected: int * got: int
     /// Types called `name` reach the use site at several arities. The bare name requires a
     /// written instantiation. `arities` is ascending.
-    | AmbiguousTypeArity of name: string * arities: Block<int>
+    | AmbiguousTypeArity of name: string * arities: Block<int<sigSlot>>
     | UnresolvedQualifiedName of name: string
     /// A `module R = N` whose target is a namespace. An abbreviation binds a module.
     | AbbreviatedNamespace of path: string
@@ -328,7 +328,7 @@ module Kind =
         | Kind.TypeArgArity(name, expected, got) ->
             sprintf "Type '%s' expects %d type argument(s) but got %d" name expected got
         | Kind.AmbiguousTypeArity(name, arities) ->
-            let counts = arities |> Seq.map string |> String.concat ", "
+            let counts = arities |> Seq.map (int >> string) |> String.concat ", "
 
             sprintf
                 "Multiple types exist called '%s', taking different numbers of generic parameters (%s). Provide a type instantiation to disambiguate, e.g. '%s<_>'."

@@ -162,7 +162,7 @@ let tests =
                         (SymbolKeyOps.typeKeyOf "Tests" "Widget")
                         "Poke"
                         Block.empty
-                        0
+                        0<typeSlot>
                         MemberKind.Method
 
                 cached.TryLookupMemberByKey key |> ignore

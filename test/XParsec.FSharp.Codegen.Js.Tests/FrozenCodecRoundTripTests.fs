@@ -142,28 +142,28 @@ let private collect () : Collected =
         {
             Container = TypeContainer.InNamespace nsGlobal
             Name = "int"
-            TyparArity = 0
+            TyparArity = KeyArity.Compiled 0<typeSlot>
         }
 
     let tkString =
         {
             Container = TypeContainer.InNamespace nsGlobal
             Name = "string"
-            TyparArity = 0
+            TyparArity = KeyArity.Compiled 0<typeSlot>
         }
 
     let tkArray =
         {
             Container = TypeContainer.InNamespace nsGlobal
             Name = "[]"
-            TyparArity = 1
+            TyparArity = KeyArity.Compiled 1<typeSlot>
         }
 
     let tkList =
         {
             Container = TypeContainer.InNamespace nsSystem
             Name = "List`1"
-            TyparArity = 1
+            TyparArity = KeyArity.Compiled 1<typeSlot>
         }
 
     let modKey =
@@ -176,14 +176,23 @@ let private collect () : Collected =
         {
             Container = TypeContainer.InModule modKey
             Name = "Inner"
-            TyparArity = 0
+            TyparArity = KeyArity.Compiled 0<typeSlot>
         }
 
     let tkNested =
         {
             Container = TypeContainer.InType tkList
             Name = "Enumerator"
-            TyparArity = 0
+            TyparArity = KeyArity.Compiled 0<typeSlot>
+        }
+
+    /// `type Pair<[<Measure>] 'u, 'a>`: two signature slots, one type slot, so the two counts
+    /// cross the wire apart.
+    let tkMeasured =
+        {
+            Container = TypeContainer.InNamespace nsSystem
+            Name = "Pair"
+            TyparArity = KeyArity.Compiled 1<typeSlot>
         }
 
     let ftInt = FTConst(tkInt, Block.empty)
@@ -207,7 +216,7 @@ let private collect () : Collected =
             Decl = tkList
             Name = "Add"
             ArgSig = Block.ofList [ ftInt; ftString ]
-            MethodTyparArity = 1
+            MethodTyparArity = 1<typeSlot>
             Kind = MemberKind.Method
         }
 
@@ -243,9 +252,15 @@ let private collect () : Collected =
                     Name = "System.IDisposable.Dispose"
                     ArgSig = Block.empty
                 }
+            SymbolKey.Member
+                { memberKey with
+                    Name = "Scale"
+                    ArgSig = Block.empty
+                    MethodTyparArity = 1<typeSlot>
+                }
         ]
 
-    let edgeTypes = [ tkInMod; tkNested ]
+    let edgeTypes = [ tkInMod; tkNested; tkMeasured ]
 
     let edgeFrozen =
         [
@@ -321,6 +336,16 @@ let private collect () : Collected =
                             ]
                     )
                 )
+            )
+            // A measure-generic nominal at a measure argument: the measure fills its own
+            // signature slot, beside the type-slot argument.
+            FTRecord(
+                tkMeasured,
+                Block.ofList
+                    [
+                        FTMeasure(MeasureTerm.OfList [ MeasureAtom.Named tkInMod, Rational.ofInt 1 ])
+                        ftInt
+                    ]
             )
             // Deeply nested: functions, tuples, sets and computations composed together.
             FTFun(

@@ -18,14 +18,14 @@ let private shapesModule =
 
 /// `Tests.Shapes+IShape`: an interface whose container is a MODULE.
 let private moduleHeldIfaceKey =
-    SymbolKeyOps.typeKeyOfContainer (TypeContainer.InModule shapesModule) "IShape" 0
+    SymbolKeyOps.typeKeyOfContainer (TypeContainer.InModule shapesModule) "IShape" 0<typeSlot>
 
 /// `Tests.IShape`: the same interface directly under the namespace, as a control.
 let private nsHeldIfaceKey =
-    SymbolKeyOps.typeKeyOfContainer (TypeContainer.InNamespace testsNs) "IShape" 0
+    SymbolKeyOps.typeKeyOfContainer (TypeContainer.InNamespace testsNs) "IShape" 0<typeSlot>
 
 let private widgetKey =
-    SymbolKeyOps.typeKeyOfContainer (TypeContainer.InNamespace testsNs) "Widget" 0
+    SymbolKeyOps.typeKeyOfContainer (TypeContainer.InNamespace testsNs) "Widget" 0<typeSlot>
 
 let private ifaceShape =
     ExternalTypeShape.Class(ExternalClassShape.basic (TyparList.empty, ClassCommitment.Interface, SymbolOrigin.Empty))

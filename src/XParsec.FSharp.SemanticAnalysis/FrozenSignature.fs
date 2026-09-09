@@ -56,7 +56,7 @@ module FrozenSignature =
             (declKey: TypeKey)
             (name: string)
             (isStatic: bool)
-            (methodArity: int<typeSlot>)
+            (methodTypars: int<typeSlot>)
             (signature: ExternalSignature)
             : ExternalMember =
             let kind, storage =
@@ -66,7 +66,7 @@ module FrozenSignature =
 
             let argSig = ExternalSignature.argSigOf signature
 
-            { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey name argSig (int methodArity) kind) with
+            { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey name argSig methodTypars kind) with
                 IsStatic = isStatic
                 Storage = storage
                 Signature = signature
@@ -88,7 +88,7 @@ module FrozenSignature =
                         m.ReturnTy
                     )
 
-            memberFromParts declKey m.Name m.IsStatic methodArity signature
+            memberFromParts declKey m.Name m.IsStatic m.MethodTypars.TypeArity signature
 
         // An interface's abstract method carries a single CURRIED `Signature`; a concrete
         // member carries decurried `Params` / `ReturnTy`. Peel ONE `->` to the `.NET`-tupled
@@ -111,7 +111,7 @@ module FrozenSignature =
 
                     ExternalSignature.make (declArity, methodArity, parameters, returnTy)
 
-            memberFromParts declKey am.Name am.IsStatic methodArity signature
+            memberFromParts declKey am.Name am.IsStatic am.MethodTypars.TypeArity signature
 
         let membersOf
             (declKey: TypeKey)
@@ -357,6 +357,14 @@ module FrozenSignature =
         // An intrinsic primitive (`type int = (# "System.Int32" #)`) is kept OUT of
         // `Decls`, so the loop above never sees it: it is published from `IntrinsicBindings`.
         for KeyValue(typeKey, binding) in frozen.Residue.IntrinsicBindings do
+            // An intrinsic BINDING is `type x = (# "…" #)`, whose typars are the structural
+            // constructors' (`'T []`, `byref`): positional, at the count its key spells.
+            let typars =
+                match typeKey.TyparArity with
+                | KeyArity.Compiled n -> TyparList.positional n
+                | KeyArity.Written _ ->
+                    failwithf "FrozenSignature: the intrinsic binding %s keys as an abbreviation" typeKey.DeclaredPath
+
             // A HERITABLE `(# class … #)` primitive (`obj` / `exn`) also carries a class
             // surface, so a later file's `inherit` resolves it. The surface is EMPTY here:
             // the impl `.fs` binds the type id and declares no parent and no interfaces.
@@ -367,9 +375,7 @@ module FrozenSignature =
                             Id =
                                 {
                                     Canon = typeKey
-                                    // An intrinsic BINDING is `type x = (# "…" #)`, whose typars
-                                    // are the structural constructors' (`'T []`, `byref`).
-                                    Typars = TyparList.positional (TyparIndex.typeSlot typeKey.TyparArity)
+                                    Typars = typars
                                     Platform = IntrinsicPlatform.Bound binding.TypeId
                                 }
                             Class =
@@ -383,11 +389,7 @@ module FrozenSignature =
                         }
                 else
                     ExternalTypeShape.Intrinsic(
-                        IntrinsicShape.Scalar(
-                            typeKey,
-                            TyparList.positional (TyparIndex.typeSlot typeKey.TyparArity),
-                            IntrinsicPlatform.Bound binding.TypeId
-                        )
+                        IntrinsicShape.Scalar(typeKey, typars, IntrinsicPlatform.Bound binding.TypeId)
                     )
 
             PublishedSurfaceBuilder.addType surface typeKey shape

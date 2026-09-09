@@ -13,10 +13,10 @@ let private shapesModule =
     SymbolKeyOps.moduleKeyOf (SymbolKeyOps.inNamespace "Tests") "Shapes"
 
 let private bagKey =
-    SymbolKeyOps.typeKeyOfContainer (TypeContainer.InModule shapesModule) "Bag" 0
+    SymbolKeyOps.typeKeyOfContainer (TypeContainer.InModule shapesModule) "Bag" 0<typeSlot>
 
 let private plainKey =
-    SymbolKeyOps.typeKeyOfContainer (TypeContainer.InNamespace(SymbolKeyOps.namespaceKey "Tests")) "Plain" 0
+    SymbolKeyOps.typeKeyOfContainer (TypeContainer.InNamespace(SymbolKeyOps.namespaceKey "Tests")) "Plain" 0<typeSlot>
 
 let private stringTy = FTConst(RuntimeNames.opaqueKey "string", Block.empty)
 let private intTy = FTConst(RuntimeNames.opaqueKey "int", Block.empty)

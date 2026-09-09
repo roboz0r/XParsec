@@ -59,7 +59,7 @@ let tests =
                 let aKey = (typeDecl pools "AAttribute").TypeKey
 
                 let ctorOf (key: TypeKey) (paramTy: FrozenType) =
-                    SymbolKeyOps.ctorKeyOf key (Block.singleton paramTy) 0
+                    SymbolKeyOps.ctorKeyOf key (Block.singleton paramTy) 0<typeSlot>
 
                 let ctorOn (name: string) =
                     match Block.toList (typeDecl pools name).Attributes with

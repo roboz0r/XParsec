@@ -20,7 +20,11 @@ let tests =
                 match Block.toList (scope.TypesNamed(root, "Error")) with
                 | [ struct (key, shape) ] ->
                     Expect.equal key (SymbolKeyOps.typeKeyOf "" "Error") "registered identity"
-                    Expect.equal shape.TyparArity key.TyparArity "key and shape agree on arity"
+
+                    Expect.equal
+                        (KeyArity.Compiled shape.Typars.TypeArity)
+                        key.TyparArity
+                        "key and shape agree on arity"
 
                     match shape with
                     | ExternalTypeShape.Class c -> Expect.isFalse c.IsInterface "Error is a class"

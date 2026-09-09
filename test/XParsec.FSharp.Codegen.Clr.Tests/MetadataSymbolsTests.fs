@@ -29,7 +29,7 @@ let tests =
             test "EqualityComparer`1 resolves as a non-interface Class with an origin" {
                 match typeShape eqComparer with
                 | ValueSome(ExternalTypeShape.Class info) ->
-                    Expect.equal info.TyparArity 1 "one declared typar"
+                    Expect.equal info.TyparArity 1<sigSlot> "one declared typar"
                     Expect.isFalse info.IsInterface "a class, not an interface"
                     Expect.equal info.Origin.Namespace.Dotted "System.Collections.Generic" "origin namespace"
 
@@ -40,7 +40,7 @@ let tests =
             test "a generic interface resolves with isInterface = true" {
                 match typeShape "System.Collections.Generic.IEnumerable`1" with
                 | ValueSome(ExternalTypeShape.Class info) ->
-                    Expect.equal info.TyparArity 1 "one typar"
+                    Expect.equal info.TyparArity 1<sigSlot> "one typar"
                     Expect.isTrue info.IsInterface "IEnumerable`1 is an interface"
                 | other -> failtestf "expected an interface Class shape, got %A" other
             }
@@ -48,7 +48,7 @@ let tests =
             test "a non-generic type resolves with arity 0" {
                 match typeShape "System.Object" with
                 | ValueSome(ExternalTypeShape.Class info) ->
-                    Expect.equal info.TyparArity 0 "System.Object is non-generic"
+                    Expect.equal info.TyparArity 0<sigSlot> "System.Object is non-generic"
                     Expect.isFalse info.IsInterface "System.Object is a class"
                 | other -> failtestf "expected a Class shape, got %A" other
             }
@@ -241,7 +241,12 @@ let tests =
                 match ExternalSymbols.tryMetaTypeAt provider eqComparer 0 with
                 | ValueSome(struct (key, shape)) ->
                     Expect.equal (SymbolKeyOps.typeMetaName key) eqComparer "key renders back to the name asked for"
-                    Expect.equal key.TyparArity 1 "the `1 suffix is the key's arity, not part of its name"
+
+                    Expect.equal
+                        key.TyparArity
+                        (KeyArity.Compiled 1<typeSlot>)
+                        "the `1 suffix is the key's arity, not part of its name"
+
                     Expect.equal (ValueSome shape) (provider.TryLookupType key) "the parsed key reaches the same type"
                 | ValueNone -> failtestf "expected %s to resolve" eqComparer
             }
@@ -347,8 +352,12 @@ let tests =
                     let arities =
                         [
                             for struct (k, shape) in scope.TypesNamed(c, "Action") do
-                                Expect.equal shape.TyparArity k.TyparArity "key and shape agree on arity"
-                                k.TyparArity
+                                Expect.equal
+                                    (KeyArity.Compiled shape.Typars.TypeArity)
+                                    k.TyparArity
+                                    "key and shape agree on arity"
+
+                                k.TyparArity.Count
                         ]
 
                     Expect.isTrue (arities.Length > 2) "Action is declared at several arities"

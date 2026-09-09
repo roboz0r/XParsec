@@ -47,7 +47,8 @@ module UnificationInfer =
     /// `ValueNone` only for a compile with no disposable capability at all.
     let private capabilityDisposeSlot (ctx: PassContext) : SymbolKey voption =
         match ctx.CapabilityIds.Disposable with
-        | ValueSome disp -> ValueSome(SymbolKeyOps.memberKey disp.Key "Dispose" Block.empty 0 MemberKind.Method)
+        | ValueSome disp ->
+            ValueSome(SymbolKeyOps.memberKey disp.Key "Dispose" Block.empty 0<typeSlot> MemberKind.Method)
         | ValueNone -> ValueNone
 
     /// The disposal path of a `use` bound variable of *external* (BCL) type. PRIMARY: the
@@ -110,7 +111,7 @@ module UnificationInfer =
                 |> Array.exists (fun m -> m.Name = "Dispose" && not m.IsStatic && m.ClassKind = ClassMemberKind.Method)
 
             if hasDispose then
-                ValueSome(SymbolKeyOps.memberKey info.TypeKey "Dispose" Block.empty 0 MemberKind.Method)
+                ValueSome(SymbolKeyOps.memberKey info.TypeKey "Dispose" Block.empty 0<typeSlot> MemberKind.Method)
             else
                 ValueNone
         | _ -> ValueNone
@@ -256,7 +257,7 @@ module UnificationInfer =
                 // as a value. Instance access (`value.Member`) takes the fallback.
                 match tryExternalTypeQualifier ctx r with
                 | ValueSome(declTypeKey, typeArgsCst) ->
-                    let args = [ for t in typeArgsCst -> translateType ctx t ]
+                    let args = [| for t in typeArgsCst -> translateType ctx t |]
                     inferExternalStaticMember ctx node.Key declTypeKey args li.Idents.[0]
                 | ValueNone ->
                     match tryLocalTypeAppStaticMember ctx node r li.Idents.[0] with

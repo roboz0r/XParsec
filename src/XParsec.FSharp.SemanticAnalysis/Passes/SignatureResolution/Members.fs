@@ -179,7 +179,7 @@ module SignatureResolutionMembers =
 
         let argSig = ExternalSignature.argSigOf signature
 
-        { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey m.Name argSig (int methodArity) kind) with
+        { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey m.Name argSig (DeclaredTypar.typeArity ownTypars) kind) with
             IsStatic = m.IsStatic
             Storage = storage
             Signature = signature

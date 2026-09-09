@@ -23,6 +23,20 @@ type TypeDeclKind =
     /// reference to it is admitted only in measure position.
     | Measure
 
+[<RequireQualifiedAccess>]
+module TypeDeclKind =
+
+    /// The count a declaration of `kind` over `typars` keys at.
+    let keyArity (kind: TypeDeclKind) (typars: TyparList) : KeyArity =
+        match kind with
+        | TypeDeclKind.Abbreviation -> KeyArity.Written typars.Order.Length
+        | TypeDeclKind.Record
+        | TypeDeclKind.Union
+        | TypeDeclKind.Class
+        | TypeDeclKind.Enum
+        | TypeDeclKind.IntrinsicBinding
+        | TypeDeclKind.Measure -> KeyArity.Compiled typars.TypeArity
+
 /// The positional facts of one declaration group: where its claims become visible, and where
 /// they enter the name environment within their depth. The two differ only under `rec`, which
 /// hoists visibility to the scope's keyword and enters the declarations after its prelude.
@@ -53,7 +67,7 @@ type TypeIdentity =
         EntersAt: int
     }
 
-    member this.TyparArity: int = this.Typars.Length
+    member this.TyparArity: int<sigSlot> = this.Typars.Order.Length
 
 /// An ACCEPTED type declaration, paired with the CST it was claimed from. Every per-kind
 /// detail registrar is HANDED this identity rather than re-deriving name / arity / key.
@@ -71,7 +85,7 @@ type ArglessClaim =
     | Takes of TypeIdentity
     /// Claims reach the use site at several arities, none of them 0 (FS1124). `arities` is
     /// ascending; `recovery` is the max-rank claim at the smallest arity.
-    | Disagreement of arities: Block<int> * recovery: TypeIdentity
+    | Disagreement of arities: Block<int<sigSlot>> * recovery: TypeIdentity
     | NoClaim
 
 /// One type kind's entries, addressed by the type's own `TypeKey`: the WHOLE containment
@@ -119,6 +133,8 @@ type PassContextTypes =
         /// THE name table: short name → every `(container, name, arity)` claim under it, of any
         /// KIND. At most one type may hold a claim; several under one name are ranked.
         TypeClaims: Dictionary<string, ResizeArray<TypeIdentity>>
+        /// Each claim by the `NodeKey` of its `DeclSite`.
+        ClaimsBySite: Dictionary<NodeKey, TypeIdentity>
         LocalContainers: LocalContainers
         /// Every module this file declares, with what its declaration states.
         Modules: Dictionary<ModuleKey, ModuleFacts>
@@ -145,6 +161,7 @@ module PassContextTypes =
             IntrinsicKeys = Dictionary<_, _>()
             IntrinsicAbbrevHost = Dictionary<_, _>()
             TypeClaims = Dictionary<_, _>()
+            ClaimsBySite = Dictionary<_, _>()
             LocalContainers = Dictionary<_, _>()
             Modules = Dictionary<_, _>()
             NominalTypeNames = HashSet<_>()
@@ -285,13 +302,13 @@ module TypeRegistry =
         let arities =
             claims |> List.map (fun c -> c.TyparArity) |> List.distinct |> List.sort
 
-        let bestAt (arity: int) =
+        let bestAt (arity: int<sigSlot>) =
             claims |> List.find (fun c -> c.TyparArity = arity)
 
         match arities with
         | [] -> ArglessClaim.NoClaim
         | [ arity ]
-        | (0 as arity) :: _ -> ArglessClaim.Takes(bestAt arity)
+        | (0<_> as arity) :: _ -> ArglessClaim.Takes(bestAt arity)
         | nearest :: _ -> ArglessClaim.Disagreement(Block.ofList arities, bestAt nearest)
 
     /// WHERE the type `key` (claimed under the short name `name`) enters the name environment
@@ -372,7 +389,7 @@ module TypeRegistry =
         (reg: KindRegistry<'T>)
         (useSite: UseSite)
         (written: WrittenTypeName)
-        (arity: int)
+        (arity: int<sigSlot>)
         : TypeKey voption =
         tryPickWinner
             types
@@ -432,6 +449,8 @@ module TypeRegistry =
     /// Accept a type declaration: claim `(Container, Name, Arity)` in the name table. The caller
     /// has already rejected a contested claim.
     let claimType (types: PassContextTypes) (id: TypeIdentity) : unit =
+        types.ClaimsBySite.[id.DeclSite.Key] <- id
+
         match types.TypeClaims.TryGetValue id.Name with
         | true, claims -> claims.Add id
         | false, _ ->
@@ -439,23 +458,39 @@ module TypeRegistry =
             claims.Add id
             types.TypeClaims.[id.Name] <- claims
 
+    /// The identity claimed from the declaration whose name token sits at `declSite`.
+    let tryIdentityByDeclSite (types: PassContextTypes) (declSite: NodeSite) : TypeIdentity voption =
+        match types.ClaimsBySite.TryGetValue declSite.Key with
+        | true, id -> ValueSome id
+        | false, _ -> ValueNone
+
     /// The identity the WRITTEN name at `arity` MEANS at `useSite`: the winning claim. A
     /// qualified name (`A.T`) is the same lookup, its path saying which SCOPE to read from.
     let tryWrittenTypeClaim
         (types: PassContextTypes)
         (useSite: UseSite)
         (written: WrittenTypeName)
-        (arity: int)
+        (arity: int<sigSlot>)
         : TypeIdentity voption =
         tryWinner types useSite written (fun c -> c.TyparArity = arity)
 
     /// `tryWrittenTypeClaim` for a name written with no qualifier.
-    let tryTypeClaim (types: PassContextTypes) (useSite: UseSite) (name: string) (arity: int) : TypeIdentity voption =
+    let tryTypeClaim
+        (types: PassContextTypes)
+        (useSite: UseSite)
+        (name: string)
+        (arity: int<sigSlot>)
+        : TypeIdentity voption =
         tryWrittenTypeClaim types useSite (WrittenTypeName.bare name) arity
 
     /// THE duplicate-type-definition test: is `(container, name, arity)` already claimed, by any
     /// kind? It takes no use site, because the registration scan's own position scopes it.
-    let isTypeClaimed (types: PassContextTypes) (container: ModuleContainer) (name: string) (arity: int) : bool =
+    let isTypeClaimed
+        (types: PassContextTypes)
+        (container: ModuleContainer)
+        (name: string)
+        (arity: int<sigSlot>)
+        : bool =
         match types.TypeClaims.TryGetValue name with
         | true, claims -> claims.Exists(fun c -> c.TyparArity = arity && c.Container = container)
         | false, _ -> false
@@ -467,7 +502,7 @@ module TypeRegistry =
         (types: PassContextTypes)
         (useSite: UseSite)
         (written: WrittenTypeName)
-        (arity: int)
+        (arity: int<sigSlot>)
         : TypeIdentity voption =
         match writtenTypeClaims types useSite written with
         | [] -> ValueNone
@@ -499,7 +534,7 @@ module TypeRegistry =
         (types: PassContextTypes)
         (useSite: UseSite)
         (name: string)
-        (arity: int)
+        (arity: int<sigSlot>)
         : RecordTypeInfo voption =
         tryOfKey types.Record (tryKeyOfArity types types.Record useSite (WrittenTypeName.bare name) arity)
 
@@ -522,7 +557,12 @@ module TypeRegistry =
         tryWrittenClass types useSite (WrittenTypeName.bare name)
 
     /// Resolve a class by `(name, arity)`, matching the arity exactly, so a wrong arity misses.
-    let tryClassArity (types: PassContextTypes) (useSite: UseSite) (name: string) (arity: int) : ClassTypeInfo voption =
+    let tryClassArity
+        (types: PassContextTypes)
+        (useSite: UseSite)
+        (name: string)
+        (arity: int<sigSlot>)
+        : ClassTypeInfo voption =
         tryOfKey types.Class (tryKeyOfArity types types.Class useSite (WrittenTypeName.bare name) arity)
 
     /// Resolve a class by its project-local `SymbolKey`.
@@ -558,7 +598,7 @@ module TypeRegistry =
     /// Resolve an enum by bare short name at `useSite`. Never generic, so the `(name, 0)` claim
     /// winning there IS the whole resolution.
     let tryEnum (types: PassContextTypes) (useSite: UseSite) (name: string) : EnumTypeInfo voption =
-        match tryTypeClaim types useSite name 0 with
+        match tryTypeClaim types useSite name 0<sigSlot> with
         | ValueNone -> ValueNone
         | ValueSome claim -> tryDict types.Enum claim.Key
 
@@ -578,7 +618,7 @@ module TypeRegistry =
         (types: PassContextTypes)
         (useSite: UseSite)
         (name: string)
-        (arity: int)
+        (arity: int<sigSlot>)
         : AbbreviationInfo voption =
         tryOfKey types.Abbreviation (tryKeyOfArity types types.Abbreviation useSite (WrittenTypeName.bare name) arity)
 
@@ -605,13 +645,20 @@ module TypeRegistry =
     /// Resolve an abbreviation by the `(name, arity)` a well-known identity SPELLS, rather
     /// than by that identity.
     let tryAbbrevSpelling (types: PassContextTypes) (useSite: UseSite) (spelling: TypeKey) : AbbreviationInfo voption =
-        tryAbbrevArity types useSite spelling.Name spelling.TyparArity
+        match spelling.TyparArity with
+        | KeyArity.Written arity -> tryAbbrevArity types useSite spelling.Name arity
+        | KeyArity.Compiled _ -> ValueNone
 
     /// Register a union under its own `TypeKey`. See `registerRecord`.
     let registerUnion (types: PassContextTypes) (info: UnionTypeInfo) : unit = types.Union.[info.TypeKey] <- info
 
     /// Resolve a union by `(name, arity)`, matching the arity exactly, so a wrong arity misses.
-    let tryUnion (types: PassContextTypes) (useSite: UseSite) (name: string) (arity: int) : UnionTypeInfo voption =
+    let tryUnion
+        (types: PassContextTypes)
+        (useSite: UseSite)
+        (name: string)
+        (arity: int<sigSlot>)
+        : UnionTypeInfo voption =
         tryOfKey types.Union (tryKeyOfArity types types.Union useSite (WrittenTypeName.bare name) arity)
 
     /// Resolve a union by BARE short name, for the recognition-only call sites.

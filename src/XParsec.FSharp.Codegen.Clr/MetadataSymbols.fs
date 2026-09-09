@@ -355,7 +355,9 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
             match constValue (), MetadataMapping.tryBuildType intrinsics f.FieldType with
             | Some constValue, Some valueTy ->
                 Some
-                    { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey f.Name Block.empty 0 MemberKind.Property) with
+                    { ExternalMember.OfKey(
+                          SymbolKeyOps.memberKeyOf declKey f.Name Block.empty 0<typeSlot> MemberKind.Property
+                      ) with
                         IsStatic = f.IsStatic
                         Storage = MemberStorage.Field
                         ConstValue = constValue
@@ -376,9 +378,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
             let argSig = Block.ofArray ps
             let methodTyparArity = MetadataMapping.methodTyparArityOf m
 
-            { ExternalMember.OfKey(
-                  SymbolKeyOps.memberKeyOf declKey m.Name argSig (int methodTyparArity) MemberKind.Method
-              ) with
+            { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey m.Name argSig methodTyparArity MemberKind.Method) with
                 IsStatic = m.IsStatic
                 Signature =
                     MetadataMapping.methodSignature arity methodTyparArity (ExternalSignature.tupledParams argSig, ret)
@@ -396,7 +396,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
         : ExternalMember option =
         MetadataMapping.tryPropertySignature intrinsics p
         |> Option.map (fun valueTy ->
-            { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey p.Name Block.empty 0 MemberKind.Property) with
+            { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey p.Name Block.empty 0<typeSlot> MemberKind.Property) with
                 IsStatic = (not (isNull p.GetMethod) && p.GetMethod.IsStatic)
                 Storage = MemberStorage.Property
                 Signature = MetadataMapping.propertySignature arity valueTy
@@ -440,7 +440,9 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
                 |> Option.map (fun (ps, ret) ->
                     let argSig = Block.ofArray ps
 
-                    { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey "get_Item" argSig 0 MemberKind.Method) with
+                    { ExternalMember.OfKey(
+                          SymbolKeyOps.memberKeyOf declKey "get_Item" argSig 0<typeSlot> MemberKind.Method
+                      ) with
                         IsStatic = getter.IsStatic
                         Signature =
                             MetadataMapping.methodSignature arity 0<_> (ExternalSignature.tupledParams argSig, ret)

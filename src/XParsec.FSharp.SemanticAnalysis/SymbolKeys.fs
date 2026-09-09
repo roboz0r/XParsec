@@ -144,9 +144,9 @@ and TypeKey =
     {
         Container: TypeContainer
         Name: string
-        /// This segment's OWN generic-parameter count. A nested type's outer carries its
-        /// own; the CLR spells each segment separately (`` Outer`1+Inner`1 ``).
-        TyparArity: int
+        /// The count this segment's OWN name spells. A nested type's outer carries its own
+        /// count; the CLR spells each segment separately (`` Outer`1+Inner`1 ``).
+        TyparArity: KeyArity
     }
 
     /// A nested type reports its OUTER's namespace, as the CLR does.

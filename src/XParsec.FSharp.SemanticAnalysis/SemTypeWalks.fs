@@ -145,6 +145,19 @@ module FrozenType =
         |> Array.filter (isMeasureArg >> not)
         |> Block.unsafeOfArray
 
+    /// A declaration's own parameters as the arguments of its OPEN self-type, in signature
+    /// order: a type-kinded slot yields its typar leaf, a measure-kinded one the rigid atom
+    /// that stands for it inside the declaration.
+    let openArgs (scope: TyparScope) (typars: TyparListG<FrozenType>) : Block<FrozenType> =
+        typars.Order
+        |> Block.toArray
+        |> Array.map (fun slot ->
+            match slot with
+            | TyparSlot.Type i -> FTTypar(scope, i)
+            | TyparSlot.Measure i -> FTMeasure(MeasureTerm.ofAtom (MeasureAtom.Typar(scope, i)))
+        )
+        |> Block.unsafeOfArray
+
     type MeasuredClaim =
         {
             Key: TypeKey

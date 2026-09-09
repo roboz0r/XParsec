@@ -10,7 +10,7 @@ module NameResolutionContainers =
     type WrittenArity =
         /// Type args were written: only a shape of this arity is admitted. `Vesper.Fun` is
         /// declared at 2, 3, 4 and 5.
-        | Exact of int
+        | Exact of int<sigSlot>
         /// Written without type args: every arity a container publishes is admitted,
         /// narrowest first.
         | Any

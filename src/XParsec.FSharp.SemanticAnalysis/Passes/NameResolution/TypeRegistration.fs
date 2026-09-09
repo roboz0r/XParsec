@@ -70,9 +70,9 @@ module NameResolutionTypeRegistration =
     let typarListOfTypeName (ctx: PassContext) (tn: TypeName<SyntaxToken>) : TyparList =
         TyparList.ofSeq (seq { for (name, attrs) in typarSlotsOfTypeName ctx tn -> name, kindOfSlot ctx attrs })
 
-    /// The generic arity that keys this type in the registries (`0` for a non-generic name).
-    let arityOfTypeName (ctx: PassContext) (tn: TypeName<SyntaxToken>) : int =
-        typarSlotsOfTypeName ctx tn |> List.length
+    /// The count that keys a NOMINAL declaration (a record, union or class) in the registries.
+    let nominalKeyArityOfTypeName (ctx: PassContext) (tn: TypeName<SyntaxToken>) : KeyArity =
+        KeyArity.Compiled (typarListOfTypeName ctx tn).TypeArity
 
     /// The `when 'a : …` clause on a `TypeName`, if any. Retained on the registry entry so a
     /// consumer re-entering the declaration's typar scope later need not re-walk the CST.
@@ -139,7 +139,7 @@ module NameResolutionTypeRegistration =
         if nameLi.Idents.Length = 1 then
             TypeRegistry.tryClassByKey
                 ctx.Types
-                (ctx.DeclaredTypeKey(ctx.NameOf nameLi.Idents.[0], arityOfTypeName ctx tn))
+                (ctx.DeclaredTypeKey(ctx.NameOf nameLi.Idents.[0], nominalKeyArityOfTypeName ctx tn))
             |> ValueOption.filter (fun info -> info.DeclSite.Key = declSiteOfTypeName tn)
         else
             ValueNone
@@ -150,7 +150,9 @@ module NameResolutionTypeRegistration =
         let (TypeName(ident = nameLi)) = tn
         let name = ctx.NameOf nameLi.Idents.[0]
 
-        TypeRegistry.tryNonClassMemberHostByDecl ctx.Types (ctx.DeclaredTypeAddress(name, arityOfTypeName ctx tn))
+        TypeRegistry.tryNonClassMemberHostByDecl
+            ctx.Types
+            (ctx.DeclaredTypeAddress(name, nominalKeyArityOfTypeName ctx tn))
         |> ValueOption.filter (fun host -> host.DeclSite.Key = declSiteOfTypeName tn)
 
     /// Mint the project-local `SymbolKey` for a type declaration, under the declaring
@@ -161,7 +163,7 @@ module NameResolutionTypeRegistration =
         (declSite: NodeSite)
         (container: ModuleContainer)
         (name: string)
-        (arity: int)
+        (arity: KeyArity)
         : TypeKey =
         let key = LocalSymbolKey.ofType (SymbolKeyOps.typeContainerOf container) name arity
 
@@ -173,7 +175,7 @@ module NameResolutionTypeRegistration =
                     sprintf
                         "Internal error: project-local SymbolKey collision for '%s' (arity %d)"
                         (SymbolKeyOps.typeMetaName key)
-                        arity
+                        arity.Count
                 )
             )
         | ValueNone -> ()
@@ -380,13 +382,15 @@ module NameResolutionTypeRegistration =
                 | TypeDeclKind.Enum -> TyparList.empty
                 | _ -> typarListOfTypeName ctx tn
 
-            let arity = typarList.Length
+            let arity = TypeDeclKind.keyArity kind typarList
 
             // The module chain that HOLDS the declaration is part of its claim, and the
             // container its key is minted from.
             let container = localContainerChain ctx c
 
-            if TypeRegistry.isTypeClaimed ctx.Types container name arity then
+            // A claim is unique at its WRITTEN count, the count a use site resolves by, so two
+            // nominals differing only in measure parameters are a duplicate although F# admits them.
+            if TypeRegistry.isTypeClaimed ctx.Types container name typarList.Order.Length then
                 ctx.Report(declSite.Tok, Kind.Message(sprintf "Duplicate type definition: %s" name))
 
                 // The first claimant keeps the name; this declaration registers nothing and
@@ -418,7 +422,11 @@ module NameResolutionTypeRegistration =
                 // under `namespace Vesper` keys as `Vesper.int`, `seq<'T>` as
                 // `Vesper.Collections.seq` at arity 1, each equal to the contract's canon key.
                 if kind = TypeDeclKind.IntrinsicBinding then
-                    ctx.Types.IntrinsicKeys.[name] <- SymbolKeyOps.typeKeyOfArity c.Namespace name arity
+                    ctx.Types.IntrinsicKeys.[name] <-
+                        SymbolKeyOps.typeKeyOfContainerAt
+                            (TypeContainer.InNamespace(SymbolKeyOps.namespaceKey c.Namespace))
+                            name
+                            arity
 
                 ValueSome identity
 

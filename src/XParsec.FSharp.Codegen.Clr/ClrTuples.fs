@@ -30,7 +30,7 @@ module ClrTuples =
     /// The OUTERMOST member's key, so a 9-tuple classifies as `ValueTuple`8` and the nesting
     /// below it stays in the encoder.
     let typeKey (arity: int) : TypeKey =
-        SymbolKeyOps.typeKeyOfArity Namespace Name (memberArity arity)
+        SymbolKeyOps.typeKeyOfArity Namespace Name (TyparIndex.typeSlot (memberArity arity))
 
     /// A family member's bare metadata name: 8 → `ValueTuple`8`.
     let memberName (memberArity: int) : string = SymbolKeyOps.arityName Name memberArity

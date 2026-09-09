@@ -11,7 +11,8 @@ module ResolvedTypes =
 
     /// Walk `t` adding to `acc` any free TyVar root not in `allowed`. A root is free exactly
     /// when `Freeze` would lower it to `FTUnknown UnresolvedTypar`; a measured root is
-    /// resolved when its carrier is.
+    /// resolved when its carrier is, and a measure argument, which carries a term and no
+    /// carrier, freezes to `FTMeasure`.
     let private addFreeRoots
         (store: TypeStore)
         (allowed: HashSet<TyVarId>)
@@ -21,7 +22,7 @@ module ResolvedTypes =
         let rec go t =
             match t with
             | TyVar root ->
-                if not (allowed.Contains root) then
+                if not (allowed.Contains root) && (store.Units(UnionFind.find store root)).IsNone then
                     acc.Add root |> ignore
             | t -> SemType.iterChildren go t
 

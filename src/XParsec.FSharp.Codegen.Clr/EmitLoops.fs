@@ -86,7 +86,7 @@ module EmitLoops =
                 (SymbolKeyOps.typeKeyOf "System" "IDisposable")
                 "Dispose"
                 Block.empty
-                0
+                0<typeSlot>
                 MemberKind.Method,
             false,
             false,
@@ -303,7 +303,7 @@ module EmitLoops =
                     (SymbolKeyOps.typeKeyOf "System.Collections.Generic" "IEnumerable`1")
                     "GetEnumerator"
                     Block.empty
-                    0
+                    0<typeSlot>
                     MemberKind.Method
 
             let geHandle =
@@ -314,7 +314,7 @@ module EmitLoops =
                     (SymbolKeyOps.typeKeyOf "System.Collections" "IEnumerator")
                     "MoveNext"
                     Block.empty
-                    0
+                    0<typeSlot>
                     MemberKind.Method
 
             let mnHandle =
@@ -325,7 +325,7 @@ module EmitLoops =
                     (SymbolKeyOps.typeKeyOf "System.Collections.Generic" "IEnumerator`1")
                     "Current"
                     Block.empty
-                    0
+                    0<typeSlot>
                     MemberKind.Property
 
             let curHandle = env.Provider.ExternalMemberRef(curKey, true, false, elemTy)

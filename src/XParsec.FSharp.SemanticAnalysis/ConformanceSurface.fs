@@ -95,6 +95,32 @@ module ConformanceSurface =
                         yield a.Key
         ]
 
+    /// The identity a declaration is paired across the halves by: container, name and written
+    /// parameter count. The `KeyArity` case is excluded, so `type foo = int` beside
+    /// `type foo = (# … #)` pairs as one declaration.
+    [<Struct>]
+    type private DeclSpelling =
+        {
+            Container: TypeContainer
+            Name: string
+            Written: int<sigSlot>
+        }
+
+    let private spellingOf (key: TypeKey) (shape: ExternalTypeShape) : DeclSpelling =
+        {
+            Container = key.Container
+            Name = key.Name
+            Written = shape.TyparArity
+        }
+
+    /// A `(# … #)` binding's parameters are all type-kinded, so its key spells its written count.
+    let private bindingSpelling (key: TypeKey) : DeclSpelling =
+        {
+            Container = key.Container
+            Name = key.Name
+            Written = TyparIndex.sigSlot key.TyparArity.Count
+        }
+
     /// Each error group in key order. `implBindings` is the implementation's `(# … #)`
     /// bindings, which publish under the `extern` family alone.
     let private checkTypes
@@ -102,20 +128,33 @@ module ConformanceSurface =
         (implemented: PublishedSurface)
         (implBindings: EqDict<TypeKey, IntrinsicBindingInfo>)
         : Conformance.ConformanceError list =
-        let implShapes = PublishedSurface.keyIndex implemented.ShapesByKey
+        let implShapes =
+            Dictionary<DeclSpelling, ExternalTypeShape>(HashIdentity.Structural)
+
+        for entry in implemented.ShapesByKey do
+            implShapes.[spellingOf entry.Key entry.Value] <- entry.Value
+
+        let implBindingSpellings =
+            HashSet<DeclSpelling>(
+                seq { for KeyValue(key, _) in implBindings -> bindingSpelling key },
+                HashIdentity.Structural
+            )
 
         let declaredExternKeys =
             HashSet<TypeKey>(seq { for e in published.ExternForms -> e.Key }, HashIdentity.Structural)
 
         let named (key: TypeKey) = SymbolKeyOps.typeMetaName key
 
-        /// A type declaration or a `(# … #)` binding of the same canonical identity.
-        let isImplemented (key: TypeKey) =
-            implShapes.ContainsKey key || implBindings.ContainsKey key
+        /// A type declaration or a `(# … #)` binding of the same spelling.
+        let isImplemented (spelling: DeclSpelling) =
+            implShapes.ContainsKey spelling || implBindingSpellings.Contains spelling
 
         [
             for entry in published.ShapesByKey do
-                if demandsDeclaration declaredExternKeys entry && not (isImplemented entry.Key) then
+                if
+                    demandsDeclaration declaredExternKeys entry
+                    && not (isImplemented (spellingOf entry.Key entry.Value))
+                then
                     yield Conformance.ConformanceError.MissingInImpl(named entry.Key)
 
             // A mismatch is reported only where BOTH halves declare a family.
@@ -123,7 +162,7 @@ module ConformanceSurface =
                 match entry.Value.DeclaredFamily with
                 | ValueNone -> ()
                 | ValueSome family ->
-                    match implShapes.TryGetValue entry.Key with
+                    match implShapes.TryGetValue(spellingOf entry.Key entry.Value) with
                     | true, shape ->
                         match shape.DeclaredFamily with
                         | ValueSome defined when defined <> family ->

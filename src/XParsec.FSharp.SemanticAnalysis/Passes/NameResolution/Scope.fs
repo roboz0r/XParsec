@@ -116,7 +116,7 @@ module NameResolutionScope =
         | ResolvedItem.ModuleOrNamespace _ -> unresolved ()
         | ResolvedItem.Ctor _ -> ()
         | ResolvedItem.Type(ResolvedTypeRef.Local _) -> unresolved ()
-        | ResolvedItem.Type(ResolvedTypeRef.External(_, shape)) when shape.TyparArity <> 0 -> unresolved ()
+        | ResolvedItem.Type(ResolvedTypeRef.External(_, shape)) when shape.TyparArity <> 0<sigSlot> -> unresolved ()
         // A member chain on a resolved item is resolved by no later pass yet, except the field
         // chain on a local module value, which is anchored like a lexical binding.
         | ResolvedItem.Value(ResolvedValue.Local _) -> ()
@@ -436,7 +436,7 @@ module NameResolutionScope =
         | ValueSome written ->
             let key = CstKeys.ofExpr applied
 
-            match resolveType ctx (ctx.UseSiteAt key) written types.Length with
+            match resolveType ctx (ctx.UseSiteAt key) written (TyparIndex.sigSlot types.Length) with
             | TypeNameResolution.Type(ResolvedTypeRef.Local claim as t) ->
                 ctx.Resolution.Resolved.Set(key, ResolvedItem.Type t)
                 ValueSome claim

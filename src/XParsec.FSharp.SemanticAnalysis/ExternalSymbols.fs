@@ -58,7 +58,20 @@ type ExternalTypeShape =
         | Abbrev a -> a.Typars
         | Unmodelled(typars = ts) -> ts
 
-    member this.TyparArity: int = this.Typars.Length
+    member this.TyparArity: int<sigSlot> = this.Typars.Order.Length
+
+    /// The count the shape's own key spells.
+    member this.KeyArity: KeyArity =
+        match this with
+        | Abbrev a -> KeyArity.Written a.Typars.Order.Length
+        | Class _
+        | Intrinsic _
+        | IntrinsicInterface _
+        | Enum _
+        | Measure _
+        | Record _
+        | Union _
+        | Unmodelled _ -> KeyArity.Compiled this.Typars.TypeArity
 
     /// The type this abbreviation ALIASES: its body is a keyed type applied to the
     /// abbreviation's own type parameters, each exactly once (`Box<int>` is not an alias).
@@ -179,7 +192,12 @@ module ScopeContents =
                         Block.ofSeq
                             [
                                 for arity in arities do
-                                    let key = SymbolKeyOps.typeKeyOfContainer (TypeContainer.InNamespace ns) name arity
+                                    let key =
+                                        SymbolKeyOps.typeKeyOfContainer
+                                            (TypeContainer.InNamespace ns)
+                                            name
+                                            (TyparIndex.typeSlot arity)
+
 
                                     match resolveShape key with
                                     | ValueSome shape -> struct (key, shape)
@@ -244,12 +262,12 @@ module ScopeContents =
                     | [] -> Block.empty
                     | [ single ] -> single
                     | _ ->
-                        let byArity = SortedDictionary<int, struct (TypeKey * ExternalTypeShape)>()
+                        let byArity = SortedDictionary<int<sigSlot>, struct (TypeKey * ExternalTypeShape)>()
 
                         for found in hits do
                             for struct (key, shape) in found do
-                                if not (byArity.ContainsKey key.TyparArity) then
-                                    byArity.Add(key.TyparArity, struct (key, shape))
+                                if not (byArity.ContainsKey shape.TyparArity) then
+                                    byArity.Add(shape.TyparArity, struct (key, shape))
 
                         Block.ofSeq byArity.Values
 
@@ -591,7 +609,8 @@ module ExternalSymbols =
         : struct (IntrinsicIdentity * IntrinsicClassSurface) voption =
         provider.TryLookupType canon |> ValueOption.bind intrinsicClassOf
 
-    /// The identity and shape `metaName` denotes at `arity`. `metaName` is an exact metadata
+    /// The identity and shape `metaName` denotes at `arity`: a nominal type at its compiled
+    /// count, else an abbreviation at its written count. `metaName` is an exact metadata
     /// rendering read by key, with no opens applied; a source-written name resolves through
     /// `IScopeContents` under the use site's opens instead.
     let tryMetaTypeAt
@@ -599,11 +618,20 @@ module ExternalSymbols =
         (metaName: string)
         (arity: int)
         : struct (TypeKey * ExternalTypeShape) voption =
-        let key = SymbolKeyOps.qualifiedTypeKeyOf metaName arity
+        let probe (key: TypeKey) =
+            match store.TryLookupType key with
+            | ValueSome shape when shape.KeyArity = key.TyparArity -> ValueSome(struct (key, shape))
+            | _ -> ValueNone
 
-        match store.TryLookupType key with
-        | ValueSome shape when shape.TyparArity = key.TyparArity -> ValueSome(struct (key, shape))
-        | _ -> ValueNone
+        let compiled = SymbolKeyOps.qualifiedTypeKeyOf metaName arity
+
+        match probe compiled with
+        | ValueSome hit -> ValueSome hit
+        | ValueNone ->
+            probe
+                { compiled with
+                    TyparArity = KeyArity.Written(TyparIndex.sigSlot compiled.TyparArity.Count)
+                }
 
     let tryMetaType (store: IExternalSymbolStore) (metaName: string) : ExternalTypeShape voption =
         tryMetaTypeAt store metaName 0

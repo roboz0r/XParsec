@@ -101,7 +101,7 @@ let private pokeMemberWith (paramTy: FrozenType) (mkBody: BoundVarId -> Pooled.T
                 (RuntimeNames.opaqueKey "widget")
                 "Poke"
                 (Block.singleton paramTy)
-                0
+                0<typeSlot>
                 MemberKind.Method
         IsStatic = false
         Accessibility = Accessibility.Public
@@ -547,7 +547,7 @@ let tests =
                         declKey
                         m.Name
                         (m.Params |> Block.map snd)
-                        (int m.MethodTypars.TypeArity)
+                        m.MethodTypars.TypeArity
                         (TMemberKind.keyKind m.Kind)
 
                 let kInt = mintKey (pokeMemberOf "$0 + 1" ftInt)

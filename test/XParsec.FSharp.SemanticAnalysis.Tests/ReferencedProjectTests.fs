@@ -357,7 +357,7 @@ let tests =
                 // arity-suffixed (`Fun`2`), matching the emitted metadata name.
                 match ExternalSymbols.tryMetaTypeAt provider "Vesper.Fun`2" 0 with
                 | ValueSome(struct (key, ExternalTypeShape.Class info)) ->
-                    Expect.equal info.TyparArity 2 "Fun has two typars"
+                    Expect.equal info.TyparArity 2<sigSlot> "Fun has two typars"
 
                     // The HOME is what the package wrapper stamps; the NAMESPACE is carried on
                     // the registered key, from the `.fsi`'s own header — no manifest declares one.

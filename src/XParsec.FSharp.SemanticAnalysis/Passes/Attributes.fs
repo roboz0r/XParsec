@@ -101,7 +101,7 @@ module Attributes =
                 | Some p -> AttributeCtorIdentity.Unannotated p.Name
                 | None ->
                     AttributeCtorIdentity.Key(
-                        SymbolKeyOps.ctorKeyOf classKey (parameters |> Block.map (fun p -> p.Declared.Value)) 0
+                        SymbolKeyOps.ctorKeyOf classKey (parameters |> Block.map (fun p -> p.Declared.Value)) 0<typeSlot>
                     )
 
             {

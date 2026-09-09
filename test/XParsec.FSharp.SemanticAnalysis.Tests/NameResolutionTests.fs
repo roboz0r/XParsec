@@ -185,7 +185,7 @@ let tests =
                     analyse
                         "type P() =\n    member this.V = 1\ntype D<'a>(x: 'a) =\n    inherit P()\n    member this.X = x\ntype D<'a, 'b>(x: 'a, y: 'b) =\n    inherit P()\n    member this.Y = y"
 
-                for arity in [ 1; 2 ] do
+                for arity in [ 1<sigSlot>; 2<sigSlot> ] do
                     match TypeRegistry.tryClassArity ctx.Types UseSite.unbounded "D" arity with
                     | ValueSome info -> Expect.isTrue info.Base.IsSome $"D`{arity} has a base type"
                     | ValueNone -> failtest $"class D`{arity} not registered"
@@ -196,7 +196,7 @@ let tests =
                     analyse
                         "type R<'a> =\n    { A: 'a }\n\n    member this.GetA = this.A\n\ntype R<'a, 'b> =\n    { A2: 'a; B: 'b }\n\n    member this.GetB = this.B"
 
-                for arity, memberName in [ 1, "GetA"; 2, "GetB" ] do
+                for arity, memberName in [ 1<sigSlot>, "GetA"; 2<sigSlot>, "GetB" ] do
                     match TypeRegistry.tryRecordArity ctx.Types UseSite.unbounded "R" arity with
                     | ValueSome info ->
                         Expect.isTrue
@@ -210,7 +210,7 @@ let tests =
                     analyse
                         "type U<'a> =\n    | Ua of 'a\n\n    member this.GetA = 1\n\ntype U<'a, 'b> =\n    | Ub of 'a * 'b\n\n    member this.GetB = 2"
 
-                for arity, memberName in [ 1, "GetA"; 2, "GetB" ] do
+                for arity, memberName in [ 1<sigSlot>, "GetA"; 2<sigSlot>, "GetB" ] do
                     match TypeRegistry.tryUnion ctx.Types UseSite.unbounded "U" arity with
                     | ValueSome info ->
                         Expect.isTrue
@@ -372,7 +372,7 @@ let tests =
             test "monomorphic abbreviation registers with no TypeParams" {
                 let ctx = analyse "type Name = string"
 
-                match TypeRegistry.tryAbbrevArity ctx.Types UseSite.unbounded "Name" 0 with
+                match TypeRegistry.tryAbbrevArity ctx.Types UseSite.unbounded "Name" 0<sigSlot> with
                 | ValueSome info -> Expect.isTrue info.TypeParams.IsEmpty "no typars"
                 | ValueNone -> failtest "abbreviation Name not registered"
             }
@@ -380,7 +380,7 @@ let tests =
             test "generic abbreviation keeps declaration order" {
                 let ctx = analyse "type Pair<'a, 'b> = 'a * 'b"
 
-                match TypeRegistry.tryAbbrevArity ctx.Types UseSite.unbounded "Pair" 2 with
+                match TypeRegistry.tryAbbrevArity ctx.Types UseSite.unbounded "Pair" 2<sigSlot> with
                 | ValueSome info ->
                     Expect.equal info.TypeParams.Length 2 "two typars"
                     Expect.equal info.TypeParams.[0].Name "'a" "first is 'a"
@@ -424,22 +424,46 @@ let tests =
                 let recordKey n = (expectRecord ctx n).Key
                 let unionKey n = (expectUnion ctx n).Key
 
-                let abbrevKey n arity =
+                let abbrevKey n (arity: int<sigSlot>) =
                     match TypeRegistry.tryAbbrevArity ctx.Types UseSite.unbounded n arity with
                     | ValueSome info -> info.Key
                     | ValueNone -> failtestf "abbreviation %s not registered" n
 
-                Expect.equal (recordKey "R") (SymbolKeyOps.typeKeyArity "" "R" 0) "non-generic record → arity 0"
+                Expect.equal
+                    (recordKey "R")
+                    (SymbolKeyOps.typeKeyArity "" "R" 0<typeSlot>)
+                    "non-generic record → arity 0"
 
-                Expect.equal (recordKey "Box") (SymbolKeyOps.typeKeyArity "" "Box" 1) "generic record → arity 1"
+                Expect.equal
+                    (recordKey "Box")
+                    (SymbolKeyOps.typeKeyArity "" "Box" 1<typeSlot>)
+                    "generic record → arity 1"
 
-                Expect.equal (unionKey "Color") (SymbolKeyOps.typeKeyArity "" "Color" 0) "non-generic union → arity 0"
+                Expect.equal
+                    (unionKey "Color")
+                    (SymbolKeyOps.typeKeyArity "" "Color" 0<typeSlot>)
+                    "non-generic union → arity 0"
 
-                Expect.equal (unionKey "Choice") (SymbolKeyOps.typeKeyArity "" "Choice" 2) "generic union → arity 2"
+                Expect.equal
+                    (unionKey "Choice")
+                    (SymbolKeyOps.typeKeyArity "" "Choice" 2<typeSlot>)
+                    "generic union → arity 2"
 
-                Expect.equal (abbrevKey "Pair" 2) (SymbolKeyOps.typeKeyArity "" "Pair" 2) "generic abbrev → arity 2"
+                // An abbreviation has no compiled name and keys at its WRITTEN count.
+                let abbrevKeyAt (name: string) (arity: int<sigSlot>) : SymbolKey =
+                    SymbolKey.Type(
+                        SymbolKeyOps.typeKeyOfContainerAt
+                            (TypeContainer.InNamespace NamespaceKey.Global)
+                            name
+                            (KeyArity.Written arity)
+                    )
 
-                Expect.equal (abbrevKey "Name" 0) (SymbolKeyOps.typeKeyArity "" "Name" 0) "non-generic abbrev → arity 0"
+                Expect.equal (abbrevKey "Pair" 2<sigSlot>) (abbrevKeyAt "Pair" 2<sigSlot>) "generic abbrev → written 2"
+
+                Expect.equal
+                    (abbrevKey "Name" 0<sigSlot>)
+                    (abbrevKeyAt "Name" 0<sigSlot>)
+                    "non-generic abbrev → written 0"
 
                 match unionKey "Choice" with
                 | SymbolKey.Type t ->
@@ -452,7 +476,7 @@ let tests =
                 let ctx = analyse "type C<'a>(x: 'a) =\n    member this.X = x"
 
                 let info = expectClass ctx "C"
-                Expect.equal info.Key (SymbolKeyOps.typeKeyArity "" "C" 1) "generic class → arity 1"
+                Expect.equal info.Key (SymbolKeyOps.typeKeyArity "" "C" 1<typeSlot>) "generic class → arity 1"
             }
 
             test "class type registers in ctx.Types.Class with ctor params and members" {
@@ -914,7 +938,7 @@ let tests =
                 let recInfo = expectRecord ctx "Rec"
                 Expect.equal recInfo.Key (SymbolKeyOps.typeKey "Foo.Bar" ("Rec")) "record key carries namespace"
 
-                match TypeRegistry.tryUnion ctx.Types UseSite.unbounded "Choice" 2 with
+                match TypeRegistry.tryUnion ctx.Types UseSite.unbounded "Choice" 2<sigSlot> with
                 | ValueSome info ->
                     Expect.equal
                         info.Key
@@ -1012,11 +1036,11 @@ let tests =
                 Expect.isFalse collision "no SymbolKey collision for arity-overloaded Choice"
 
                 Expect.isTrue
-                    (TypeRegistry.tryUnion ctx.Types UseSite.unbounded "Choice" 2).IsSome
+                    (TypeRegistry.tryUnion ctx.Types UseSite.unbounded "Choice" 2<sigSlot>).IsSome
                     "Choice`2 registered"
 
                 Expect.isTrue
-                    (TypeRegistry.tryUnion ctx.Types UseSite.unbounded "Choice" 3).IsSome
+                    (TypeRegistry.tryUnion ctx.Types UseSite.unbounded "Choice" 3<sigSlot>).IsSome
                     "Choice`3 registered"
             }
         ]

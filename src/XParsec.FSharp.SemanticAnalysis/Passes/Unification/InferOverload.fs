@@ -375,7 +375,7 @@ module UnificationInferOverload =
             declKey
             m.Name
             (freezeUserMemberArgSig store declKey declTypars m)
-            m.EffectiveMethodTypars.Length
+            (DeclaredTypar.typeArity m.EffectiveMethodTypars)
             (memberKindOf m)
 
     /// `frozenUserMemberKey` for a member found on a nominal, minted against its declaration.

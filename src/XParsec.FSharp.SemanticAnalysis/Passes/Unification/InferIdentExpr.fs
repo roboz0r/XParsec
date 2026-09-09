@@ -240,12 +240,12 @@ module internal UnificationInferIdentExpr =
                 ValueSome ty
 
             let miss (owner: CaseOwner) (claim: TypeIdentity) (caseName: string) : SemType voption =
-                if writtenTys.Length <> claim.TyparArity then
+                if writtenTys.Length <> int claim.TyparArity then
                     ValueSome(
                         errorTy
                             ctx
                             appliedTok
-                            (Kind.TypeArgArity(ctx.NameOf appliedTok, claim.TyparArity, writtenTys.Length))
+                            (Kind.TypeArgArity(ctx.NameOf appliedTok, int claim.TyparArity, writtenTys.Length))
                     )
                 else
                     ValueSome(errorTy ctx node.Tok (Kind.NoCase(owner, claim.Name, caseName)))

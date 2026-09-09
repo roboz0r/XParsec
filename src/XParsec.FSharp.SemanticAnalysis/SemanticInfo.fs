@@ -112,8 +112,10 @@ type MemberKey =
         Decl: TypeKey
         Name: string
         ArgSig: Block<FrozenType>
-        /// `M<'a>()` vs `M<'a,'b>()` — distinct overloads with identical empty `ArgSig`.
-        MethodTyparArity: int
+        /// The member's OWN type-kinded parameters, the emitted signature's
+        /// `genericParameterCount`: `M<'a>()` vs `M<'a,'b>()` are distinct overloads with
+        /// identical empty `ArgSig`.
+        MethodTyparArity: int<typeSlot>
         Kind: MemberKind
     }
 

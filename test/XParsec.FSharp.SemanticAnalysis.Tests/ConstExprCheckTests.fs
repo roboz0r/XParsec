@@ -42,7 +42,7 @@ let private published: IExternalSymbolProvider =
 /// The `System.ValueTuple` family member a tuple of `arity` instantiates, capped at the
 /// `ValueTuple`8` that nests the rest. Mirrors `ClrTuples.typeKey`.
 let private valueTupleKey (arity: int) : TypeKey =
-    SymbolKeyOps.typeKeyOfArity "System" "ValueTuple" (min arity 8)
+    SymbolKeyOps.typeKeyOfArity "System" "ValueTuple" (TyparIndex.typeSlot (min arity 8))
 
 /// The CLR backend's platform facts, which `realProvider` omits by composing over
 /// `PackageProviders.noPlatformMetadata`.
@@ -155,7 +155,7 @@ let localEnums = [ "type E = | A = 1 | B = 4"; "type F = | Bit = 8" ]
 /// An arity-1 record, for the reified generic instantiation and its definition.
 let private genericBox = [ "type Box<'T> = { v: 'T }" ]
 
-let private boxKey = SymbolKeyOps.typeKeyOfArity "" "Box" 1
+let private boxKey = SymbolKeyOps.typeKeyOfArity "" "Box" 1<typeSlot>
 let private rKey = SymbolKeyOps.typeKeyOf "" "R"
 
 /// A bare and a module-qualified `[<Literal>]`.

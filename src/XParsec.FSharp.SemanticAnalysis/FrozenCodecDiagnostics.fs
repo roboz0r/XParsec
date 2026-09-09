@@ -538,7 +538,7 @@ module FrozenCodecDiagnostics =
         | Kind.AmbiguousTypeArity(name, arities) ->
             w.Write 61uy
             w.Write name
-            writeBlockWith w (fun w (n: int) -> w.Write n) arities
+            writeBlockWith w (fun w (n: int<sigSlot>) -> w.Write(int n)) arities
         | Kind.UnresolvedQualifiedName name ->
             w.Write 7uy
             w.Write name
@@ -795,7 +795,7 @@ module FrozenCodecDiagnostics =
             Kind.TypeArgArity(name, expected, r.ReadInt32())
         | 61uy ->
             let name = r.ReadString()
-            Kind.AmbiguousTypeArity(name, Block.ofArray (readArrayWith r (fun r -> r.ReadInt32())))
+            Kind.AmbiguousTypeArity(name, Block.ofArray (readArrayWith r (fun r -> TyparIndex.sigSlot (r.ReadInt32()))))
         | 7uy -> Kind.UnresolvedQualifiedName(r.ReadString())
         | 58uy -> Kind.AbbreviatedNamespace(r.ReadString())
         | 59uy -> Kind.RequireQualifiedAccessModule(r.ReadString())

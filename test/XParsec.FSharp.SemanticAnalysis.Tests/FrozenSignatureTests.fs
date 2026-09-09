@@ -118,7 +118,7 @@ let tests =
                 let store = provider :> IExternalSymbolStore
 
                 match store.TryLookupType(typeKeyOf frozen "Box") with
-                | ValueSome(ExternalTypeShape.Record r) when r.TyparArity = 1 ->
+                | ValueSome(ExternalTypeShape.Record r) when r.TyparArity = 1<sigSlot> ->
                     Expect.equal (r.Fields |> Block.map (fun f -> f.Name)) (Block.ofSeq [ "value" ]) "Box field names"
 
                     Expect.equal r.Origin.Home.AssemblyOption (ValueSome testAsm) "Box carries home-assembly origin"
@@ -133,7 +133,7 @@ let tests =
                 | other -> failtestf "Point did not project as a Record: %A" other
 
                 match store.TryLookupType(typeKeyOf frozen "Opt") with
-                | ValueSome(ExternalTypeShape.Union u) when u.TyparArity = 1 ->
+                | ValueSome(ExternalTypeShape.Union u) when u.TyparArity = 1<sigSlot> ->
                     Expect.equal
                         (u.Cases |> Block.map (fun c -> c.Name))
                         (Block.ofSeq [ "Nope"; "Just" ])
@@ -156,7 +156,7 @@ let tests =
 
                 match scope.UnionCasesNamed(m, "Just") with
                 | BlockOne uc ->
-                    Expect.equal uc.UnionKey.TyparArity 1 "Just's declaring union arity"
+                    Expect.equal uc.UnionKey.TyparArity (KeyArity.Compiled 1<typeSlot>) "Just's declaring union arity"
                     Expect.equal uc.Case.Name "Just" "matched case name"
                 | other -> failtestf "expected one declaring union for 'Just', got %A" other
 
@@ -366,7 +366,7 @@ module M =
                             rName
                             (sprintf "field %s -> R's compiled name" field)
 
-                        Expect.equal c.TyparArity 0 "R is monomorphic"
+                        Expect.equal c.TyparArity 0<sigSlot> "R is monomorphic"
                         Expect.equal c.FieldNames (Block.ofSeq [ "X"; "Y" ]) "R's field names"
                     | other -> failtestf "field %s did not resolve to exactly one record: %A" field other
 
@@ -485,7 +485,7 @@ module M =
                         (SymbolKeyOps.typeMetaName (typeKeyOf frozen "Box"))
                         "Box's compiled name"
 
-                    Expect.equal c.TyparArity 1 "Box has one typar"
+                    Expect.equal c.TyparArity 1<sigSlot> "Box has one typar"
                 | other -> failtestf "field Value did not resolve to exactly one record: %A" other
             }
 

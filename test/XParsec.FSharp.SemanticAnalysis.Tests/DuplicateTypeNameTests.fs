@@ -181,4 +181,21 @@ let tests =
                 test "a second declaration of the name in the SAME module is still a duplicate" {
                     expectDuplicate "namespace N\n\nmodule A =\n    type T = { X: int }\n    type T = { Y: int }"
                 }
+
+            yield
+                test "two nominals differing only in measure parameters are a duplicate" {
+                    expectDuplicate
+                        "namespace N\n\ntype Pair<[<Measure>] 'u, 'a> = { V: 'a }\ntype Pair<'a, 'b> = { W: 'a; X: 'b }"
+                }
+
+            // As F# does: `dotnet fsi` refuses the pair as a duplicate `` T`1 ``.
+            yield
+                test "an abbreviation and a measure-only abbreviation of one name are a duplicate" {
+                    expectDuplicate "namespace N\n\ntype T<'a> = 'a list\ntype T<[<Measure>] 'u> = int"
+                }
+
+            yield
+                test "a measured primitive's abbreviation is distinct from its unmeasured self" {
+                    expectNoDuplicate "namespace N\n\ntype money = float\ntype money<[<Measure>] 'u> = float<'u>"
+                }
         ]

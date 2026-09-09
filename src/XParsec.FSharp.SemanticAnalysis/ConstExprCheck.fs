@@ -191,7 +191,7 @@ module ConstExprCheck =
     let private tryEnumKey (ctx: PassContext) (useSite: UseSite) (written: Type<SyntaxToken>) : TypeKey voption =
         match written with
         | Type.NamedType li ->
-            match NameResolutionLongIdent.resolveType ctx useSite (ctx.WrittenTypeNameOf li) 0 with
+            match NameResolutionLongIdent.resolveType ctx useSite (ctx.WrittenTypeNameOf li) 0<sigSlot> with
             | TypeNameResolution.Type(ResolvedTypeRef.Local claim) when claim.Kind = TypeDeclKind.Enum ->
                 ValueSome claim.Key
             | TypeNameResolution.Type(ResolvedTypeRef.External(key, ExternalTypeShape.Enum _)) -> ValueSome key
@@ -425,10 +425,10 @@ module ConstExprCheck =
     /// (`int[]`), an enum and an unresolved type are unchanged.
     let private tryDefinitionOf (ctx: PassContext) (t: FrozenType) : FrozenType voption =
         match t with
-        | FTConst(key, _) when key.TyparArity > 0 -> ValueSome(FTConst(key, Block.empty))
-        | FTRecord(key, _) when key.TyparArity > 0 -> ValueSome(FTRecord(key, Block.empty))
-        | FTUnion(key, _) when key.TyparArity > 0 -> ValueSome(FTUnion(key, Block.empty))
-        | FTClass(key, _) when key.TyparArity > 0 -> ValueSome(FTClass(key, Block.empty))
+        | FTConst(key, _) when key.TyparArity.Count > 0 -> ValueSome(FTConst(key, Block.empty))
+        | FTRecord(key, _) when key.TyparArity.Count > 0 -> ValueSome(FTRecord(key, Block.empty))
+        | FTUnion(key, _) when key.TyparArity.Count > 0 -> ValueSome(FTUnion(key, Block.empty))
+        | FTClass(key, _) when key.TyparArity.Count > 0 -> ValueSome(FTClass(key, Block.empty))
         | FTConst _
         | FTRecord _
         | FTUnion _
@@ -438,7 +438,7 @@ module ConstExprCheck =
         | FTTuple _
         | FTFun _ ->
             match tryPlatformIdentity ctx t with
-            | ValueSome key when key.TyparArity > 0 -> ValueSome(FTClass(key, Block.empty))
+            | ValueSome key when key.TyparArity.Count > 0 -> ValueSome(FTClass(key, Block.empty))
             | _ -> ValueNone
         | _ -> ValueNone
 

@@ -30,13 +30,13 @@ let private clsKey = SymbolKeyOps.typeKeyOf origin.Namespace.Dotted "Cls"
 let private candidate: ExternalRecordCandidate =
     {
         TypeKey = clsKey
-        TyparArity = 0
+        TyparArity = 0<sigSlot>
         FieldNames = Block.singleton "f"
         IsRequireQualifiedAccess = false
     }
 
 let private markerMember: ExternalMember =
-    { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf clsKey "m" Block.empty 0 MemberKind.Method) with
+    { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf clsKey "m" Block.empty 0<typeSlot> MemberKind.Method) with
         Signature = TestHelpers.mkSignature 0<_> 0<_> marker marker
         Origin = origin
     }
@@ -116,7 +116,8 @@ let private rootContainer = ModuleContainer.InNamespace NamespaceKey.Global
 
 let private uniCase: ExternalUnionCase =
     {
-        UnionKey = SymbolKeyOps.typeKeyOfArity origin.Namespace.Dotted "Uni" 1
+        UnionKey = SymbolKeyOps.typeKeyOfArity origin.Namespace.Dotted "Uni" 1<typeSlot>
+        UnionTypars = TyparList.positional 1<typeSlot>
         Case = markerCase
         IsRequireQualifiedAccess = false
     }
@@ -136,7 +137,8 @@ let private fakeScope: IScopeContents =
 
         member _.TypesNamed(_, name) =
             match typeByName name with
-            | ValueSome shape -> Block.singleton (struct (SymbolKeyOps.qualifiedTypeKeyOf name shape.TyparArity, shape))
+            | ValueSome shape ->
+                Block.singleton (struct (SymbolKeyOps.qualifiedTypeKeyOf name (int shape.TyparArity), shape))
             | ValueNone -> Block.empty
 
         member _.DeclarationsOf _ = Block.empty

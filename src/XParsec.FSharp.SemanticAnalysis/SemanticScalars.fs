@@ -201,29 +201,6 @@ type TyparKind =
     | Type
     | Measure
 
-/// Indexes `TyparList.Order`: one position per parameter of either kind, in the order the
-/// declaration writes them. A written `<'a, 'u>` argument list and `TypeKey.TyparArity` count
-/// these.
-[<Measure>]
-type sigSlot
-
-/// Indexes `TyparList.Types`. A typar leaf carries one.
-[<Measure>]
-type typeSlot
-
-/// Indexes `TyparList.Measures`. A measure atom carries one.
-[<Measure>]
-type measureSlot
-
-[<RequireQualifiedAccess>]
-module TyparIndex =
-
-    let sigSlot (i: int) : int<sigSlot> = LanguagePrimitives.Int32WithMeasure i
-
-    let typeSlot (i: int) : int<typeSlot> = LanguagePrimitives.Int32WithMeasure i
-
-    let measureSlot (i: int) : int<measureSlot> = LanguagePrimitives.Int32WithMeasure i
-
 /// A type parameter's name.
 [<RequireQualifiedAccess>]
 type TyparName =

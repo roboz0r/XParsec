@@ -310,7 +310,7 @@ let testProviderResolves (path: string) =
                 // (many) non-generic fixtures; exercises the count on `generics`.
                 match ExternalSymbols.tryMetaType prov name with
                 | ValueSome(ExternalTypeShape.Class shape) ->
-                    Expect.equal shape.TyparArity typeParams $"type '{name}' arity must equal its typeParams"
+                    Expect.equal (int shape.TyparArity) typeParams $"type '{name}' arity must equal its typeParams"
                 | _ -> ()
 
                 // Heritage: every heritage entry must land in EXACTLY one

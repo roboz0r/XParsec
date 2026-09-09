@@ -67,17 +67,16 @@ module PublishedSurfaceBuilder =
     let addModule (surface: PublishedSurfaceBuilder) (m: ModuleKey) (declaration: ModuleDeclaration) : unit =
         surface.Modules.[m] <- declaration
 
-    /// Registering a shape whose `TyparArity` disagrees with `key`'s will fail: the two state
-    /// the same fact, and `typeKeyOfContainer` is the one minting rule for it.
+    /// Registering a shape whose `KeyArity` disagrees with `key`'s will fail.
     let addShape (surface: PublishedSurfaceBuilder) (key: TypeKey) (shape: ExternalTypeShape) : unit =
-        let minted = SymbolKeyOps.typeKeyOfContainer key.Container key.Name shape.TyparArity
+        let minted = SymbolKeyOps.typeKeyOfContainerAt key.Container key.Name shape.KeyArity
 
         if minted <> key then
             failwithf
-                "addShape: '%s' is keyed at arity %d, its shape declares %d"
+                "addShape: '%s' is keyed at %A, its shape declares %A"
                 (SymbolKeyOps.typeMetaName key)
                 key.TyparArity
-                shape.TyparArity
+                shape.KeyArity
 
         surface.ShapesByKey.[key] <- shape
 
@@ -137,6 +136,7 @@ module PublishedSurfaceBuilder =
         match shape with
         | ExternalTypeShape.Union _ when RuntimeNames.isVesperListName (SymbolKeyOps.typeMetaName key) -> ()
         | ExternalTypeShape.Union {
+                                      Typars = typars
                                       Cases = cases
                                       RequiresQualifiedAccess = rqa
                                   } ->
@@ -145,6 +145,7 @@ module PublishedSurfaceBuilder =
                     surface
                     {
                         UnionKey = key
+                        UnionTypars = typars
                         Case = case
                         IsRequireQualifiedAccess = rqa
                     }
@@ -157,7 +158,7 @@ module PublishedSurfaceBuilder =
                 surface
                 {
                     TypeKey = key
-                    TyparArity = typars.Length
+                    TyparArity = typars.Order.Length
                     FieldNames = fields |> Block.map (fun f -> f.Name)
                     IsRequireQualifiedAccess = rqa
                 }
@@ -349,7 +350,7 @@ module PublishedSurface =
         // `ShapesByKey` is ordered by ORDINAL metadata name, under which `` P`10 `` precedes
         // `` P`2 ``; `TypesNamed` yields narrowest arity first.
         let byArity =
-            System.Comparison<struct (TypeKey * ExternalTypeShape)>(fun (struct (a, _)) (struct (b, _)) ->
+            System.Comparison<struct (TypeKey * ExternalTypeShape)>(fun (struct (_, a)) (struct (_, b)) ->
                 compare a.TyparArity b.TyparArity
             )
 

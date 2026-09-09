@@ -168,6 +168,7 @@ let private expectBagSpellings (view: IExternalSymbolProvider) : unit =
 let private caseOf (unionKey: TypeKey) (name: string) : ExternalUnionCase =
     {
         UnionKey = unionKey
+        UnionTypars = positionalTyparsOf unionKey
         Case = ExternalCaseShape.create (name, Block.empty)
         IsRequireQualifiedAccess = false
     }
@@ -264,7 +265,7 @@ let tests =
                         match scope.TypesNamed(m, "Box") with
                         | EqList [ struct (key, _) ] ->
                             Expect.equal key.Name "Box" "the type"
-                            Expect.equal key.TyparArity 1 "generic in one"
+                            Expect.equal key.TyparArity (KeyArity.Compiled 1<typeSlot>) "generic in one"
                         | other -> failtestf "one Box: %A" other
 
                         Expect.equal (scope.TypesNamed(m, "Light")).Length 0 "Light is N's"
@@ -274,7 +275,8 @@ let tests =
                         let scope = (publishedViews [ "lib.fs", arityLib ]).[0].Scope
                         let m = containerOrFail scope "Test.Ar.M"
 
-                        let arities = [ for struct (key, _) in scope.TypesNamed(m, "P") -> key.TyparArity ]
+                        let arities =
+                            [ for struct (key, _) in scope.TypesNamed(m, "P") -> key.TyparArity.Count ]
 
                         Expect.equal arities [ 0; 2; 10 ] "every declared arity, ascending"
                     }
@@ -437,7 +439,7 @@ module P =
                         | other -> failtestf "both modules declare a Red: %A" other
 
                         match LocalScope.typesNamed ctx UseSite.unbounded m "Box" with
-                        | [ claim ] -> Expect.equal claim.TyparArity 1 "Box<'T>"
+                        | [ claim ] -> Expect.equal claim.TyparArity 1<sigSlot> "Box<'T>"
                         | other -> failtestf "one Box: %A" other
 
                         Expect.isEmpty (LocalScope.typesNamed ctx UseSite.unbounded m "Light") "Light is N's"
@@ -447,8 +449,8 @@ module P =
                 "composition"
                 [
                     test "two sources publishing the SAME case resolve to one; two unions resolve to two" {
-                        let color = SymbolKeyOps.typeKeyOfArity "Test" "Color" 0
-                        let light = SymbolKeyOps.typeKeyOfArity "Test" "Light" 0
+                        let color = SymbolKeyOps.typeKeyOfArity "Test" "Color" 0<typeSlot>
+                        let light = SymbolKeyOps.typeKeyOfArity "Test" "Light" 0<typeSlot>
 
                         let shared = caseOf color "Red"
 

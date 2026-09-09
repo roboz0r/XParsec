@@ -253,7 +253,7 @@ module internal UnificationTranslate =
         (shape: ExternalTypeShape)
         (translatedArgs: Block<SemType>)
         : SemType voption =
-        if shape.TyparArity = translatedArgs.Length then
+        if int shape.TyparArity = translatedArgs.Length then
             buildExternalTy ctx symKey shape translatedArgs
         else
             ValueNone
@@ -269,6 +269,20 @@ module internal UnificationTranslate =
     type private TypeArgRead =
         | Type of SemType
         | Measure of MeasureTerm
+
+    /// Where a written measure argument lands.
+    [<RequireQualifiedAccess>]
+    type private MeasureSite =
+        /// At the measure-kinded slot of the built type's argument list.
+        | Argument
+        /// On the built type itself: a transparent abbreviation expands to a body with an
+        /// argument list of its own, holding no slot for the measure.
+        | Carrier
+
+    let private measureSiteOf (arity: KeyArity) : MeasureSite =
+        match arity with
+        | KeyArity.Written _ -> MeasureSite.Carrier
+        | KeyArity.Compiled _ -> MeasureSite.Argument
 
     /// `body` is the abbreviation's forced body; `ValueNone` (`Broken`) yields a fresh TyVar
     /// rather than cascading. Prototype-typar constraints are checked against the supplied args
@@ -440,39 +454,42 @@ module internal UnificationTranslate =
             assertVerdictServable ctx site name
             unresolvedRefTy ctx site name
 
-        /// `build` applied to the type-kinded arguments, measured by the measure-kinded one.
-        let apply (typars: TyparList) (build: Block<SemType> -> SemType) : SemType =
+        /// `build` applied to the written arguments in signature order, each measure-kinded
+        /// one placed per `measureSite`.
+        let apply (typars: TyparList) (measureSite: MeasureSite) (build: Block<SemType> -> SemType) : SemType =
             match readTypeArgs ctx site.Tok typars args with
             | ValueNone -> TyVar(ctx.FreshTyVar())
             | ValueSome reads ->
-                // A measure-kinded position holds a free placeholder; the measure lives on the
-                // wrapping measured TyVar.
                 let typeArgs =
                     reads
                     |> Block.map (fun read ->
                         match read with
                         | TypeArgRead.Type ty -> ty
-                        | TypeArgRead.Measure _ -> TyVar(ctx.FreshTyVar())
+                        | TypeArgRead.Measure term -> ctx.MeasureTy term
                     )
 
-                let units =
-                    reads
-                    |> Block.toArray
-                    |> Array.choose (fun read ->
-                        match read with
-                        | TypeArgRead.Measure term -> Some term
-                        | TypeArgRead.Type _ -> None
-                    )
+                match measureSite with
+                | MeasureSite.Argument -> build typeArgs
+                | MeasureSite.Carrier ->
+                    let units =
+                        reads
+                        |> Block.toArray
+                        |> Array.choose (fun read ->
+                            match read with
+                            | TypeArgRead.Measure term -> Some term
+                            | TypeArgRead.Type _ -> None
+                        )
 
-                match units with
-                | [||] -> build typeArgs
-                | [| term |] -> ctx.MeasuredTy(build typeArgs, term)
-                | _ -> errorTy ctx site.Tok (Kind.NotYetSupported "a type with several measure parameters")
+                    match units with
+                    | [||] -> build typeArgs
+                    | [| term |] -> ctx.MeasuredTy(build typeArgs, term)
+                    | _ -> errorTy ctx site.Tok (Kind.NotYetSupported "a type with several measure parameters")
 
         match ctx.Resolution.TypeRefVerdicts.TryGetValue site.Key with
         | ValueSome(TypeRefVerdict.LocalType claim) ->
             apply
                 claim.Typars
+                (measureSiteOf claim.Key.TyparArity)
                 (fun typeArgs ->
                     match resolveClaimedType ctx site claim typeArgs with
                     | ValueSome ty -> ty
@@ -486,6 +503,7 @@ module internal UnificationTranslate =
         | ValueSome(TypeRefVerdict.ExternalType(key, shape)) ->
             apply
                 shape.Typars
+                (measureSiteOf key.TyparArity)
                 (fun typeArgs ->
                     match tryExternalTypeOfShape ctx key shape typeArgs with
                     | ValueSome ty -> ty
@@ -495,7 +513,11 @@ module internal UnificationTranslate =
         | ValueNone ->
             match RuntimeNames.tryTargetOptionalPrimitiveKey name with
             // An unresolved reference has only type-kinded parameters.
-            | ValueNone -> apply (TyparList.positional (TyparIndex.typeSlot args.Length)) (fun _ -> unresolved ())
+            | ValueNone ->
+                apply
+                    (TyparList.positional (TyparIndex.typeSlot args.Length))
+                    MeasureSite.Argument
+                    (fun _ -> unresolved ())
             // A target-optional primitive (`nativeint`, `decimal`, `undefined`, …) resolves to
             // its language-known key on a stack that declares no contract for it; `PlatformTypes`
             // then reports each mention as unsupported on the compiling target.
@@ -504,7 +526,8 @@ module internal UnificationTranslate =
                 let bare = TyConst(key, Block.empty)
 
                 match known |> List.tryFind (fun typars -> typars.Length = args.Length) with
-                | Some typars -> apply typars (fun _ -> bare)
+                // A measured primitive's claim abbreviates its unmeasured self.
+                | Some typars -> apply typars MeasureSite.Carrier (fun _ -> bare)
                 | None ->
                     let nearest = known |> List.minBy (fun typars -> abs (typars.Length - args.Length))
                     ctx.Report(site.Tok, Kind.TypeArgArity(name, nearest.Length, args.Length))
