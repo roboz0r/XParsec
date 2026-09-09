@@ -210,24 +210,48 @@ Regressions: `ConstExprCheckTests` over real name resolution, and two whole-pipe
 `AttributeFoldTests` (a shadowed `(|||)` is FS0267, an unshadowed one folds) plus one in
 `ElaborateTests` (a local `[<Literal>]` reference is the constant at its use site).
 
-### 4. One folding site
+### 4. One folding site — LANDED
 
-Every early consumer of `TAttributes` reads presence, not arguments: `AttributeVerdicts` is
-by-key throughout, and `MemberRegistration.fs:178` wants `AllowNullLiteral`'s presence.
-`AttributeDecode` already works off `ResolvedAttributes`. Point those consumers at
-`ResolvedAttributes.Has`, then collapse the six `AttributeFold.build`/`resolveAndBuild` sites
-(`DeclRegistration.fs:74,133`, `UnionRegistration.fs:148`, `Passes/Attributes.fs:70`,
-`Elaborate.fs:277`, `Elaborate/Members.fs:239`) into one pass that runs after every declaration
-is registered.
+A declaration position is DECLARED where it is written and CHECKED there, once.
+`PassContext.DeclareAttributes` folds the arguments under the walk's live environment and
+files an `AttributePosition` — the element `[<AttributeUsage>]` is enforced against, the
+attributes as resolved, and their checked form — keyed by `AttributeSite.ofToken` off the
+element's own anchor token (`AttributeSite.ofSite` for a type declaration). A site is declared
+exactly once, and `PassContext.AttributesAt` is a total lookup: a miss is a producer bug and
+fails. `DeclareAttributes` is the only route to `AttributeFold.build`.
 
-Fold-all-then-enforce in one pass also removes `declaredValidOn`'s (`AttributeFold.fs:214`)
-dependence on registration scan order for reaching an attribute class's own `AttributeUsage`.
+Only target ENFORCEMENT is deferred: `Passes.Attributes.run` walks the positions in source
+order after every declaration is filed, so `declaredValidOn` reads an attribute class's mask
+off its own checked position regardless of registration scan order, pinned by
+`AttributeFoldTests`. Folding at declaration is fsc's own rule: `[<Tag(LaterLit)>]` above the
+`[<Literal>] let LaterLit` is FS0039, and `type [<Tag(int E.X)>] A1() = … and E = | X = 7` is
+FS0039 on `E.X` inside the recursive group, so the fold has nothing to gain from waiting.
 
-Bring the unchecked positions in here: typar definitions, parameters, abstract member
-signatures, exception declarations, class `let`/`do` preambles and abbreviations. Each gains the
-fold, the store and the target check the type-declaration positions have.
+Registry infos carry `ResolvedAttributes`, and the equality / comparison / qualified-access /
+null-literal verdicts read an `AttributeKeys` projected from either the resolved or the checked
+form. `RecordFieldInfo` and `UnionCaseInfo` carry the `AttributeSite` their attributes are filed
+under in place of the dead `DeclKey` they had. `EnumTypeInfo.Cases` is built whole at
+registration, each case's checked attributes included.
 
-Done when: one call site builds every `TAttributes` in an implementation file.
+One departure from the shape written above: **the `.fsi` leg goes through the same table.**
+`SignatureResolution` declares its `val` and class positions and `resolveFile` runs the pass,
+so stage 5 has one mechanism to extend rather than two.
+
+New positions: parameters (`Parameter`), declared type parameters (`TypeParameter`) and
+abstract member signatures, which take `Method` or `Property` off the signature's own shape.
+Member positions are declared at REGISTRATION, so an interface's abstract members — which
+`Elaborate` builds from the registry rather than from `translateMemberElement` — are covered.
+`AttrTarget.Unchecked` had no producer left and is gone, so `AttrTarget.mask` is total.
+
+Two positions the plan listed are NOT in:
+
+- **Exception declarations.** `ModuleElem.Exception` is `NotYetSupported` at
+  `Validation.fs:257`; there is no registered declaration for a position to hang off.
+- **Class `let` / `do` preambles.** `fsi` reports FS0842 TWICE for one class `let`, under two
+  different masks (`method, field, return value` and `property, field, return value`, the
+  second varying with the binding's shape), and discards attributes on a class `do` with
+  FS0522. Which element a class `let` occupies is an open question for the user rather than a
+  guess to encode.
 
 ### 5. The `.fsi` leg
 

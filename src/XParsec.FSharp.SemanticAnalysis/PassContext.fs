@@ -324,6 +324,8 @@ type PassContextResolution =
         /// Keyed by a module-level `[<Literal>]` binding's pattern `NodeKey` (the
         /// `LocalModuleMember.BindingSite` a value resolution yields): the RHS as checked.
         LiteralValues: SideTable<TConstExpr>
+        /// Keyed by an attributed declaration's site (`AttributeSite`).
+        AttributePositions: AttributePositionTable
     }
 
 module PassContextResolution =
@@ -358,6 +360,7 @@ module PassContextResolution =
             AttributeVerdicts = SideTable<_>()
             LocalModuleMembers = Dictionary<_, _>()
             LiteralValues = SideTable<_>()
+            AttributePositions = AttributePositionTable()
         }
 
 /// An `x?name` site whose result var (`Root`) may escape `dynamic` through context; for

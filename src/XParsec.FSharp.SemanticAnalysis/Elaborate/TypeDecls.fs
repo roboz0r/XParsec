@@ -226,7 +226,7 @@ module internal ElaborateTypeDecls =
                             {
                                 Name = c.Name
                                 Fields = fields
-                                Attributes = c.Attributes
+                                Attributes = ctx.AttributesAt c.AttributeSite
                             }
                     }
                 )
@@ -245,7 +245,7 @@ module internal ElaborateTypeDecls =
                     name
                     info.TypeKey
                     scope.Typars
-                    info.Attributes
+                    (ctx.AttributesAt(AttributeSite.ofSite info.DeclSite))
                     (TTypeKind.Union
                         {
                             Cases = cases
@@ -297,7 +297,15 @@ module internal ElaborateTypeDecls =
                 )
             | ValueNone -> ()
 
-            Some(mkTypeDecl name info.TypeKey TyparList.empty info.Attributes (TTypeKind.Enum tcases), [])
+            Some(
+                mkTypeDecl
+                    name
+                    info.TypeKey
+                    TyparList.empty
+                    (ctx.AttributesAt(AttributeSite.ofSite info.DeclSite))
+                    (TTypeKind.Enum tcases),
+                []
+            )
 
     /// Surface a `TypeDefn.Record` as a `TDecl.Type` from the resolved `RecordTypeInfo`.
     /// Field types are remapped through the declaring-type typars, as for a union.
@@ -331,7 +339,7 @@ module internal ElaborateTypeDecls =
                                 Name = f.Name
                                 Type = f.Type
                                 IsMutable = f.IsMutable
-                                Attributes = f.Attributes
+                                Attributes = ctx.AttributesAt f.AttributeSite
                             }
                     }
                 )
@@ -350,7 +358,7 @@ module internal ElaborateTypeDecls =
                     name
                     info.TypeKey
                     scope.Typars
-                    info.Attributes
+                    (ctx.AttributesAt(AttributeSite.ofSite info.DeclSite))
                     (TTypeKind.Record
                         {
                             Fields = fields
@@ -533,7 +541,7 @@ module internal ElaborateTypeDecls =
                     name
                     info.TypeKey
                     scope.Typars
-                    info.Attributes
+                    (ctx.AttributesAt(AttributeSite.ofSite info.DeclSite))
                     (TTypeKind.Class
                         {
                             Fields = instanceFields
@@ -573,7 +581,7 @@ module internal ElaborateTypeDecls =
                     claim.Name
                     info.TypeKey
                     (declTyparList ctx.Store info.TypeParams)
-                    info.Attributes
+                    (ctx.AttributesAt(AttributeSite.ofSite info.DeclSite))
                     (TTypeKind.Abbrev body),
                 env
             )
@@ -656,7 +664,7 @@ module internal ElaborateTypeDecls =
 
                 let attrs =
                     match TypeRegistry.tryClassByKey ctx.Types key with
-                    | ValueSome info -> info.Attributes
+                    | ValueSome info -> ctx.AttributesAt(AttributeSite.ofSite info.DeclSite)
                     // Registration files every all-abstract decl as a `ClassTypeInfo`, so a
                     // miss is a producer bug, not an attribute-less interface.
                     | ValueNone -> failwithf "tryTypeDecl: interface '%s' has no registered ClassTypeInfo" name

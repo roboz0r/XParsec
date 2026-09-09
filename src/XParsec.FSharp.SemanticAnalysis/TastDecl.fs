@@ -400,16 +400,16 @@ type TTypeDeclG<'ty, 'tok, 'id, 'body> =
     /// `[<RequireQualifiedAccess>]`, type-level so it covers records AND unions: a bare
     /// `{ X = … }` or a bare case name does not resolve to this type.
     member this.IsRequireQualifiedAccess: bool =
-        AttributeVerdicts.isRequireQualifiedAccess this.Attributes
+        AttributeVerdicts.isRequireQualifiedAccess (AttributeVerdicts.keysOf this.Attributes)
 
     /// The attribute-decided verdict, else the kind's default: `Reference` for a reference
     /// class / interface, `Structural` for every data kind.
     member this.EqualitySupport: EqualityVerdict =
-        AttributeVerdicts.equalitySupport this.DefnKind this.Attributes
+        AttributeVerdicts.equalitySupport this.DefnKind (AttributeVerdicts.keysOf this.Attributes)
 
     /// The attribute-decided verdict, else `NoComparison`: comparison is opt-in.
     member this.ComparisonSupport: ComparisonVerdict =
-        AttributeVerdicts.comparisonSupport this.DefnKind this.Attributes
+        AttributeVerdicts.comparisonSupport this.DefnKind (AttributeVerdicts.keysOf this.Attributes)
 
 [<RequireQualifiedAccess>]
 type TDeclG<'ty, 'tok, 'id> =

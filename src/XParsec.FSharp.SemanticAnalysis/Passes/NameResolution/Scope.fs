@@ -327,6 +327,7 @@ module NameResolutionScope =
 
         for p in pats do
             stampPatCases ctx p
+            Attributes.declareParamAttributes ctx p
 
             for n, k in bindingsOfPat ctx p do
                 s <- Map.add n (scopeBinding k false) s

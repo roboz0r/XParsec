@@ -745,6 +745,72 @@ let targetTests =
                 | other -> failtestf "expected exactly the interface error, got %A" other
             }
 
+            test "an attribute declared later in a rec group states its mask at an earlier use" {
+                let pools =
+                    freezeFor (
+                        src
+                            [
+                                "type [<Late>] First() ="
+                                "    member this.X = 1"
+                                ""
+                                "and [<AttributeUsage(AttributeTargets.Method)>] LateAttribute() ="
+                                "    member this.M() = 1"
+                            ]
+                    )
+
+                match errorMessages (FrozenPools.blockingErrors pools) with
+                | [ msg ] ->
+                    Expect.equal
+                        msg
+                        "This attribute cannot be applied to class. Valid targets are: method"
+                        "the later declaration's mask reaches the earlier use"
+                | other -> failtestf "expected exactly the class error, got %A" other
+            }
+
+            test "a parameter, a type parameter and an abstract member each take their own element" {
+                let pools =
+                    freezeFor (
+                        src
+                            [
+                                "[<AttributeUsage(AttributeTargets.Parameter)>]"
+                                "type ParamOnlyAttribute() ="
+                                "    member this.M() = 1"
+                                ""
+                                "[<AttributeUsage(AttributeTargets.GenericParameter)>]"
+                                "type TyparOnlyAttribute() ="
+                                "    member this.M() = 1"
+                                ""
+                                "let ok ([<ParamOnly>] x: int) = x"
+                                "let bad ([<TyparOnly>] y: int) = y"
+                                ""
+                                "type Boxed<[<TyparOnly>] 'T> = { V: 'T }"
+                                "type Boxed2<[<ParamOnly>] 'T> = { W: 'T }"
+                                ""
+                                "type IFace ="
+                                "    [<ParamOnly>]"
+                                "    abstract M: int -> int"
+                            ]
+                    )
+
+                match errorMessages (FrozenPools.blockingErrors pools) with
+                | [ onParam; onTypar; onAbstract ] ->
+                    Expect.equal
+                        onParam
+                        "This attribute cannot be applied to parameter. Valid targets are: generic parameter"
+                        "a parameter is a Parameter element"
+
+                    Expect.equal
+                        onTypar
+                        "This attribute cannot be applied to generic parameter. Valid targets are: parameter"
+                        "a declared typar is a GenericParameter element"
+
+                    Expect.equal
+                        onAbstract
+                        "This attribute cannot be applied to method, return value. Valid targets are: parameter"
+                        "a curried abstract signature is a Method element"
+                | other -> failtestf "expected the parameter, typar and abstract errors, got %A" other
+            }
+
             test "a contract-declared mask is enforced: [<Sealed>] on a method errors" {
                 let pools =
                     freezeFor (src [ "type K() ="; "    [<Sealed>]"; "    member this.M() = 1" ])
@@ -756,5 +822,50 @@ let targetTests =
                         "This attribute cannot be applied to method, return value. Valid targets are: class"
                         "SealedAttribute's contract mask is Class"
                 | other -> failtestf "expected exactly the [<Sealed>] error, got %A" other
+            }
+        ]
+
+let private position (usedOn: AttrTarget) : AttributePosition =
+    {
+        UsedOn = usedOn
+        Attributes = ResolvedAttributes.None
+        Checked = Block.empty
+    }
+
+let private siteAt (offset: int) =
+    NodeKey.ofSource offset NodeKind.DeclAttributes
+
+[<Tests>]
+let positionTableTests =
+    testList
+        "AttributePositionTable"
+        [
+            test "Seal takes the positions in source order" {
+                let table = AttributePositionTable()
+                table.Declare(siteAt 20, position AttrTarget.Method)
+                table.Declare(siteAt 5, position AttrTarget.Class)
+
+                Expect.equal
+                    [ for p in table.Seal().InSourceOrder -> p.UsedOn ]
+                    [ AttrTarget.Class; AttrTarget.Method ]
+                    "the earlier offset comes first"
+            }
+
+            test "a position declared after the seal fails" {
+                let table = AttributePositionTable()
+                table.Seal() |> ignore
+
+                Expect.throws
+                    (fun () -> table.Declare(siteAt 0, position AttrTarget.Class))
+                    "a pass scheduled after the check cannot file a position it would miss"
+            }
+
+            test "one site declared twice fails" {
+                let table = AttributePositionTable()
+                table.Declare(siteAt 0, position AttrTarget.Class)
+
+                Expect.throws
+                    (fun () -> table.Declare(siteAt 0, position AttrTarget.Method))
+                    "the second declaration would overwrite the first"
             }
         ]

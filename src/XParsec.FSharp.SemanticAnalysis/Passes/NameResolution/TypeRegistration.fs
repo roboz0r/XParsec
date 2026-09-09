@@ -95,7 +95,7 @@ module NameResolutionTypeRegistration =
         Block.ofSeq (
             seq {
                 for (name, attrs) in typarSlotsOfTypeName ctx tn do
-                    ctx.ResolveAttributes attrs |> ignore
+                    ctx.DeclareAttributeSets(attrs, AttrTarget.TypeParameter)
 
                     yield
                         {

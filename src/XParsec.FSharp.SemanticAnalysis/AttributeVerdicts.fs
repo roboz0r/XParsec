@@ -34,6 +34,11 @@ type TAttribute =
 /// A declaration position's attributes in written order.
 type TAttributes = Block<TAttribute>
 
+/// The attribute types written at a declaration position, in written order. The equality,
+/// comparison, qualified-access and null-literal verdicts are decided by presence alone, so
+/// a resolved and a checked attribute set both reduce to this.
+type AttributeKeys = Block<TypeKey>
+
 /// The axis the attribute-legality matrices key on: one case per shape a declaration can
 /// take, because a record may carry `[<ReferenceEquality>]` where a struct record cannot.
 /// `[<Struct>]` is its own axis on a record, union or class: the value-type form differs on
@@ -203,12 +208,13 @@ module AttributeVerdicts =
             }
         ]
 
-    let has (attrs: TAttributes) (key: TypeKey) : bool =
-        attrs |> Block.exists (fun a -> a.Key = key)
+    let keysOf (attrs: TAttributes) : AttributeKeys = attrs |> Block.map (fun a -> a.Key)
+
+    let has (keys: AttributeKeys) (key: TypeKey) : bool = keys |> Block.exists (fun k -> k = key)
 
     /// Every present row, in table order, so a contradictory mix stays visible to the FS0377 check.
-    let presentRows (attrs: TAttributes) (rows: EqCompAttr<'Verdict> list) : EqCompAttr<'Verdict> list =
-        rows |> List.filter (fun r -> has attrs r.Key)
+    let presentRows (keys: AttributeKeys) (rows: EqCompAttr<'Verdict> list) : EqCompAttr<'Verdict> list =
+        rows |> List.filter (fun r -> has keys r.Key)
 
     let isLegalOn (kind: TypeDefnKind) (r: EqCompAttr<'Verdict>) : bool = List.contains kind r.LegalKinds
 
@@ -223,18 +229,18 @@ module AttributeVerdicts =
     // Off the LEGAL rows only: a posture refused for this kind does not stamp its verdict.
     let private firstLegalVerdict
         (kind: TypeDefnKind)
-        (attrs: TAttributes)
+        (keys: AttributeKeys)
         (rows: EqCompAttr<'Verdict> list)
         : 'Verdict voption =
-        match presentRows attrs rows |> List.filter (isLegalOn kind) with
+        match presentRows keys rows |> List.filter (isLegalOn kind) with
         | r :: _ -> ValueSome r.Verdict
         | [] -> ValueNone
 
     /// The verdict the attributes decide, else the kind's default: `Reference` for a
     /// reference class / interface, `Structural` for every data kind — a record with a
     /// mutable field included, matching fsc.
-    let equalitySupport (kind: TypeDefnKind) (attrs: TAttributes) : EqualityVerdict =
-        match firstLegalVerdict kind attrs equalityAttrs with
+    let equalitySupport (kind: TypeDefnKind) (keys: AttributeKeys) : EqualityVerdict =
+        match firstLegalVerdict kind keys equalityAttrs with
         | ValueSome v -> v
         | ValueNone ->
             match kind with
@@ -243,16 +249,16 @@ module AttributeVerdicts =
             | _ -> EqualityVerdict.Structural
 
     /// The verdict the attributes decide, else `NoComparison`: comparison is opt-in on every kind.
-    let comparisonSupport (kind: TypeDefnKind) (attrs: TAttributes) : ComparisonVerdict =
-        match firstLegalVerdict kind attrs comparisonAttrs with
+    let comparisonSupport (kind: TypeDefnKind) (keys: AttributeKeys) : ComparisonVerdict =
+        match firstLegalVerdict kind keys comparisonAttrs with
         | ValueSome v -> v
         | ValueNone -> ComparisonVerdict.NoComparison
 
-    let isRequireQualifiedAccess (attrs: TAttributes) : bool =
-        has attrs RuntimeNames.requireQualifiedAccessAttributeKey
+    let isRequireQualifiedAccess (keys: AttributeKeys) : bool =
+        has keys RuntimeNames.requireQualifiedAccessAttributeKey
 
     /// `[<AllowNullLiteral>]` present AND legal for `kind`; illegal presence is FS0934,
     /// reported by the validation pass.
-    let allowNullLiteral (kind: TypeDefnKind) (attrs: TAttributes) : bool =
-        has attrs RuntimeNames.allowNullLiteralAttributeKey
+    let allowNullLiteral (kind: TypeDefnKind) (keys: AttributeKeys) : bool =
+        has keys RuntimeNames.allowNullLiteralAttributeKey
         && List.contains kind allowNullLiteralKinds

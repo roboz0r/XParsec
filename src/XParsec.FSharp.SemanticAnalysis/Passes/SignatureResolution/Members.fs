@@ -344,7 +344,9 @@ module SignatureResolutionMembers =
 
         let kind = TypeDefnKind.ofClassOrInterface isInterface decoded.IsValueType
 
-        let foldedAttrs = Attributes.foldTypeDefn ctx kind resolvedAttrs
+        let attributeSite = AttributeSite.ofSite id.DeclSite
+        ctx.DeclareAttributes(attributeSite, Attributes.attrTargetOfKind kind, resolvedAttrs)
+        let foldedAttrs = ctx.AttributesAt attributeSite
 
         let shape =
             underTypars

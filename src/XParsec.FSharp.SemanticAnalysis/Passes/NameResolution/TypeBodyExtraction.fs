@@ -397,7 +397,8 @@ module NameResolutionTypeBodyExtraction =
 
         for md in memberDefns do
             match md with
-            | MemberDefn.Member(staticToken = s; keyword = kw; defn = d) ->
+            | MemberDefn.Member(attributes = attrs; staticToken = s; keyword = kw; defn = d) ->
+                Attributes.declareMemberAttributes ctx attrs kw d
                 addMembersOfDefn ctx typarNames ifaceMembers s kw d
             | MemberDefn.Value(ident = id) ->
                 ctx.Report(id, Kind.Message "A field declaration is not permitted in an interface implementation")
@@ -430,7 +431,8 @@ module NameResolutionTypeBodyExtraction =
 
         for el in elements do
             match el with
-            | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; keyword = kw; defn = d)) ->
+            | TypeDefnElement.Member(MemberDefn.Member(attributes = attrs; staticToken = s; keyword = kw; defn = d)) ->
+                Attributes.declareMemberAttributes ctx attrs kw d
                 addMembersOfDefn ctx typarNames members s kw d
             | TypeDefnElement.Member(MemberDefn.AdditionalConstructor(newToken = nt; pat = pat; body = body)) ->
                 match host with

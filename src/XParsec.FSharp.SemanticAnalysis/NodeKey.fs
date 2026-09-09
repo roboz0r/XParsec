@@ -94,6 +94,9 @@ type NodeKind =
     | DeclNamespace = 302us
     | DeclType = 303us
     | DeclOpen = 304us
+    /// The attributes written on a declaration element, keyed off the element's own anchor
+    /// token (a field / case identifier, a `member` keyword, a binding's site).
+    | DeclAttributes = 305us
 
     // Synthetic-only: real CST nodes never carry these kinds.
     | SynthCEMethodCall = 1000us

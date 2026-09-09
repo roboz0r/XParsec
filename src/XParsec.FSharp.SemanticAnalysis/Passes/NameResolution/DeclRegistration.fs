@@ -64,16 +64,10 @@ module NameResolutionDeclRegistration =
 
                 for f in fields do
                     let (RecordField(attributes = fAttrs; mutableToken = mt; ident = fid; typ = ft)) = f
+                    let fieldSite = AttributeSite.ofToken fid
+                    ctx.DeclareAttributes(fieldSite, AttrTarget.RecordField, fAttrs)
 
-                    fieldInfos.Add(
-                        RecordFieldInfo(
-                            ctx.NameOf fid,
-                            translateType ctx ft,
-                            mt.IsSome,
-                            NodeKey.ofToken fid NodeKind.DeclType,
-                            AttributeFold.resolveAndBuild ctx AttrTarget.RecordField fAttrs
-                        )
-                    )
+                    fieldInfos.Add(RecordFieldInfo(ctx.NameOf fid, translateType ctx ft, mt.IsSome, fieldSite))
             )
 
         let fieldInfos = fieldInfos.ToArray()
@@ -86,12 +80,8 @@ module NameResolutionDeclRegistration =
         let isStruct = isStructAttributed ctx tn
         info.IsValueType <- isStruct
 
-        info.Attributes <-
-            Attributes.foldAndValidateTypeDefn
-                ctx
-                info.DefnKind
-                declSite.Tok
-                (ctx.ResolveAttributes(Attributes.attributesOfTypeName tn))
+        info.Attributes <- ctx.ResolveAttributes(Attributes.attributesOfTypeName tn)
+        Attributes.declareTypeDefn ctx info.DefnKind declSite.Tok info.Attributes
 
         rejectCustomOnDataType ctx declSite.Tok info.EqualitySupport info.ComparisonSupport
 
@@ -114,29 +104,27 @@ module NameResolutionDeclRegistration =
         (tn: TypeName<SyntaxToken>)
         (cases: EnumTypeCases<SyntaxToken>)
         : unit =
-        let tattrs =
-            Attributes.foldAndValidateTypeDefn
-                ctx
-                TypeDefnKind.Enum
-                id.DeclSite.Tok
-                (ctx.ResolveAttributes(Attributes.attributesOfTypeName tn))
-
         let declSite = id.DeclSite
+        let attrs = ctx.ResolveAttributes(Attributes.attributesOfTypeName tn)
+        Attributes.declareTypeDefn ctx TypeDefnKind.Enum declSite.Tok attrs
 
         let resolved =
             Block.ofSeq (
                 seq {
                     for EnumTypeCase(attributes = caseAttrs; ident = cid; constValue = v) in cases ->
+                        let caseSite = AttributeSite.ofToken cid
+                        ctx.DeclareAttributes(caseSite, AttrTarget.EnumCase, caseAttrs)
+
                         EnumCaseValues.resolveCase
                             ctx.NameOf
                             (fun t kind -> ctx.Report(t, kind))
-                            (AttributeFold.resolveAndBuild ctx AttrTarget.EnumCase caseAttrs)
+                            (ctx.AttributesAt caseSite)
                             cid
                             v
                 }
             )
 
-        let info = EnumTypeInfo(id.Name, resolved, declSite.Key, id.Key, tattrs)
+        let info = EnumTypeInfo(id.Name, resolved, declSite, id.Key, attrs)
         TypeRegistry.registerEnum ctx.Types info
 
         // Record the decl-site identity so `Elaborate.tryEnumType`
@@ -212,12 +200,8 @@ module NameResolutionDeclRegistration =
         let name = id.Name
         let typeParams = declaredTyparsOfTypeName ctx tn
 
-        let attributes =
-            Attributes.foldAndValidateTypeDefn
-                ctx
-                TypeDefnKind.Abbrev
-                id.DeclSite.Tok
-                (ctx.ResolveAttributes(Attributes.attributesOfTypeName tn))
+        let attributes = ctx.ResolveAttributes(Attributes.attributesOfTypeName tn)
+        Attributes.declareTypeDefn ctx TypeDefnKind.Abbrev id.DeclSite.Tok attributes
 
         if hasAugmentation then
             ctx.Report(
@@ -243,12 +227,11 @@ module NameResolutionDeclRegistration =
         (rhs: Type<SyntaxToken> voption)
         : unit =
         // A measure stores no attributes of its own.
-        Attributes.foldAndValidateTypeDefn
+        Attributes.declareTypeDefn
             ctx
             TypeDefnKind.Measure
             id.DeclSite.Tok
             (ctx.ResolveAttributes(Attributes.attributesOfTypeName tn))
-        |> ignore
 
         let body =
             match rhs with

@@ -214,29 +214,17 @@ module internal ElaborateMembers =
         : TTypeMember[] =
         match el with
         | TypeDefnElement.Member(MemberDefn.Member(
-            attributes = memberAttrs
-            staticToken = s
-            keyword = kw
-            inlineToken = inlineTok
-            access = memberAccess
-            defn = d)) ->
+            staticToken = s; keyword = kw; inlineToken = inlineTok; access = memberAccess; defn = d)) ->
             let isStatic = s.IsSome
             // Member-level accessibility is carried on `MemberDefn.Member.access` (`member private
             // this.M`), NOT the inner `Binding.access`, always `ValueNone` for a member.
             let memberAccessibility = accessibilityOfToken memberAccess
             let decls = memberDecls ctx d
 
-            // Every decl a `PropertyWithGetSet` yields accesses the one property, so the first
-            // decl's kind is the element's. `AbstractSignature` yields none: no element to check.
-            let usedOn =
-                match decls with
-                | [||] -> AttrTarget.Unchecked
-                | ds ->
-                    match TMemberKind.propertyOf ds.[0].Name ds.[0].Kind with
-                    | ValueSome _ -> AttrTarget.Property
-                    | ValueNone -> AttrTarget.Method
-
-            let attributes = AttributeFold.resolveAndBuild ctx usedOn memberAttrs
+            // Registration declared the element's attribute position, under the element it
+            // occupies.
+            let attributes =
+                ctx.AttributesAt(AttributeSite.ofToken (Attributes.memberKeywordToken kw))
 
             decls
             |> Array.map (fun decl ->

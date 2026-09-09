@@ -24,6 +24,7 @@ module Pipeline =
         // Elaboration lowers the CST to a typar-quantified TAST with every inline call site
         // already expanded, so escape analysis below sees the closures codegen emits.
         let tast0 = Elaborate.run ctx impl
+        Attributes.run ctx
         let regions = Regions.run ctx tast0.Decls tast0.Specializations
         // Codegen has no `PassContext`, so the closure verdicts are carried on the TastFile.
         let tast0 =

@@ -21,12 +21,11 @@ module internal LocalSymbolKey =
         SymbolKeyOps.memberKey declKey name Block.empty 0 MemberKind.Property
 
 [<Sealed>]
-type RecordFieldInfo(name: string, ty: SemType, isMutable: bool, declKey: NodeKey, attributes: TAttributes) =
+type RecordFieldInfo(name: string, ty: SemType, isMutable: bool, attributeSite: NodeKey) =
     member val Name = name
     member val Type = ty
     member val IsMutable = isMutable
-    member val DeclKey = declKey
-    member val Attributes: TAttributes = attributes
+    member val AttributeSite: NodeKey = attributeSite
 
 /// How resolution reads a member: whether a use site applies an argument group to it.
 /// `Property` is the parameterless getter, an `AutoProperty` included; every other accessor
@@ -114,8 +113,7 @@ type UnionCaseInfo
         unionKey: TypeKey,
         fields: SemType[],
         fieldNames: string voption[],
-        declKey: NodeKey,
-        attributes: TAttributes
+        attributeSite: NodeKey
     ) =
     member val Name = name
     /// The declaring union's short name AS WRITTEN, compared against a written qualifier
@@ -124,8 +122,7 @@ type UnionCaseInfo
     member val UnionKey = unionKey
     member val Fields = fields
     member val FieldNames = fieldNames
-    member val DeclKey = declKey
-    member val Attributes: TAttributes = attributes
+    member val AttributeSite: NodeKey = attributeSite
 
 [<RequireQualifiedAccess>]
 type InterfaceImplResolution =
@@ -215,22 +212,22 @@ type RecordTypeInfo
     member val InterfaceImpls: ClassInterfaceImplInfo[] = [||] with get, set
     /// `[<Struct>]` record — a `System.ValueType`-based value type.
     member val IsValueType: bool = false with get, set
-    /// The declaration's attributes, resolved and folded at registration.
-    member val Attributes: TAttributes = Block.empty with get, set
+    /// The checked form is filed under `AttributeSite.ofSite DeclSite`.
+    member val Attributes: ResolvedAttributes = ResolvedAttributes.None with get, set
 
     member this.DefnKind: TypeDefnKind = TypeDefnKind.ofRecord this.IsValueType
 
     /// The attribute-decided verdict, else `Structural`.
     member this.EqualitySupport: EqualityVerdict =
-        AttributeVerdicts.equalitySupport this.DefnKind this.Attributes
+        AttributeVerdicts.equalitySupport this.DefnKind this.Attributes.Keys
 
     /// The attribute-decided verdict, else `NoComparison`.
     member this.ComparisonSupport: ComparisonVerdict =
-        AttributeVerdicts.comparisonSupport this.DefnKind this.Attributes
+        AttributeVerdicts.comparisonSupport this.DefnKind this.Attributes.Keys
 
     /// `[<RequireQualifiedAccess>]`: a bare `{ X = … }` does not resolve to this record.
     member this.IsRequireQualifiedAccess: bool =
-        AttributeVerdicts.isRequireQualifiedAccess this.Attributes
+        AttributeVerdicts.isRequireQualifiedAccess this.Attributes.Keys
 
     interface IInterfaceImplHost with
         member this.Key = this.Key
@@ -269,22 +266,22 @@ type UnionTypeInfo
     member val InterfaceImpls: ClassInterfaceImplInfo[] = [||] with get, set
     /// `[<Struct>]` union — a flat tag-discriminated value type.
     member val IsValueType: bool = false with get, set
-    /// The declaration's attributes, resolved and folded at registration.
-    member val Attributes: TAttributes = Block.empty with get, set
+    /// The checked form is filed under `AttributeSite.ofSite DeclSite`.
+    member val Attributes: ResolvedAttributes = ResolvedAttributes.None with get, set
 
     member this.DefnKind: TypeDefnKind = TypeDefnKind.ofUnion this.IsValueType
 
     /// The attribute-decided verdict, else `Structural`.
     member this.EqualitySupport: EqualityVerdict =
-        AttributeVerdicts.equalitySupport this.DefnKind this.Attributes
+        AttributeVerdicts.equalitySupport this.DefnKind this.Attributes.Keys
 
     /// The attribute-decided verdict, else `NoComparison`.
     member this.ComparisonSupport: ComparisonVerdict =
-        AttributeVerdicts.comparisonSupport this.DefnKind this.Attributes
+        AttributeVerdicts.comparisonSupport this.DefnKind this.Attributes.Keys
 
     /// `[<RequireQualifiedAccess>]`: `Color.Red` is then required, not a bare `Red`.
     member this.IsRequireQualifiedAccess: bool =
-        AttributeVerdicts.isRequireQualifiedAccess this.Attributes
+        AttributeVerdicts.isRequireQualifiedAccess this.Attributes.Keys
 
     interface IInterfaceImplHost with
         member this.Key = this.Key
@@ -335,7 +332,8 @@ type IntrinsicAbbrevInfo
 /// An enum declaration (`type E = | C1 = v1 | …`): non-generic, no member side tables, a
 /// closed named set of cases.
 [<Sealed>]
-type EnumTypeInfo(name: string, cases: Block<TEnumCase>, declKey: NodeKey, key: TypeKey, attributes: TAttributes) =
+type EnumTypeInfo
+    (name: string, cases: Block<TEnumCase>, declSite: NodeSite, key: TypeKey, attributes: ResolvedAttributes) =
     member val Name = name
     /// The cases in declaration order, each with its resolved literal (`ValueNone` for a
     /// rejected value, reported at registration).
@@ -357,10 +355,11 @@ type EnumTypeInfo(name: string, cases: Block<TEnumCase>, declKey: NodeKey, key: 
         else
             ValueNone
 
-    member val DeclKey = declKey
+    member val DeclSite: NodeSite = declSite
     member val TypeKey: TypeKey = key
     member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
-    member val Attributes: TAttributes = attributes
+    /// The checked form is filed under `AttributeSite.ofSite DeclSite`.
+    member val Attributes: ResolvedAttributes = attributes
 
     member this.HasCase(n: string) =
         cases |> Block.exists (fun c -> c.Name = n)
@@ -402,15 +401,15 @@ type AbbreviationInfo
         declSite: NodeSite,
         typarConstraints: TyparConstraints<SyntaxToken> voption,
         key: TypeKey,
-        attributes: TAttributes
+        attributes: ResolvedAttributes
     ) =
     inherit FillableDecl<SemType>(name, declSite, key)
     member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
     member val TypeParams = typeParams
     member val RhsCst = rhsCst
     member val TyparConstraints = typarConstraints
-    /// The declaration's attributes, resolved and folded at registration.
-    member val Attributes: TAttributes = attributes
+    /// The checked form is filed under `AttributeSite.ofSite DeclSite`.
+    member val Attributes: ResolvedAttributes = attributes
 
 /// A `[<Measure>]` declaration. A BASE measure (`type m`) has no `RhsCst` and is its own
 /// atom; an abbreviation (`type v = m / s`) expands to `RhsCst`, forced on first reference.
@@ -541,8 +540,8 @@ type ClassTypeInfo
     member val IsInterface: bool = false with get, set
     /// `[<IsByRefLike>]` — a byref-like (`ref struct`) value type; implies `IsValueType`.
     member val IsByRefLike: bool = false with get, set
-    /// The declaration's attributes, resolved and folded at registration.
-    member val Attributes: TAttributes = Block.empty with get, set
+    /// The checked form is filed under `AttributeSite.ofSite DeclSite`.
+    member val Attributes: ResolvedAttributes = ResolvedAttributes.None with get, set
 
     member this.DefnKind: TypeDefnKind =
         TypeDefnKind.ofClassOrInterface this.IsInterface this.IsValueType
@@ -550,11 +549,11 @@ type ClassTypeInfo
     /// The attribute-decided verdict, else `Reference` for a reference class / interface and
     /// `Structural` for a value type.
     member this.EqualitySupport: EqualityVerdict =
-        AttributeVerdicts.equalitySupport this.DefnKind this.Attributes
+        AttributeVerdicts.equalitySupport this.DefnKind this.Attributes.Keys
 
     /// The attribute-decided verdict, else `NoComparison`.
     member this.ComparisonSupport: ComparisonVerdict =
-        AttributeVerdicts.comparisonSupport this.DefnKind this.Attributes
+        AttributeVerdicts.comparisonSupport this.DefnKind this.Attributes.Keys
 
     interface IInterfaceImplHost with
         member this.Key = this.Key

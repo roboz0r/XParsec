@@ -61,6 +61,8 @@ module NameResolutionUnionRegistration =
     type private UnionCaseShape =
         {
             Name: string
+            /// The case's own name token: the key its attribute position is filed under.
+            Ident: SyntaxToken
             FieldNames: string voption[]
             FieldTypes: Type<SyntaxToken>[]
         }
@@ -68,7 +70,12 @@ module NameResolutionUnionRegistration =
     /// A case's shape, with its field names checked under FS3176. `ValueNone` drops a case
     /// with no ctor name.
     let private inspectCaseData (ctx: PassContext) (data: UnionTypeCaseData<SyntaxToken>) : UnionCaseShape voption =
-        let named (name: string) (fieldNames: (string * SyntaxToken) voption[]) (fieldTypes: Type<SyntaxToken>[]) =
+        let named
+            (name: string)
+            (ident: IdentOrOp<SyntaxToken>)
+            (fieldNames: (string * SyntaxToken) voption[])
+            (fieldTypes: Type<SyntaxToken>[])
+            =
             if name.Length = 0 then
                 ValueNone
             else
@@ -77,16 +84,18 @@ module NameResolutionUnionRegistration =
                 ValueSome
                     {
                         Name = name
+                        Ident = CstKeys.firstTokenOfIdentOrOp ident
                         FieldNames = fieldNames |> Array.map (ValueOption.map fst)
                         FieldTypes = fieldTypes
                     }
 
         match data with
         | UnionTypeCaseData.Nullary(name = ident)
-        | UnionTypeCaseData.GadtNullary(name = ident) -> named (unionCaseName ctx ident) [||] [||]
+        | UnionTypeCaseData.GadtNullary(name = ident) -> named (unionCaseName ctx ident) ident [||] [||]
         | UnionTypeCaseData.Nary(name = ident; fields = fields) ->
             named
                 (unionCaseName ctx ident)
+                ident
                 [|
                     for f in fields ->
                         match f with
@@ -102,6 +111,7 @@ module NameResolutionUnionRegistration =
         | UnionTypeCaseData.GadtNary(name = ident; sign = UncurriedSig(args = ArgsSpec(args = specs))) ->
             named
                 (unionCaseName ctx ident)
+                ident
                 [|
                     for ArgSpec(name = nm) in specs ->
                         match nm with
@@ -134,20 +144,12 @@ module NameResolutionUnionRegistration =
                     match inspectCaseData ctx data with
                     | ValueSome shape ->
                         let fieldTys = shape.FieldTypes |> Array.map (translateType ctx)
+                        let caseSite = AttributeSite.ofToken shape.Ident
+                        ctx.DeclareAttributes(caseSite, AttrTarget.UnionCase, caseAttrs)
 
                         // The case carries its union's own claim KEY, so "which union
                         // declares this case" never re-resolves a name.
-                        caseInfos.Add(
-                            UnionCaseInfo(
-                                shape.Name,
-                                name,
-                                id.Key,
-                                fieldTys,
-                                shape.FieldNames,
-                                declSite.Key,
-                                AttributeFold.resolveAndBuild ctx AttrTarget.UnionCase caseAttrs
-                            )
-                        )
+                        caseInfos.Add(UnionCaseInfo(shape.Name, name, id.Key, fieldTys, shape.FieldNames, caseSite))
                     | ValueNone -> ()
             )
 
@@ -160,12 +162,8 @@ module NameResolutionUnionRegistration =
         // attribute is the whole verdict.
         info.IsValueType <- isStructAttributed ctx tn
 
-        info.Attributes <-
-            Attributes.foldAndValidateTypeDefn
-                ctx
-                info.DefnKind
-                declSite.Tok
-                (ctx.ResolveAttributes(Attributes.attributesOfTypeName tn))
+        info.Attributes <- ctx.ResolveAttributes(Attributes.attributesOfTypeName tn)
+        Attributes.declareTypeDefn ctx info.DefnKind declSite.Tok info.Attributes
 
         rejectCustomOnDataType ctx declSite.Tok info.EqualitySupport info.ComparisonSupport
 

@@ -271,10 +271,11 @@ module Elaborate =
 
             AttrTarget.ofModuleValue isFunctionShaped (not (List.isEmpty quantEnv))
 
-        // The fold enforces `[<AttributeUsage>]` and yields the attributes a `.fsi` comparison
-        // reads.
+        // The binding's attribute position, whose checked form a `.fsi` comparison reads.
+        let attributeSite = AttributeSite.ofToken (CstKeys.siteOfBinding b).Tok
         let resolvedAttrs = ctx.ResolveAttributes b.attributes
-        let attributes = AttributeFold.build ctx attrElement resolvedAttrs
+        ctx.DeclareAttributes(attributeSite, attrElement, resolvedAttrs)
+        let attributes = ctx.AttributesAt attributeSite
 
         let info = exportedBindingInfo ctx bindingKey resolvedAttrs attributes
         let emittedName = info |> ValueOption.map (fun i -> i.EmittedName)

@@ -101,7 +101,7 @@ module SignatureResolution =
                         RequiresQualifiedAccess = info.IsRequireQualifiedAccess
                     })
 
-            publishAttributes sctx key info.Attributes
+            publishAttributes sctx key (ctx.AttributesAt(AttributeSite.ofSite info.DeclSite))
 
             match extensions with
             | ValueSome(TypeExtensionElementsSignature(elements = elems)) ->
@@ -159,14 +159,14 @@ module SignatureResolution =
                     })
                 members
 
-            publishAttributes sctx key info.Attributes
+            publishAttributes sctx key (ctx.AttributesAt(AttributeSite.ofSite info.DeclSite))
 
     let private publishEnum (sctx: SigCtx) (id: TypeIdentity) : unit =
         match TypeRegistry.tryEnumByKey sctx.Pass.Types id.Key with
         | ValueNone -> ()
         | ValueSome info ->
             publishShape sctx id.Key (ExternalEnumShape.ofCases info.Cases SymbolOrigin.Empty)
-            publishAttributes sctx id.Key info.Attributes
+            publishAttributes sctx id.Key (sctx.Pass.AttributesAt(AttributeSite.ofSite info.DeclSite))
 
     // --- abbreviations --------------------------------------------------------------------
 
@@ -190,7 +190,7 @@ module SignatureResolution =
                     Body = body
                 })
 
-        publishAttributes sctx id.Key info.Attributes
+        publishAttributes sctx id.Key (ctx.AttributesAt(AttributeSite.ofSite info.DeclSite))
 
     /// A broken measure publishes nothing; its declaration already reported.
     let private publishMeasure (sctx: SigCtx) (id: TypeIdentity) : unit =
@@ -700,10 +700,13 @@ module SignatureResolution =
 
                 PublishedSurfaceBuilder.addValue sctx.Surface sym
 
+                let attributeSite = AttributeSite.ofToken (CstKeys.firstTokenOfIdentOrOp ident)
+                ctx.DeclareAttributes(attributeSite, attrElement, resolvedAttrs)
+
                 PublishedSurfaceBuilder.addAttributes
                     sctx.Surface
                     (SymbolKey.Binding sym.Key)
-                    (AttributeFold.build ctx attrElement resolvedAttrs)
+                    (ctx.AttributesAt attributeSite)
 
     // --- the walk -------------------------------------------------------------------
 
@@ -791,4 +794,5 @@ module SignatureResolution =
             )
 
         let surface = run ctx inputs file
+        Attributes.run ctx
         surface, List.ofSeq ctx.Diagnostics

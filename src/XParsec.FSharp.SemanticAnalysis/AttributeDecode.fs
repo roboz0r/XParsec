@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
@@ -23,6 +24,9 @@ type ResolvedAttributes =
 
     member this.Has(k: TypeKey) : bool =
         this.Entries |> List.exists (fun e -> e.Key = k)
+
+    /// The types the attributes denote, in written order.
+    member this.Keys: Block<TypeKey> = Block.ofList [ for e in this.Entries -> e.Key ]
 
     member this.TryFind(k: TypeKey) : ObjectConstruction<SyntaxToken> voption =
         match this.Entries |> List.tryFind (fun e -> e.Key = k) with

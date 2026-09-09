@@ -166,16 +166,14 @@ module NameResolutionMemberRegistration =
 
             // The all-abstract form (`type IFoo = abstract M: int`) declares an INTERFACE and
             // is judged as one, though it registers a `ClassTypeInfo` all the same.
-            let tattrs =
-                Attributes.foldAndValidateTypeDefn ctx info.DefnKind id.DeclSite.Tok resolvedAttrs
-
-            info.Attributes <- tattrs
+            info.Attributes <- resolvedAttrs
+            Attributes.declareTypeDefn ctx info.DefnKind id.DeclSite.Tok resolvedAttrs
 
             info.Declared <-
                 {
                     IsSealed = classAttrs.IsSealed
                     IsAbstract = classAttrs.IsAbstract
-                    AllowNullLiteral = AttributeVerdicts.allowNullLiteral info.DefnKind tattrs
+                    AllowNullLiteral = AttributeVerdicts.allowNullLiteral info.DefnKind info.Attributes.Keys
                 }
 
             TypeRegistry.registerClass ctx.Types info
@@ -189,12 +187,11 @@ module NameResolutionMemberRegistration =
             let (TypeName(ident = nameLi)) = tn
 
             if nameLi.Idents.Length = 1 then
-                Attributes.foldAndValidateTypeDefn
+                Attributes.declareTypeDefn
                     ctx
                     TypeDefnKind.Interface
                     nameLi.Idents.[0]
                     (ctx.ResolveAttributes(Attributes.attributesOfTypeName tn))
-                |> ignore
         | _ -> ()
 
     /// Fill `Base` on a class with an `inherit` clause. The parent is resolved against the

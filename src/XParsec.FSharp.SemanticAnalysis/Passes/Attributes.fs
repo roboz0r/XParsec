@@ -23,10 +23,10 @@ module Attributes =
         (ctx: PassContext)
         (kind: TypeDefnKind)
         (declTok: SyntaxToken)
-        (attrs: TAttributes)
+        (keys: AttributeKeys)
         : unit =
-        let eq = AttributeVerdicts.presentRows attrs AttributeVerdicts.equalityAttrs
-        let cmp = AttributeVerdicts.presentRows attrs AttributeVerdicts.comparisonAttrs
+        let eq = AttributeVerdicts.presentRows keys AttributeVerdicts.equalityAttrs
+        let cmp = AttributeVerdicts.presentRows keys AttributeVerdicts.comparisonAttrs
 
         // Once per distinct complaint: two attributes illegal the same way are one mistake.
         for d in List.distinct (wrongKindDiagnostics kind eq @ wrongKindDiagnostics kind cmp) do
@@ -44,14 +44,14 @@ module Attributes =
             ctx.Report(declTok, Kind.InvalidEqualityAttributeMix)
 
         if
-            AttributeVerdicts.has attrs RuntimeNames.allowNullLiteralAttributeKey
-            && not (AttributeVerdicts.allowNullLiteral kind attrs)
+            AttributeVerdicts.has keys RuntimeNames.allowNullLiteralAttributeKey
+            && not (AttributeVerdicts.allowNullLiteral kind keys)
         then
             ctx.Report(declTok, Kind.AllowNullLiteralOnWrongKind)
 
     /// The element classification fsc enforces `[<AttributeUsage>]` against for a type
     /// declaration of `kind`: every value-type kind is a `Struct` element.
-    let private attrTargetOfKind (kind: TypeDefnKind) : AttrTarget =
+    let attrTargetOfKind (kind: TypeDefnKind) : AttrTarget =
         match kind with
         | TypeDefnKind.Interface -> AttrTarget.Interface
         | TypeDefnKind.Enum -> AttrTarget.Enum
@@ -65,19 +65,21 @@ module Attributes =
         | TypeDefnKind.Union
         | TypeDefnKind.RefClass -> AttrTarget.Class
 
-    /// Fold a type declaration's attributes under its element classification.
-    let foldTypeDefn (ctx: PassContext) (kind: TypeDefnKind) (attrs: ResolvedAttributes) : TAttributes =
-        AttributeFold.build ctx (attrTargetOfKind kind) attrs
-
-    let foldAndValidateTypeDefn
+    /// Declare a type declaration's attributes under its element classification, and judge
+    /// them against its kind.
+    let declareTypeDefn
         (ctx: PassContext)
         (kind: TypeDefnKind)
         (declTok: SyntaxToken)
         (attrs: ResolvedAttributes)
-        : TAttributes =
-        let tattrs = foldTypeDefn ctx kind attrs
-        validateTypeDefnAttributes ctx kind declTok tattrs
-        tattrs
+        : unit =
+        ctx.DeclareAttributes(AttributeSite.ofToken declTok, attrTargetOfKind kind, attrs)
+        validateTypeDefnAttributes ctx kind declTok attrs.Keys
+
+    /// Enforce every declared position's `[<AttributeUsage>]` target, in SOURCE order. Seals
+    /// the position table, so every declaration must precede this pass.
+    let run (ctx: PassContext) : unit =
+        AttributeUsageCheck.enforceAll ctx (ctx.Resolution.AttributePositions.Seal())
 
     let private mergeParamAttrSets (ctx: PassContext) (acc: ParamAttrs) (sets: Attributes<SyntaxToken>) : ParamAttrs =
         let a = ctx.ResolveAttributes(ValueSome sets)
@@ -86,6 +88,53 @@ module Attributes =
             { acc with CallAtMostOnce = true }
         else
             acc
+
+    /// The keyword token a member element is anchored on: the key its attribute position is
+    /// filed under.
+    let memberKeywordToken (kw: MemberKeyword<SyntaxToken>) : SyntaxToken =
+        match kw with
+        | MemberKeyword.Member t
+        | MemberKeyword.Override t
+        | MemberKeyword.Default t
+        | MemberKeyword.Abstract(abstractToken = t) -> t
+
+    /// The element a member declaration occupies: a property declaration, an auto-property,
+    /// a get/set pair and an argument-less abstract signature are all properties; every other
+    /// form is a method.
+    let private memberTarget (d: MethodOrPropDefn<SyntaxToken>) : AttrTarget =
+        match d with
+        | MethodOrPropDefn.Method _ -> AttrTarget.Method
+        | MethodOrPropDefn.Property _
+        | MethodOrPropDefn.PropertyWithGetSet _
+        | MethodOrPropDefn.AutoProperty _ -> AttrTarget.Property
+        | MethodOrPropDefn.AbstractSignature(MemberSig.PropSig _) -> AttrTarget.Property
+        | MethodOrPropDefn.AbstractSignature(MemberSig.MethodOrPropSig(sign = CurriedSig(args = sigArgs))) ->
+            if sigArgs.IsEmpty then
+                AttrTarget.Property
+            else
+                AttrTarget.Method
+
+    /// Declare a member element's attributes under the element it occupies.
+    let declareMemberAttributes
+        (ctx: PassContext)
+        (attrs: Attributes<SyntaxToken> voption)
+        (kw: MemberKeyword<SyntaxToken>)
+        (d: MethodOrPropDefn<SyntaxToken>)
+        : unit =
+        ctx.DeclareAttributes(AttributeSite.ofToken (memberKeywordToken kw), memberTarget d, attrs)
+
+    /// Declare the attributes written on a parameter, unwrapping the inert pattern wrappers
+    /// (`(p)`, `p : t`, `p as x`, `?p`) an attribute set may sit under.
+    let rec declareParamAttributes (ctx: PassContext) (p: Pat<SyntaxToken>) : unit =
+        match p with
+        | Pat.Attributed(attributes = sets; pat = inner) ->
+            ctx.DeclareAttributeSets(ValueSome sets, AttrTarget.Parameter)
+            declareParamAttributes ctx inner
+        | Pat.EnclosedBlock(pat = inner)
+        | Pat.Typed(pat = inner)
+        | Pat.As(pat = inner)
+        | Pat.Optional(pat = inner) -> declareParamAttributes ctx inner
+        | _ -> ()
 
     /// Unwraps the inert pattern wrappers (`(p)`, `p : t`, `p as x`, `?p`), so
     /// `([<CallAtMostOnce>] e2 : bool)` is recognised regardless of nesting.
