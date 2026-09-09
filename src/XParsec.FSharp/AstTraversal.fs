@@ -2673,11 +2673,6 @@ let rec walkModuleSignatureElement (visitor: AstVisitor<'T>) (elem: ModuleSignat
         visitor.EnterSection "Val"
         walkValSig visitor valSig
         visitor.ExitSection "Val"
-    | ModuleSignatureElement.ValLiteral(valTok, binding) ->
-        visitor.EnterSection "ValLiteral"
-        visitor.VisitToken "val" valTok
-        walkBinding visitor binding
-        visitor.ExitSection "ValLiteral"
     | ModuleSignatureElement.Type(typeTok, typeSigs) ->
         visitor.EnterSection "Type"
         visitor.VisitToken "type" typeTok
