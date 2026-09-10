@@ -225,16 +225,43 @@ type ExternalRecordCandidate =
         IsRequireQualifiedAccess: bool
     }
 
+/// One of a member's OWN generic parameters, baked over the DECLARING typars (`keyof Events`
+/// at `Emitter<R>` → `TyKeyOf R`) and over its siblings (`'T :> IComparable<'T>`).
+type ExternalMethodTypar =
+    {
+        /// Stamped onto the fresh cell at each call site.
+        Typar: TypeTypar
+        /// The TypeScript UPPER BOUND (`<Key extends keyof Events>`), which the front end
+        /// keyof-folds at the call site. `ValueNone` for a parameter written without one.
+        Bound: FrozenType voption
+    }
+
+[<RequireQualifiedAccess; CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+module ExternalMethodTypar =
+
+    let ofTypar (typar: TypeTypar) : ExternalMethodTypar = { Typar = typar; Bound = ValueNone }
+
+    /// The type-kinded parameters of `typars`, in slot order.
+    let ofTypars (typars: TyparList) : BlockM<ExternalMethodTypar, typeSlot> = typars.Types |> Block.map ofTypar
+
+    /// The `i`th parameter of a declaration known only by arity, unconstrained, under `bound`.
+    let positional (i: int<typeSlot>) (bound: FrozenType voption) : ExternalMethodTypar =
+        {
+            Typar =
+                {
+                    Name = TyparName.Positional i
+                    Constraints = ConstraintSet.empty
+                }
+            Bound = bound
+        }
+
 /// A member's type as `FrozenType` templates, with open typars baked as `FTTypar(Type _, i)`
 /// (the declaring type's) / `FTTypar(Member _, j)` (its own).
 type ExternalSignature =
     {
         DeclaringTyparArity: int<typeSlot>
-        /// The member's OWN generic parameters, one entry per typar in declaration order:
-        /// index `j` holds the `j`-th typar's UPPER BOUND (`<Key extends keyof Events>`),
-        /// baked over the DECLARING typars (`keyof Events` at `Emitter<R>` → `TyKeyOf R`).
-        /// `ValueNone` for an unconstrained typar.
-        MethodTypars: BlockM<FrozenType voption, typeSlot>
+        /// The member's OWN generic parameters, one entry per typar in declaration order.
+        MethodTypars: BlockM<ExternalMethodTypar, typeSlot>
         /// One entry per `->` the source wrote, each already .NET-tupled: `M: a * b -> r` holds
         /// `[a * b]` and the curried `M: a -> b -> r` holds `[a; b]`. EMPTY for a value member,
         /// whose type is `Return` with no `->` in front of it.
@@ -245,8 +272,9 @@ type ExternalSignature =
     /// The member's own generic parameter count (`Take<TSource>` ⇒ 1).
     member s.MethodTyparArity: int<typeSlot> = s.MethodTypars.Length
 
-    /// `n` method typars, none of them constrained.
-    static member unbounded(n: int<typeSlot>) : BlockM<FrozenType voption, typeSlot> = Block.init n (fun _ -> ValueNone)
+    /// `n` method typars, positionally named, none of them bounded or constrained.
+    static member unbounded(n: int<typeSlot>) : BlockM<ExternalMethodTypar, typeSlot> =
+        Block.init n (fun i -> ExternalMethodTypar.positional i ValueNone)
 
     /// The sentinel a contract-layer member carries until the finalize pass fills its groups /
     /// `Return` from the stashed signature CST. `argGroupCount` is already known there, and
@@ -261,19 +289,17 @@ type ExternalSignature =
             Return = deferredTemplate
         }
 
-    /// The .NET norm: ONE argument group, taking the tupled `parameters` whole, and no method
-    /// constraints. Every reflection, manifest and tupled-source producer mints this shape; a
-    /// constraint-carrying producer builds the record explicitly instead.
+    /// The .NET norm: ONE argument group, taking the tupled `parameters` whole.
     static member make
         (
             declaringTyparArity: int<typeSlot>,
-            methodTyparArity: int<typeSlot>,
+            methodTypars: BlockM<ExternalMethodTypar, typeSlot>,
             parameters: FrozenType,
             return': FrozenType
         ) : ExternalSignature =
         {
             DeclaringTyparArity = declaringTyparArity
-            MethodTypars = ExternalSignature.unbounded methodTyparArity
+            MethodTypars = methodTypars
             ArgGroups = Block.singleton parameters
             Return = return'
         }
@@ -282,11 +308,11 @@ type ExternalSignature =
     /// the `unit -> r` METHOD `make` mints for a `member M: unit -> r`, which a use site must
     /// still apply.
     static member value
-        (declaringTyparArity: int<typeSlot>, methodTyparArity: int<typeSlot>, return': FrozenType)
+        (declaringTyparArity: int<typeSlot>, methodTypars: BlockM<ExternalMethodTypar, typeSlot>, return': FrozenType)
         : ExternalSignature =
         {
             DeclaringTyparArity = declaringTyparArity
-            MethodTypars = ExternalSignature.unbounded methodTyparArity
+            MethodTypars = methodTypars
             ArgGroups = Block.empty
             Return = return'
         }
@@ -295,13 +321,13 @@ type ExternalSignature =
     static member ofGroups
         (
             declaringTyparArity: int<typeSlot>,
-            methodTyparArity: int<typeSlot>,
+            methodTypars: BlockM<ExternalMethodTypar, typeSlot>,
             argGroups: FrozenType list,
             return': FrozenType
         ) : ExternalSignature =
         {
             DeclaringTyparArity = declaringTyparArity
-            MethodTypars = ExternalSignature.unbounded methodTyparArity
+            MethodTypars = methodTypars
             ArgGroups = Block.ofList argGroups
             Return = return'
         }
@@ -375,7 +401,7 @@ module ExternalSignature =
     /// `Item: int -> 'T with set` takes `(int, 'T)`.
     let setter
         (declaringTyparArity: int<typeSlot>)
-        (methodTyparArity: int<typeSlot>)
+        (methodTypars: BlockM<ExternalMethodTypar, typeSlot>)
         (groupDomains: FrozenType list)
         (getterReturn: FrozenType)
         : ExternalSignature =
@@ -386,12 +412,7 @@ module ExternalSignature =
 
         ps.Add getterReturn
 
-        ExternalSignature.make (
-            declaringTyparArity,
-            methodTyparArity,
-            tupledParams (Block.ofResizeArray ps),
-            unitFrozen
-        )
+        ExternalSignature.make (declaringTyparArity, methodTypars, tupledParams (Block.ofResizeArray ps), unitFrozen)
 
 /// A resolved member (method, field or property) on an external type.
 type ExternalMember =

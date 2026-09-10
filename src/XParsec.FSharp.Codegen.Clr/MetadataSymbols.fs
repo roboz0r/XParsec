@@ -101,12 +101,56 @@ module private MetadataMapping =
         else
             Some(paramTys |> Array.map Option.get, retTy.Value)
 
-    /// The method's own generic-parameter count; `0` for a non-generic method.
-    let methodTyparArityOf (m: MethodInfo) : int<typeSlot> =
+    /// The CLI constraints on one generic parameter, as F# spells them. `unmanaged` imports as
+    /// `struct`, which is all the value-type bit and the `System.ValueType` row carry. Raises on
+    /// a constraint-table target `tryBuildType` refuses.
+    let typarConstraints (intrinsics: IntrinsicTypeMap) (p: Type) : ConstraintSet =
+        let attrs = p.GenericParameterAttributes
+        let has (flag: GenericParameterAttributes) = attrs &&& flag = flag
+        let isStruct = has GenericParameterAttributes.NotNullableValueTypeConstraint
+        let kinds = ResizeArray<TyparConstraintKindG<FrozenType>>()
+
+        if isStruct then
+            kinds.Add TyparConstraintKindG.Struct
+
+        if has GenericParameterAttributes.ReferenceTypeConstraint then
+            kinds.Add TyparConstraintKindG.ReferenceType
+
+        if has GenericParameterAttributes.DefaultConstructorConstraint then
+            kinds.Add TyparConstraintKindG.DefaultConstructor
+
+        for target in p.GetGenericParameterConstraints() do
+            let encodesABit =
+                target.FullName = "System.Object"
+                || (isStruct && target.FullName = "System.ValueType")
+
+            if not encodesABit then
+                match tryBuildType intrinsics target with
+                | Some frozen -> kinds.Add(TyparConstraintKindG.Coercion frozen)
+                | None ->
+                    failwithf
+                        "generic parameter %s of %s has an unmappable constraint target %s"
+                        p.Name
+                        (if isNull p.DeclaringMethod then
+                             p.DeclaringType.FullName
+                         else
+                             p.DeclaringMethod.DeclaringType.FullName + "." + p.DeclaringMethod.Name)
+                        target.FullName
+
+        ConstraintSet.ofKinds kinds
+
+    /// A generic declaration's type parameters under their metadata names, each carrying its
+    /// imported constraints. EMPTY for a non-generic declaration.
+    let typarsOf (intrinsics: IntrinsicTypeMap) (parameters: Type[]) : TyparList =
+        TyparList.typeOnlyWith (parameters |> Seq.map (fun p -> "'" + p.Name, typarConstraints intrinsics p))
+
+    /// The method's own generic parameters with their imported constraints; EMPTY for a
+    /// non-generic method.
+    let methodTyparsOf (intrinsics: IntrinsicTypeMap) (m: MethodInfo) : BlockM<ExternalMethodTypar, typeSlot> =
         if m.IsGenericMethodDefinition then
-            TyparIndex.typeSlot (m.GetGenericArguments().Length)
+            ExternalMethodTypar.ofTypars (typarsOf intrinsics (m.GetGenericArguments()))
         else
-            0<typeSlot>
+            Block.empty
 
     /// The `IntKind` a BCL integral primitive's name denotes. `System.IntPtr` /
     /// `System.UIntPtr` are absent: neither a parameter default nor a metadata `Constant`
@@ -222,15 +266,16 @@ module private MetadataMapping =
 
     /// Property `ExternalSignature`: no argument group, value type in `Return`.
     let propertySignature (declaringTyparArity: int<typeSlot>) (valueTy: FrozenType) : ExternalSignature =
-        ExternalSignature.value (declaringTyparArity, 0<_>, valueTy)
+        ExternalSignature.value (declaringTyparArity, Block.empty, valueTy)
 
-    /// Method/ctor `ExternalSignature` from its `(Parameters, Return)` templates.
+    /// Method/ctor `ExternalSignature` from its `(Parameters, Return)` templates, over the
+    /// method's own typars.
     let methodSignature
         (declaringTyparArity: int<typeSlot>)
-        (methodTyparArity: int<typeSlot>)
+        (methodTypars: BlockM<ExternalMethodTypar, typeSlot>)
         (parameters: FrozenType, ret: FrozenType)
         : ExternalSignature =
-        ExternalSignature.make (declaringTyparArity, methodTyparArity, parameters, ret)
+        ExternalSignature.make (declaringTyparArity, methodTypars, parameters, ret)
 
 
 /// What one inheritance level has for a member name. A property or field `Owns` the name and
@@ -376,12 +421,14 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
         MetadataMapping.tryMethodSignature intrinsics m
         |> Option.map (fun (ps, ret) ->
             let argSig = Block.ofArray ps
-            let methodTyparArity = MetadataMapping.methodTyparArityOf m
+            let methodTypars = MetadataMapping.methodTyparsOf intrinsics m
 
-            { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey m.Name argSig methodTyparArity MemberKind.Method) with
+            { ExternalMember.OfKey(
+                  SymbolKeyOps.memberKeyOf declKey m.Name argSig methodTypars.Length MemberKind.Method
+              ) with
                 IsStatic = m.IsStatic
                 Signature =
-                    MetadataMapping.methodSignature arity methodTyparArity (ExternalSignature.tupledParams argSig, ret)
+                    MetadataMapping.methodSignature arity methodTypars (ExternalSignature.tupledParams argSig, ret)
                 Origin = origin
                 OptionalDefaults = MetadataMapping.optionalDefaults (m.GetParameters())
             }
@@ -445,7 +492,10 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
                       ) with
                         IsStatic = getter.IsStatic
                         Signature =
-                            MetadataMapping.methodSignature arity 0<_> (ExternalSignature.tupledParams argSig, ret)
+                            MetadataMapping.methodSignature
+                                arity
+                                Block.empty
+                                (ExternalSignature.tupledParams argSig, ret)
                         Origin = origin
                     }
                 )
@@ -465,7 +515,10 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
 
                     ExternalMember.ctor
                         declKey
-                        (MetadataMapping.methodSignature arity 0<_> (ExternalSignature.tupledParams argSig, ret))
+                        (MetadataMapping.methodSignature
+                            arity
+                            Block.empty
+                            (ExternalSignature.tupledParams argSig, ret))
                         argSig
                         origin
                         (MetadataMapping.optionalDefaults (c.GetParameters()))
@@ -533,7 +586,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
                 | Some t ->
                     let typars =
                         if t.IsGenericType then
-                            TyparList.typeOnly (t.GetGenericArguments() |> Seq.map (fun p -> "'" + p.Name))
+                            MetadataMapping.typarsOf intrinsics (t.GetGenericArguments())
                         else
                             TyparList.empty
 
@@ -589,7 +642,7 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
                                     declKey
                                     (MetadataMapping.methodSignature
                                         arity
-                                        0<_>
+                                        Block.empty
                                         (ExternalSignature.tupledParams argSig, ret))
                                     argSig
                                     origin

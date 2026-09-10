@@ -59,6 +59,14 @@ module TyparConstraint =
         | TyparConstraintKindG.Enum u -> SemanticConstraintKind.Enum(target u)
         | TyparConstraintKindG.Delegate(a, r) -> SemanticConstraintKind.Delegate(target a, target r)
 
+    /// The store's form of a constraint declared outside this compilation. `DeclKey` is a
+    /// placeholder, so a violation is reported at the use site.
+    let external (target: 'ty -> SemType) (kind: TyparConstraintKindG<'ty>) : SemanticConstraint =
+        {
+            Kind = toSemantic target kind
+            DeclKey = NodeKey.ofSource 0 NodeKind.Unknown
+        }
+
 /// A statically resolved member constraint on a function scheme:
 /// `when (^T or ^U) : (static member (+) : ^T * ^U -> ^V)`. `TyparIndices` is the trait's
 /// support set, indexing the scheme's `Types`; `MemberName` is the compiled name

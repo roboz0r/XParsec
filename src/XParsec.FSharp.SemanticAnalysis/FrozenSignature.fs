@@ -74,16 +74,15 @@ module FrozenSignature =
             }
 
         let memberOf (declKey: TypeKey) (declArity: int<typeSlot>) (m: TastAccessor.TypeMember) : ExternalMember =
-            let isValueMember = (m.Kind = TMemberKind.Property)
-            let methodArity = m.MethodTypars.TypeArity
+            let methodTypars = ExternalMethodTypar.ofTypars m.MethodTypars
 
             let signature =
-                if isValueMember then
-                    ExternalSignature.value (declArity, methodArity, m.ReturnTy)
+                if m.Kind = TMemberKind.Property then
+                    ExternalSignature.value (declArity, methodTypars, m.ReturnTy)
                 else
                     ExternalSignature.make (
                         declArity,
-                        methodArity,
+                        methodTypars,
                         ExternalSignature.tupledParams (Block.ofSeq [ for (_, ty) in m.Params -> ty ]),
                         m.ReturnTy
                     )
@@ -98,18 +97,18 @@ module FrozenSignature =
             (declArity: int<typeSlot>)
             (am: Frozen.TAbstractMethod)
             : ExternalMember =
-            let methodArity = am.MethodTypars.TypeArity
+            let methodTypars = ExternalMethodTypar.ofTypars am.MethodTypars
 
             let signature =
                 if am.Kind = TMemberKind.Property then
-                    ExternalSignature.value (declArity, methodArity, am.Signature)
+                    ExternalSignature.value (declArity, methodTypars, am.Signature)
                 else
                     let parameters, returnTy =
                         match am.Signature with
                         | FTFun(domain, codomain) -> domain, codomain
                         | other -> ExternalSignature.unitFrozen, other
 
-                    ExternalSignature.make (declArity, methodArity, parameters, returnTy)
+                    ExternalSignature.make (declArity, methodTypars, parameters, returnTy)
 
             memberFromParts declKey am.Name am.IsStatic am.MethodTypars.TypeArity signature
 
@@ -152,7 +151,7 @@ module FrozenSignature =
                 acc.Add(
                     ExternalMember.ctor
                         declKey
-                        (ExternalSignature.make (declArity, 0<_>, parameters, selfTy))
+                        (ExternalSignature.make (declArity, Block.empty, parameters, selfTy))
                         (ExternalSignature.argSigOfParameters parameters)
                         (originIn declKey.Namespace)
                         []

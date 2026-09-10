@@ -495,9 +495,13 @@ module TyparList =
     let unconstrained (ts: Block<DeclaredTypar>) : TyparListG<'ty> =
         ofDeclared (fun _ -> ConstraintSet.empty) ts
 
+    /// Type-kinded parameters under the written names, each with its own constraints.
+    let typeOnlyWith (typars: seq<string * ConstraintSetG<'ty>>) : TyparListG<'ty> =
+        ofElements fst (fun _ -> TyparKind.Type) snd typars
+
     /// Type-kinded parameters under the written names, unconstrained.
     let typeOnly (names: seq<string>) : TyparListG<'ty> =
-        ofSeq (seq { for n in names -> n, TyparKind.Type })
+        typeOnlyWith (seq { for n in names -> n, ConstraintSet.empty })
 
     /// `n` type-kinded parameters, positionally named, each constrained by `constraintsAt`
     /// its index. With no measure-kinded parameter, signature position `i` is type slot `i`.

@@ -223,21 +223,16 @@ module FrozenTypeBridge =
                 (fun key -> marker (TyparScope.ModuleFunction key))
                 localTyparInTemplate
 
-        /// A member call's instantiation at `level`: one fresh `TyVar` per own typar,
-        /// memoised in the value, so every template instantiated through ONE value shares
-        /// cells. `seed` pre-binds own typar indices with types instead of fresh vars.
-        let atCallSite
-            (store: TypeStore)
-            (level: int)
-            (seed: (int<typeSlot> * SemType) list)
-            (declaringArgs: SemType[])
-            : ITyparInstantiation =
+        /// A member call's own typar cells: one fresh `TyVar` per index at `level`, memoised so
+        /// every template resolved through ONE of these shares cells. `seed` pre-binds indices
+        /// with types instead of fresh vars.
+        let ownCells (store: TypeStore) (level: int) (seed: (int<typeSlot> * SemType) list) : int<typeSlot> -> SemType =
             let cache = Dictionary<int<typeSlot>, SemType>()
 
             for (j, ty) in seed do
                 cache.[j] <- ty
 
-            let own (index: int<typeSlot>) =
+            fun index ->
                 match cache.TryGetValue index with
                 | true, v -> v
                 | _ ->
@@ -247,8 +242,11 @@ module FrozenTypeBridge =
                     cache.[index] <- v
                     v
 
+        /// A member call's instantiation: declaring typars from `declaringArgs`, own typars from
+        /// `own`. Retain the same `ownCells` function to reach the cells it minted.
+        let atCallSiteOver (own: int<typeSlot> -> SemType) (declaringArgs: SemType[]) : ITyparInstantiation =
             ofScopes
-                (fun _ index -> declaringArg "atCallSite" declaringArgs index)
+                (fun _ index -> declaringArg "atCallSiteOver" declaringArgs index)
                 (fun _ index -> own index)
                 (fun _ index -> own index)
                 localTyparInTemplate

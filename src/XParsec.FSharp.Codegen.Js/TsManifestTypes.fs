@@ -423,10 +423,12 @@ module internal TsManifestTranslate =
         // keyof-fold it at the call site.
         let methodTypars =
             sg.TypeParamBounds
-            |> List.map (
-                function
-                | Some b -> ValueSome(toFrozen ctx b)
-                | None -> ValueNone
+            |> List.mapi (fun i bound ->
+                ExternalMethodTypar.positional
+                    (TyparIndex.typeSlot i)
+                    (match bound with
+                     | Some b -> ValueSome(toFrozen ctx b)
+                     | None -> ValueNone)
             )
             |> Block.ofList
 

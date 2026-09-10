@@ -292,10 +292,42 @@ separate change.
    (`type Meters<[<Measure>] 'u> = float<'u>`) remain out; `typar-scope.md` *Not yet
    inferred* holds the gaps and names their pins.
 
-7. **Import.** A foreign generic's constraints are read off its metadata into the typar's
-   `ConstraintSet`, so enforcement against a BCL or third-party generic exists. The
-   `enum<'u>` constraint reads `ExternalTypeShape.Enum`'s underlying key; the
-   `delegate<_,_>` constraint waits on `delegates-plan.md` stage 2.
+7. **Import.** Landed. `MetadataSymbols.typarConstraints` reads a CLR generic parameter's
+   constraints into its `ConstraintSet`: `NotNullableValueTypeConstraint` is `struct`,
+   `ReferenceTypeConstraint` is `not struct`, `DefaultConstructorConstraint` is
+   `(new: unit -> 'a)`, and each constraint-table target is a coercion, with `System.Object`
+   and the `System.ValueType` row beside the value-type bit dropped as the bits' own
+   encoding. A type's parameters reach `ExternalTypeShape.Typars`, a method's reach the new
+   `ExternalSignature.MethodTypars`. No format bump: `ExternalSignature` is built by each
+   provider, not written to the wire.
+
+   Enforcement, one seam per scope:
+   - `ExternalSymbols.instantiateSignatureWith` stamps each own typar's constraints on the
+     cell it freshened to, so a generic call is checked as unification grounds it.
+     `TyparInstantiation.ownCells` / `atCallSiteOver` replace `atCallSite`, so the signature
+     and the constraint targets resolve through the SAME cells and `'T :> IComparable<'T>`
+     lands on its own typar.
+   - `Translate.checkDeclaredConstraints` checks a written type argument against its
+     parameter's constraints at the type reference. A nominal has no fresh-instance step, so
+     this is the only check its type parameters get; a still-free argument propagates the
+     constraint as `expandAbbreviation` does. A project-local claim's `TyparList` is
+     unconstrained (name resolution runs before the `when` clauses translate), so a local
+     nominal's type arguments are still unchecked.
+   - `ExternalMethodTypar.ofTypars` carries a published member's own typars, name and
+     constraints, into `ExternalSignature.MethodTypars`, so a cross-file call on a
+     `.fs`/`.fsi` member is checked as a call on a BCL one is.
+
+   Pinned by `ImportedConstraintTests` (`System.Nullable<string>` and `System.Enum.GetName 1`
+   refused, `System.Nullable<int>` and a `'a : struct` argument clean) and by
+   `MetadataSymbolsTests` on the imported sets themselves.
+
+   `ExternalTypeShape.Enum`'s underlying key already answers the `enum<'u>` check
+   (`ConstraintCheck.enumUnderlyingType`), which serves a published or manifest enum; the CLR
+   reader models a BCL enum as a `Class` shape and so reaches no enum case at all, a gap of
+   its own. `unmanaged` narrows to `struct` on import, because the `modreq(UnmanagedType)`
+   and `IsUnmanagedAttribute` that carry it are invisible to reflection. The `delegate<_,_>`
+   constraint waits on `delegates-plan.md` stage 2; a C# `where T : Delegate` imports as the
+   coercion it is written as.
 
    The project-local half landed with step 4: `FrozenSignature.addValue` publishes the
    binding's `FunctionScheme`, in the binding's `ModuleFunction` scope like the template, so
@@ -363,3 +395,6 @@ Before this document is deleted, each row is in code or in a test:
       the name, in `FrozenConstraintTests` (step 4).
 - [x] A cross-file constrained generic is enforced, pinned by the two-file `'a : not struct`
       program in `CrossFileTests` (step 4).
+- [x] A BCL generic's constraints are imported and enforced, on a type parameter and on a
+      method's own typar alike, pinned by `MetadataSymbolsTests` on the imported sets and by
+      `ImportedConstraintTests` end to end (step 7).

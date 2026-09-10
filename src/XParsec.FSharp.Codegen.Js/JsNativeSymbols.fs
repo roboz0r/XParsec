@@ -35,7 +35,7 @@ module JsNativeSymbols =
     let private errorCtor: ExternalMember =
         ExternalMember.ctor
             errorTypeKey
-            (ExternalSignature.make (0<_>, 0<_>, stringTy, errorTy))
+            (ExternalSignature.make (0<_>, Block.empty, stringTy, errorTy))
             (Block.singleton stringTy)
             errorOrigin
             []
@@ -46,7 +46,7 @@ module JsNativeSymbols =
               SymbolKeyOps.memberKeyOf errorTypeKey "message" Block.empty 0<typeSlot> MemberKind.Property
           ) with
             Storage = MemberStorage.Property
-            Signature = ExternalSignature.value (0<_>, 0<_>, stringTy)
+            Signature = ExternalSignature.value (0<_>, Block.empty, stringTy)
             Origin = errorOrigin
         }
 

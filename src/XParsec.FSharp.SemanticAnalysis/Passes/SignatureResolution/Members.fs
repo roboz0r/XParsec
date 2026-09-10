@@ -152,7 +152,7 @@ module SignatureResolutionMembers =
 
         let ownTypars = mkDeclaredTypars ctx.Store (explicit @ implicit)
         let declArity = DeclaredTypar.typeArity declTypars
-        let methodArity = DeclaredTypar.typeArity ownTypars
+        let methodTypars = ExternalMethodTypar.ofTypars (TyparList.unconstrained ownTypars)
 
         let domains, ret =
             underTypars
@@ -167,13 +167,15 @@ module SignatureResolutionMembers =
         let signature, kind, storage =
             match m.Form with
             | SigMemberForm.Setter ->
-                ExternalSignature.setter declArity methodArity frozenDomains frozenRet,
+                ExternalSignature.setter declArity methodTypars frozenDomains frozenRet,
                 MemberKind.Method,
                 MemberStorage.Method
             | SigMemberForm.Property ->
-                ExternalSignature.value (declArity, methodArity, frozenRet), MemberKind.Property, MemberStorage.Property
+                ExternalSignature.value (declArity, methodTypars, frozenRet),
+                MemberKind.Property,
+                MemberStorage.Property
             | SigMemberForm.Method ->
-                ExternalSignature.ofGroups (declArity, methodArity, frozenDomains, frozenRet),
+                ExternalSignature.ofGroups (declArity, methodTypars, frozenDomains, frozenRet),
                 MemberKind.Method,
                 MemberStorage.Method
 
@@ -218,7 +220,7 @@ module SignatureResolutionMembers =
 
             ExternalMember.ctor
                 declKey
-                (ExternalSignature.make (DeclaredTypar.typeArity declTypars, 0<_>, parameters, ret))
+                (ExternalSignature.make (DeclaredTypar.typeArity declTypars, Block.empty, parameters, ret))
                 (ExternalSignature.argSigOfParameters parameters)
                 SymbolOrigin.Empty
                 []

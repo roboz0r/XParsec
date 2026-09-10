@@ -284,9 +284,35 @@ module internal UnificationTranslate =
         | KeyArity.Written _ -> MeasureSite.Carrier
         | KeyArity.Compiled _ -> MeasureSite.Argument
 
+    /// A written type argument checked against one declared constraint: a violation reports at
+    /// `tok`, and a still-free argument carries the constraint forward.
+    let private enforce (ctx: PassContext) (tok: SyntaxToken) (c: SemanticConstraint) (arg: SemType) : unit =
+        match checkConstraint ctx c arg with
+        | Satisfied -> ()
+        | Violated -> reportConstraintViolation ctx tok c arg
+        | Defer -> propagateToFreeArgs ctx c arg
+
+    /// Each written type argument checked against its parameter's declared constraints; a
+    /// constraint on a sibling parameter (`FTTypar(Type _, i)`) resolves against `typeSlotArgs`.
+    /// A nominal has no fresh-instance step, so an imported generic is checked here.
+    let private checkDeclaredConstraints
+        (ctx: PassContext)
+        (tok: SyntaxToken)
+        (typars: TyparList)
+        (typeSlotArgs: SemType[])
+        : unit =
+        let instantiate target =
+            FrozenTypeBridge.instantiateDeclaring ctx target typeSlotArgs
+
+        typars.Types
+        |> Block.iteri (fun i t ->
+            for kind in t.Constraints.Kinds do
+                enforce ctx tok (TyparConstraint.external instantiate kind) typeSlotArgs.[int i]
+        )
+
     /// `body` is the abbreviation's forced body; `ValueNone` (`Broken`) yields a fresh TyVar
     /// rather than cascading. Prototype-typar constraints are checked against the supplied args
-    /// here, because an abbreviation has no fresh-instance step; a Defer propagates to free arg TyVars.
+    /// here, because an abbreviation has no fresh-instance step.
     let expandAbbreviation
         (ctx: PassContext)
         (tok: SyntaxToken)
@@ -297,14 +323,10 @@ module internal UnificationTranslate =
         let n = min (info.TypeParams.Length) args.Length
 
         for i = 0 to n - 1 do
-            let arg = args.[i]
             let protoRoot = UnionFind.find ctx.Store info.TypeParams.[i].TyVar
 
             for c in ctx.Store.Constraints.Items protoRoot do
-                match checkConstraint ctx c arg with
-                | Satisfied -> ()
-                | Violated -> reportConstraintViolation ctx tok c arg
-                | Defer -> propagateToFreeArgs ctx c arg
+                enforce ctx tok c args.[i]
 
         match body with
         | ValueSome body -> instantiateMember ctx.Store (info.TypeParams, args) body
@@ -459,6 +481,18 @@ module internal UnificationTranslate =
             match readTypeArgs ctx site.Tok typars args with
             | ValueNone -> TyVar(ctx.FreshTyVar())
             | ValueSome reads ->
+                if typars.HasConstraints then
+                    let typeSlotArgs =
+                        reads
+                        |> Block.toArray
+                        |> Array.choose (fun read ->
+                            match read with
+                            | TypeArgRead.Type ty -> Some ty
+                            | TypeArgRead.Measure _ -> None
+                        )
+
+                    checkDeclaredConstraints ctx site.Tok typars typeSlotArgs
+
                 let typeArgs =
                     reads
                     |> Block.map (fun read ->

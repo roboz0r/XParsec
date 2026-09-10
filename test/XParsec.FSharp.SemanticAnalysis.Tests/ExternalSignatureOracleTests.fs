@@ -260,7 +260,7 @@ let tests =
                         true
                         1<_>
                         0<_>
-                        (ExternalSignature.value (1<_>, 0<_>, FTClass(kRec, Block.singleton (d 0))))
+                        (ExternalSignature.value (1<_>, Block.empty, FTClass(kRec, Block.singleton (d 0))))
                         (Some(TyClass(kRec, Block.singleton groundArgs.[0])))
 
                     // Ctor-shaped: `(p1 * p2) -> declType`.
@@ -301,7 +301,8 @@ let tests =
                         let tupled =
                             TestHelpers.mkSignature 0<_> 0<_> (FTTuple(Block.ofList [ ftInt; ftInt ])) ftInt
 
-                        let curried = ExternalSignature.ofGroups (0<_>, 0<_>, [ ftInt; ftInt ], ftInt)
+                        let curried =
+                            ExternalSignature.ofGroups (0<_>, Block.empty, [ ftInt; ftInt ], ftInt)
 
                         Expect.equal
                             (ExternalSignature.argGroupWidths tupled)
@@ -324,7 +325,7 @@ let tests =
                             "`M: unit -> r` is one 0-wide group: an argument that erases"
 
                         Expect.equal
-                            (ExternalSignature.argGroupWidths (ExternalSignature.value (0<_>, 0<_>, ftInt)))
+                            (ExternalSignature.argGroupWidths (ExternalSignature.value (0<_>, Block.empty, ftInt)))
                             Block.empty
                             "and a value member has no group at all"
                     }

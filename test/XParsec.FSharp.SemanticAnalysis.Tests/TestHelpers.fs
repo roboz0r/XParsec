@@ -70,7 +70,7 @@ let mkSignature
     (parameters: FrozenType)
     (ret: FrozenType)
     : ExternalSignature =
-    ExternalSignature.make (declaringTyparArity, methodTyparArity, parameters, ret)
+    ExternalSignature.make (declaringTyparArity, ExternalSignature.unbounded methodTyparArity, parameters, ret)
 
 /// A skeleton `ExternalMember` named `name`: a static `unit -> unit` method on a stub
 /// declaring type `C`.
@@ -317,7 +317,7 @@ let mkStaticProperty (decl: TypeKey) (name: string) (ret: FrozenType) : External
     { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf decl name Block.empty 0<typeSlot> MemberKind.Property) with
         IsStatic = true
         Storage = MemberStorage.Property
-        Signature = ExternalSignature.value (compiledArityOf decl, 0<_>, ret)
+        Signature = ExternalSignature.value (compiledArityOf decl, Block.empty, ret)
     }
 
 let private unionShape (key: TypeKey) (cases: ExternalCaseShape list) (rqa: bool) : ExternalTypeShape =

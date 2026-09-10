@@ -116,6 +116,7 @@
     <Compile Include="GenericParamFlagsTests.fs" />
     <Compile Include="GenericParamConstraintTests.fs" />
     <Compile Include="LiftedLocalTests.fs" />
+    <Compile Include="ImportedConstraintTests.fs" />
 
     <Compile Include="Program.fs" />
   </ItemGroup>

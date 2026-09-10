@@ -673,6 +673,43 @@ module ExternalSymbols =
             Comparable = resolveAnchorKey RuntimeNames.comparableKey
         }
 
+    /// Stamps a declared typar's constraints and defaults onto the fresh cell `root`, each
+    /// embedded type resolved through `instantiate`.
+    let private stampConstraints
+        (store: TypeStore)
+        (instantiate: FrozenType -> SemType)
+        (root: Rep)
+        (constraints: ConstraintSet)
+        : unit =
+        for kind in constraints.Kinds do
+            store.Constraints.Prepend(root, TyparConstraint.external instantiate kind)
+
+        // Appended, not prepended: generalisation takes the first target in list order that
+        // resolves, so the list must stay in source order.
+        for target in constraints.Defaults do
+            store.Defaults.Append(root, instantiate target)
+
+    /// Each own typar's constraints stamped onto the cell it freshened to. A constraint on a
+    /// declaring typar or a sibling own typar lands on the same cells the signature took.
+    let private stampMethodTyparConstraints
+        (thaw: IMeasuredThaw)
+        (inst: ITyparInstantiation)
+        (cellOf: int<typeSlot> -> SemType)
+        (typars: BlockM<ExternalMethodTypar, typeSlot>)
+        : unit =
+        typars
+        |> Block.iteri (fun j t ->
+            let constraints = t.Typar.Constraints
+
+            if not constraints.IsEmpty then
+                match cellOf j with
+                | TyVar tv ->
+                    stampConstraints thaw.Store (instantiateWith thaw inst) (UnionFind.find thaw.Store tv) constraints
+                | seeded ->
+                    // A seed is a TypeScript literal type, and a manifest declares only bounds.
+                    failwithf "method typar %s is constrained but pre-bound to %A" t.Typar.Name.Display seeded
+        )
+
     /// Instantiate a member's `Signature` with SOME method typars PRE-BOUND (`seed`, index →
     /// type) instead of fresh; the rest freshen normally. A typar in no bare parameter
     /// position is unsolvable by unification alone.
@@ -683,10 +720,14 @@ module ExternalSymbols =
         (declaringArgs: SemType[])
         (level: int)
         : SemType =
-        instantiateWith
-            thaw
-            (TyparInstantiation.atCallSite thaw.Store level seed declaringArgs)
-            (ExternalSignature.openTemplate m.Signature)
+        let cellOf = TyparInstantiation.ownCells thaw.Store level seed
+        let inst = TyparInstantiation.atCallSiteOver cellOf declaringArgs
+
+        let instantiated =
+            instantiateWith thaw inst (ExternalSignature.openTemplate m.Signature)
+
+        stampMethodTyparConstraints thaw inst cellOf m.Signature.MethodTypars
+        instantiated
 
     /// Instantiate a member's `Signature` at `level`: `FTTypar(Type _, i) →
     /// declaringArgs.[i]`, `FTTypar(Member _, j) → fresh TyVar at level` (one per index,
@@ -716,7 +757,7 @@ module ExternalSymbols =
         let inst = TyparInstantiation.openMethod declaringArgs
 
         m.Signature.MethodTypars
-        |> Block.map (ValueOption.map (instantiateWith thaw inst))
+        |> Block.map (fun t -> ValueOption.map (instantiateWith thaw inst) t.Bound)
 
     let instantiateFieldType (thaw: IMeasuredThaw) (f: ExternalFieldShape) (declaringArgs: SemType[]) : SemType =
         instantiateDeclaring thaw f.Frozen declaringArgs
@@ -783,26 +824,13 @@ module ExternalSymbols =
             // `instantiateDeclaring` reads the instantiation positionally.
             let fresh = Block.toArray freshTys
 
-            // External symbols carry no source-side NodeKey; stamp `Unknown`
-            // so diagnostics attribute the constraint to the use site.
             typars
             |> Block.iteri (fun i t ->
-                for kind in t.Constraints.Kinds do
-                    let cstr: SemanticConstraint =
-                        {
-                            Kind = TyparConstraint.toSemantic (fun target -> inst target fresh) kind
-                            DeclKey = NodeKey.ofSource 0 NodeKind.Unknown
-                        }
-
-                    store.Constraints.Prepend(UnionFind.find store freshTvs.[i], cstr)
-            )
-
-            // Appended, not prepended: generalisation takes the first target in list order
-            // that resolves, so the list must stay in source order.
-            typars
-            |> Block.iteri (fun i t ->
-                for target in t.Constraints.Defaults do
-                    store.Defaults.Append(UnionFind.find store freshTvs.[i], inst target fresh)
+                stampConstraints
+                    store
+                    (fun target -> inst target fresh)
+                    (UnionFind.find store freshTvs.[i])
+                    t.Constraints
             )
 
             for mt in sym.Generics.Traits do

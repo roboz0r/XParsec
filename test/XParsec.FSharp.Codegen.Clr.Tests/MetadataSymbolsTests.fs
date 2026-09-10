@@ -392,6 +392,63 @@ let tests =
                     Expect.equal (scope.UnionCasesNamed(c, "Some")).Length 0 "IL declares no union case"
             }
 
+            test "a generic type's typar carries the constraints its metadata encodes" {
+                match typeShape "System.Nullable`1" with
+                | ValueSome(ExternalTypeShape.Class info) ->
+                    // The value-type bit and its `System.ValueType` row are one constraint,
+                    // so the row leaves no coercion behind.
+                    Expect.equal
+                        (EqSet.toList info.Typars.Types.[0<typeSlot>].Constraints.Kinds)
+                        [ TyparConstraintKindG.Struct; TyparConstraintKindG.DefaultConstructor ]
+                        "Nullable<'T> imports as 'T : struct and 'T : (new : unit -> 'T)"
+                | other -> failtestf "expected Nullable`1 as a Class shape, got %A" other
+
+                match typeShape "System.Collections.Generic.List`1" with
+                | ValueSome(ExternalTypeShape.Class info) ->
+                    Expect.isFalse info.Typars.HasConstraints "List<'T> constrains nothing"
+                | other -> failtestf "expected List`1 as a Class shape, got %A" other
+            }
+
+            test "a generic method's own typar carries the constraints its metadata encodes" {
+                match typeShape "System.Enum" with
+                | ValueSome(ExternalTypeShape.Class info) ->
+                    let generic =
+                        info.Members
+                        |> Block.filter (fun m -> m.Name = "GetName" && not m.Signature.MethodTypars.IsEmpty)
+
+                    match Block.toList generic with
+                    | [ getName ] ->
+                        Expect.equal
+                            (EqSet.toList getName.Signature.MethodTypars.[0<typeSlot>].Typar.Constraints.Kinds)
+                            [
+                                TyparConstraintKindG.Struct
+                                TyparConstraintKindG.DefaultConstructor
+                                TyparConstraintKindG.Coercion(
+                                    FTClass(SymbolKeyOps.qualifiedTypeKeyOf "System.Enum" 0, Block.empty)
+                                )
+                            ]
+                            "GetName<'TEnum> imports as struct + new() + :> System.Enum"
+                    | other -> failtestf "expected one generic GetName overload, got %d" (List.length other)
+                | other -> failtestf "expected System.Enum as a Class shape, got %A" other
+            }
+
+            ptest
+                "GAP: an unmappable coercion target raises rather than drops, and no BCL generic parameter carries one" {
+                // A constraint-table target is a class, an interface or a sibling parameter,
+                // each of which `tryBuildType` maps. Find a generic whose target bottoms out
+                // in a pointer to exercise the refusal.
+                let unmappableTargetGeneric = ""
+
+                Expect.throwsC
+                    (fun () -> typeShape unmappableTargetGeneric |> ignore)
+                    (fun e ->
+                        Expect.stringContains
+                            e.Message
+                            "unmappable constraint target"
+                            "the reader names the parameter and the target it refused"
+                    )
+            }
+
             // FSharp.Core carries 11 assembly-level `AutoOpen` rows (`Microsoft.FSharp.Core`,
             // `Microsoft.FSharp.Collections`, …). This layer reports none, so an fsc-built
             // reference assembly loses its prelude and a bare `List.map` stays unresolved.

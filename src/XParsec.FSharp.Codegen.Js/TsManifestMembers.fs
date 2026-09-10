@@ -86,7 +86,7 @@ module internal TsManifestMembers =
                   ) with
                     IsStatic = mem.Static
                     Storage = MemberStorage.Property
-                    Signature = ExternalSignature.value (declTyparArity, 0<_>, ret)
+                    Signature = ExternalSignature.value (declTyparArity, Block.empty, ret)
                     Origin = origin
                     IsOptional = mem.Optional
                 }
