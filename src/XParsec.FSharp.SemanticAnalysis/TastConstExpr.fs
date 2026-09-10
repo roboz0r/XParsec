@@ -94,6 +94,18 @@ module TConstExpr =
         | TConstExpr.Unary(ty = ty)
         | TConstExpr.Binary(ty = ty) -> ty
 
+    let tok (e: TConstExpr) : Anchor =
+        match e with
+        | TConstExpr.Literal(tok = tok)
+        | TConstExpr.Null(tok = tok)
+        | TConstExpr.LiteralRef(tok = tok)
+        | TConstExpr.EnumCase(tok = tok)
+        | TConstExpr.TypeOf(tok = tok)
+        | TConstExpr.NameOf(tok = tok)
+        | TConstExpr.ArrayLit(tok = tok)
+        | TConstExpr.Unary(tok = tok)
+        | TConstExpr.Binary(tok = tok) -> tok
+
     let rec result (e: TConstExpr) : TConstResult =
         match e with
         | TConstExpr.Literal(value = v) -> TConstResult.Scalar v

@@ -758,6 +758,10 @@ module FrozenCodecDiagnostics =
             w.Write 77uy
             w.Write className
             w.Write param
+        | Kind.UnencodableConstant(typeName, target) ->
+            w.Write 78uy
+            w.Write typeName
+            w.Write target
 
     let private readKind (r: FrozenReader) : Kind =
         match r.ReadByte() with
@@ -933,6 +937,9 @@ module FrozenCodecDiagnostics =
         | 77uy ->
             let className = r.ReadString()
             Kind.AttributeCtorParamUnannotated(className, r.ReadString())
+        | 78uy ->
+            let typeName = r.ReadString()
+            Kind.UnencodableConstant(typeName, r.ReadString())
         | b -> failwithf "FrozenCodec: unknown Kind tag %d" b
 
     let writeDiagnostic (w: FrozenWriter) (d: XParsec.FSharp.SemanticAnalysis.Diagnostic) =

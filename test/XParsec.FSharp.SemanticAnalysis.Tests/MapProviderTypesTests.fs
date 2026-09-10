@@ -167,6 +167,7 @@ let private fake: IExternalSymbolProvider =
                 { new IPlatformFacts with
                     member _.IsValueType _ = ValueSome true
                     member _.TupleType _ = ValueNone
+                    member _.ConstEncoding(_, _) = ConstEncoding.Encodable
                 }
     }
 

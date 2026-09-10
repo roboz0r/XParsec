@@ -59,6 +59,8 @@ let private clrPlatform: IExternalSymbolProvider =
                                 ValueNone
                             else
                                 ValueSome(valueTupleKey arity)
+
+                        member _.ConstEncoding(_, _) = ConstEncoding.Encodable
                     }
         }
 

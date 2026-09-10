@@ -113,6 +113,8 @@ type Kind =
     /// An argument fills a parameter of a local attribute class written without a type
     /// annotation; an attribute argument checks against a declared type.
     | AttributeCtorParamUnannotated of className: string * param: string
+    /// The compiling target's attribute metadata cannot encode an argument of this type.
+    | UnencodableConstant of typeName: string * target: string
     /// The attribute's declared `[<AttributeUsage>]` mask admits none of the flags the
     /// written-on element occupies. Both are `AttributeTargetFlags` sets.
     | AttributeTargetInvalid of element: int * validOn: int
@@ -248,6 +250,9 @@ module Kind =
         | Kind.AttributeCtorAmbiguous _ -> DiagCode.FSharp 41 // NoOverloadsFound / UnresolvedOverloading
         | Kind.AttributeNamedArgUnknown _ -> DiagCode.FSharp 495
         | Kind.AttributeCtorParamUnannotated _ -> DiagCode.Vesper "V263"
+        // fsc refuses the same values in its front end, under codes that describe the written
+        // form rather than the encoding: FS0073 for `decimal`, FS0267 for `nativeint`.
+        | Kind.UnencodableConstant _ -> DiagCode.Vesper "V264"
         | Kind.NewConstraintResultType -> DiagCode.FSharp 700 // tcNewConstraintMustTakeOneArg
         // fsc files this as a WARNING; here the mismatch is an error.
         | Kind.AttributeTargetInvalid _ -> DiagCode.FSharp 842 // tcAttributeIsNotValidForLanguageElement
@@ -425,6 +430,8 @@ module Kind =
                 "The constructor parameter '%s' of the attribute class '%s' has no type annotation; an attribute argument checks against a declared type"
                 param
                 className
+        | Kind.UnencodableConstant(typeName, target) ->
+            sprintf "An attribute argument of type '%s' cannot be encoded on the %s target" typeName target
         | Kind.AttributeTargetInvalid(element, validOn) ->
             sprintf
                 "This attribute cannot be applied to %s. Valid targets are: %s"
@@ -560,6 +567,7 @@ module Kind =
         | Kind.AttributeCtorAmbiguous _
         | Kind.AttributeNamedArgUnknown _
         | Kind.AttributeCtorParamUnannotated _
+        | Kind.UnencodableConstant _
         | Kind.AttributeTargetInvalid _
         | Kind.CapabilityNotImplemented _
         | Kind.CapabilityNotDeclared _

@@ -193,6 +193,24 @@ module Block =
     let tryMap (mapping: 'T -> 'U voption) (xs: BlockM<'T, 'M>) : BlockM<'U, 'M> voption =
         tryOfSeq (Seq.map mapping xs.Xs)
 
+    /// Maps every element, stopping at the first `Error`.
+    let mapResult (mapping: 'T -> Result<'U, 'E>) (xs: BlockM<'T, 'M>) : Result<BlockM<'U, 'M>, 'E> =
+        let src = xs.Xs
+        let out = Array.zeroCreate<'U> src.Length
+        let mutable failure = ValueNone
+        let mutable i = 0
+
+        while failure.IsNone && i < src.Length do
+            match mapping src.[i] with
+            | Ok y ->
+                out.[i] <- y
+                i <- i + 1
+            | Error e -> failure <- ValueSome e
+
+        match failure with
+        | ValueNone -> Ok(BlockM<'U, 'M>(out))
+        | ValueSome e -> Error e
+
     /// Reference-preserving map: `ValueNone`, allocating nothing, when `mapping` returns a
     /// reference-equal result for EVERY element, the common case when a structural walk reaches
     /// an already-resolved subtree. Reference types only; a struct element would box per item.

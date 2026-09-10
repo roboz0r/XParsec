@@ -590,23 +590,48 @@ pinned by a test, `AttributeFoldTests` pins the overload preference
 and FS0041, the frozen tree carries the chosen constructor, and an emitted assembly reads
 back a boxed `obj` argument and a `null` argument through reflection.
 
-### 7. The backend encodability gate
+### 7. The backend encodability gate — LANDED
 
-Declare an interface in SemanticAnalysis — a `TConstExpr` in, a verdict out — supplied to
-`PassContext` by the driver the way `IExternalSymbolProvider` is. Run it at the stage-4 site so
-the diagnostic is anchored in source alongside every other analysis finding.
+`IPlatformFacts.ConstEncoding` takes the position's declared type and the checked
+`TConstExpr` and answers `ConstEncoding.Encodable`, or `Unencodable ty` with the innermost
+type the target has no form for. `AttributeFold.readUnder` runs it in `checkAt`, where the
+declared type is already in hand, and reports `Kind.UnencodableConstant` at the argument's own
+anchor via `Anchor.toSite`. The report is collected with the reading's other diagnostics and
+reaches the file only when that reading is chosen, so what a target cannot encode never steers
+overload selection.
 
-CLR implements what `AttributeBlob.tryClassify` (`AttributeRows.fs:119-136`) decides today:
-pointer-width integrals, `decimal` (fsc lowers it to `DecimalConstantAttribute`), `unit`, and
-string-valued enums have no II.23.3 encoding, and a named enum-typed argument needs a full name
-(`ForeignEnum`). JS accepts everything, emitting no attributes.
+Three departures from the shape written above, each deliberate:
 
-`AttributeRowPrep.fs:102-105` stops reporting; by the time it runs, every surviving argument is
-encodable.
+- **The verdict rides `IPlatformFacts`, not a fourth `PassContext` constructor argument.**
+  That interface is already "what the compiling target lays out and encodes", already
+  supplied by the platform-metadata provider the driver composes, and already read by
+  `ConstExprCheck` for `typedefof`'s tuple identity. A parallel supply path would be a
+  second derivation of which target is compiling. A source composed over
+  `PackageProviders.noPlatformMetadata` states no facts and gates nothing, which is what the
+  SemanticAnalysis suite and a `Target = "none"` analysis run under.
+- **The CLR verdict is the encoder itself.** `AttributeBlob` encodes to
+  `Result<_, AttributeEncodeFailure>`, whose two cases are `UnspellableType` and
+  `UnencodableValue`. `AttributeBlob.tryUnencodable` runs the encoder with every type taken to
+  be spellable and surfaces the `UnencodableValue` type, so the gate and the blob writer cannot
+  disagree about the value domain: pointer-width integrals, `decimal`, `unit` and a
+  string-valued enum are refused wherever they sit, including inside an array or an `obj`
+  position.
+- **The row writer keeps one skip.** Spelling a type's reflection name needs the emitted
+  file's layout tree (`ClrTypeNames.localNames`), which analysis does not have, so a
+  `typeof<T>` operand or a named enum argument the encoder cannot name still reaches
+  emission as `SkippedAttributeRowReason.UnspellableArgumentType`. An `UnencodableValue`
+  reaching the row writer is a tree analysed without the CLR platform facts, and faults.
 
-Done when: a `decimal` attribute argument is represented in the frozen tree, reported when
-compiling for CLR, and silent when compiling for JS, with `PlatformTypes.fs` as the shape
-precedent for a target-conditioned analysis diagnostic.
+The attribute is REPORTED, not dropped, so the `decimal` argument stays in the frozen tree
+and `AnalysedAssembly.gate` refuses the compile on the error-severity finding.
+
+`Kind.UnencodableConstant` is `V264`: fsc refuses the same values under codes that describe
+the written form rather than the encoding (FS0073 for `decimal`, FS0267 for `nativeint`).
+
+Regressions: `AttributeFoldTests` (`[<Mark(1.5M)>]` folds and survives the codec with no
+platform facts), `AttributeRowTests` (the same source and a `nativeint` one are each one
+front-end error naming the type and the `clr` target), and `JsNativeSymbolsTests` (the JS
+facts encode `decimal` and `nativeint`).
 
 ### 8. CLR encoding for the new cases — folded into 6a, 6b and 6c
 

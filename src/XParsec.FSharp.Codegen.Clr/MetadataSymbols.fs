@@ -821,6 +821,11 @@ type MetadataSymbolProvider(intrinsics: IntrinsicTypeMap, assemblyPaths: string 
             else
                 ValueNone
 
+        member _.ConstEncoding(declared: FrozenType, value: TConstExpr) =
+            match AttributeBlob.tryUnencodable declared value with
+            | ValueNone -> ConstEncoding.Encodable
+            | ValueSome ty -> ConstEncoding.Unencodable ty
+
 module MetadataSymbols =
 
     /// Host runtime TPA, so a stamped `SymbolHome` resolves to `System.Private.CoreLib`

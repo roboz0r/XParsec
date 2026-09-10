@@ -536,7 +536,8 @@ module ExternalSymbolProviders =
         let valueTypes = ConcurrentDictionary<TypeKey, bool voption>()
 
         // Only `IsValueType` is cached: it reaches a metadata name lookup, where `TupleType`
-        // is read from the target's own fixed family and is cheaper than the dictionary probe.
+        // is read from the target's own fixed family and `ConstEncoding` is a walk of the
+        // argument alone, both cheaper than the dictionary probe.
         let platform =
             lazy
                 (inner.Platform
@@ -546,6 +547,8 @@ module ExternalSymbolProviders =
                              valueTypes.GetOrAdd(key, (fun k -> facts.IsValueType k))
 
                          member _.TupleType arity = facts.TupleType arity
+
+                         member _.ConstEncoding(declared, value) = facts.ConstEncoding(declared, value)
                      }
                  ))
 

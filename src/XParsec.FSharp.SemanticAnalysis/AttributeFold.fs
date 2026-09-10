@@ -131,8 +131,24 @@ module internal AttributeFold =
 
         "new: " + parameters + " -> " + className
 
+    /// Reports `node`, at a position of declared type `declared`, when the compiling target's
+    /// attribute metadata cannot encode it. A provider without platform facts reports nothing;
+    /// a `.fsi`-only analysis and a `Target = "none"` compilation run under one.
+    let private reportUnencodable (ctx: PassContext) (declared: FrozenType) (node: TConstExpr) : unit =
+        match ctx.Provider.Platform with
+        | ValueNone -> ()
+        | ValueSome platform ->
+            match platform.ConstEncoding(declared, node) with
+            | ConstEncoding.Encodable -> ()
+            | ConstEncoding.Unencodable ty ->
+                ctx.Report(
+                    Anchor.toSite (TConstExpr.tok node),
+                    Kind.UnencodableConstant(Conformance.describeType ty, ctx.Target)
+                )
+
     /// `ctor`'s reading of `fills`, its diagnostics collected rather than reported. Every
-    /// argument is checked, so each refused one reports.
+    /// argument is checked, so each refused one reports. An unencodable argument is reported
+    /// and still read, so encodability leaves constructor selection unchanged.
     let private readUnder
         (ctx: PassContext)
         (entry: ResolvedAttribute)
@@ -143,7 +159,10 @@ module internal AttributeFold =
         : Reading =
         let checkAt (expected: FrozenType) (target: TAttributeArgTarget) (arg: WrittenArg) : TAttributeArg voption =
             ConstExprCheck.check ctx useSite (ValueSome expected) arg.Expr
-            |> ValueOption.map (fun node -> { Target = target; Expr = node })
+            |> ValueOption.map (fun node ->
+                reportUnencodable ctx expected node
+                { Target = target; Expr = node }
+            )
 
         let read () : TAttribute voption =
             match ctor.Identity with

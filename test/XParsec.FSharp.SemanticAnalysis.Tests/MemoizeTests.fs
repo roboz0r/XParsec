@@ -92,6 +92,8 @@ type private CountingProvider(name: string) =
             tupleTypeHits <- tupleTypeHits + 1
             ValueNone
 
+        member _.ConstEncoding(_, _) = ConstEncoding.Encodable
+
 [<Tests>]
 let tests =
     testList

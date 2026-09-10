@@ -243,6 +243,31 @@ let tests =
                     "each array carries its items at the first item's type"
             }
 
+            // The representation is target-neutral, so the front end keeps a `decimal` the CLR
+            // blob lacks an `Elem` for. Analysis here runs without platform facts, so the gate
+            // stays quiet; `AttributeRowTests` pins the CLR refusal of this same source.
+            test "a decimal argument folds and survives the codec, ungated" {
+                let pools =
+                    freezeFor (
+                        src
+                            [
+                                "type MarkAttribute(d: decimal) ="
+                                "    member this.D = d"
+                                ""
+                                "[<Mark(1.5M)>]"
+                                "type Priced = { X: int }"
+                            ]
+                    )
+
+                Expect.isEmpty (FrozenPools.blockingErrors pools) "the decimal source analyses clean"
+                let thawed = FrozenCodec.thaw (FrozenCodec.flatten pools)
+
+                Expect.equal
+                    (markArgs (typeDecl thawed "Priced").Attributes)
+                    [ positional (TConstValue.Decimal 1.5M) ]
+                    "the decimal argument reaches the frozen tree"
+            }
+
             test "AttributeUsage folds through the contract's AttributeTargets enum" {
                 let pools =
                     freezeFor (

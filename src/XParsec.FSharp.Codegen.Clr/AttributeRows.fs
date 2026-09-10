@@ -63,10 +63,21 @@ module SyntheticAttribute =
         b.WriteUInt16(0us)
         b
 
+/// Why an attribute argument failed to encode under II.23.3.
+[<RequireQualifiedAccess>]
+type AttributeEncodeFailure =
+    /// `tryTypeName` missed `ty`: a reified type, or a named enum lacking a reflection name.
+    | UnspellableType of ty: FrozenType
+    /// II.23.3 lacks an `Elem` or `FieldOrPropType` for `ty`: a pointer-width integral,
+    /// `decimal`, `unit`, a string-valued enum, or a shape mismatched with its position.
+    | UnencodableValue of ty: FrozenType
+
 /// ECMA-335 II.23.3 `CustomAttrib` blob encoding over the frozen constant-folded arguments.
 /// A `tryTypeName` parameter yields a type's SerString: assembly-qualified for a referenced
 /// type, the full name alone for a type of the assembly under emission.
 module internal AttributeBlob =
+
+    type Encoded = Result<ImmutableArray<byte>, AttributeEncodeFailure>
 
     /// The single `FieldOrPropType` byte `key` spells: `bool`, `char`, a fixed-width integral,
     /// `float32`, `float`, `string`, `0x50` for `Vesper.Type` and `0x51` for the boxed `obj`.
@@ -99,16 +110,22 @@ module internal AttributeBlob =
         write b
         b.ToImmutableArray()
 
-    /// The `FieldOrPropType` of `ty`: an enum is `0x55` + its SerString, an array `0x1D` +
-    /// its item type. `ValueNone` for a type with no II.23.3 encoding.
-    let rec private tryFieldOrPropType
+    /// The SerString of `ty`; `UnspellableType` where `tryTypeName` misses.
+    let private spell
         (tryTypeName: FrozenType -> string voption)
         (ty: FrozenType)
-        : ImmutableArray<byte> voption =
+        : Result<string, AttributeEncodeFailure> =
+        match tryTypeName ty with
+        | ValueSome name -> Ok name
+        | ValueNone -> Error(AttributeEncodeFailure.UnspellableType ty)
+
+    /// The `FieldOrPropType` of `ty`: an enum is `0x55` + its SerString, an array `0x1D` +
+    /// its item type.
+    let rec private tryFieldOrPropType (tryTypeName: FrozenType -> string voption) (ty: FrozenType) : Encoded =
         match ty with
         | FTEnum _ ->
-            tryTypeName ty
-            |> ValueOption.map (fun name ->
+            spell tryTypeName ty
+            |> Result.map (fun name ->
                 bytes (fun b ->
                     b.WriteByte 0x55uy
                     b.WriteSerializedString name
@@ -116,92 +133,82 @@ module internal AttributeBlob =
             )
         | FTArray elemTy ->
             tryFieldOrPropType tryTypeName elemTy
-            |> ValueOption.map (fun elem ->
+            |> Result.map (fun elem ->
                 bytes (fun b ->
                     b.WriteByte 0x1Duy
                     b.WriteBytes elem
                 )
             )
         | FTConst(key, args) when args.IsEmpty ->
-            tryFieldOrPropTypeByte key
-            |> ValueOption.map (fun t -> bytes (fun b -> b.WriteByte t))
-        | _ -> ValueNone
+            match tryFieldOrPropTypeByte key with
+            | ValueSome t -> Ok(bytes (fun b -> b.WriteByte t))
+            | ValueNone -> Error(AttributeEncodeFailure.UnencodableValue ty)
+        | _ -> Error(AttributeEncodeFailure.UnencodableValue ty)
 
-    /// One scalar's `Elem` write. `ValueNone` for pointer-width integrals, `decimal` (fsc
-    /// lowers it to `DecimalConstantAttribute`) and `unit`, which have no `Elem` encoding.
-    let private tryScalarElem (v: TConstValue) : (BlobBuilder -> unit) voption =
-        match v with
-        | TConstValue.Bool x -> ValueSome(fun b -> b.WriteBoolean x)
-        | TConstValue.Char c -> ValueSome(fun b -> b.WriteUInt16(uint16 c))
-        | TConstValue.Integral v ->
+    /// One scalar's `Elem`. Pointer-width integrals, `unit` and `decimal` (fsc lowers it to
+    /// `DecimalConstantAttribute`) are refused.
+    let private tryScalarElem (v: TConstValue) : Encoded =
+        let write: (BlobBuilder -> unit) voption =
             match v with
-            | IntValue.SByte n -> ValueSome(fun b -> b.WriteSByte n)
-            | IntValue.Byte n -> ValueSome(fun b -> b.WriteByte n)
-            | IntValue.Int16 n -> ValueSome(fun b -> b.WriteInt16 n)
-            | IntValue.UInt16 n -> ValueSome(fun b -> b.WriteUInt16 n)
-            | IntValue.Int32 n -> ValueSome(fun b -> b.WriteInt32 n)
-            | IntValue.UInt32 n -> ValueSome(fun b -> b.WriteUInt32 n)
-            | IntValue.Int64 n -> ValueSome(fun b -> b.WriteInt64 n)
-            | IntValue.UInt64 n -> ValueSome(fun b -> b.WriteUInt64 n)
-            | IntValue.NativeInt _
-            | IntValue.UNativeInt _ -> ValueNone
-        | TConstValue.Float32 f -> ValueSome(fun b -> b.WriteSingle f)
-        | TConstValue.Float f -> ValueSome(fun b -> b.WriteDouble f)
-        | TConstValue.String s -> ValueSome(fun b -> b.WriteSerializedString s)
-        | TConstValue.Decimal _
-        | TConstValue.Unit -> ValueNone
+            | TConstValue.Bool x -> ValueSome(fun b -> b.WriteBoolean x)
+            | TConstValue.Char c -> ValueSome(fun b -> b.WriteUInt16(uint16 c))
+            | TConstValue.Integral v ->
+                match v with
+                | IntValue.SByte n -> ValueSome(fun b -> b.WriteSByte n)
+                | IntValue.Byte n -> ValueSome(fun b -> b.WriteByte n)
+                | IntValue.Int16 n -> ValueSome(fun b -> b.WriteInt16 n)
+                | IntValue.UInt16 n -> ValueSome(fun b -> b.WriteUInt16 n)
+                | IntValue.Int32 n -> ValueSome(fun b -> b.WriteInt32 n)
+                | IntValue.UInt32 n -> ValueSome(fun b -> b.WriteUInt32 n)
+                | IntValue.Int64 n -> ValueSome(fun b -> b.WriteInt64 n)
+                | IntValue.UInt64 n -> ValueSome(fun b -> b.WriteUInt64 n)
+                | IntValue.NativeInt _
+                | IntValue.UNativeInt _ -> ValueNone
+            | TConstValue.Float32 f -> ValueSome(fun b -> b.WriteSingle f)
+            | TConstValue.Float f -> ValueSome(fun b -> b.WriteDouble f)
+            | TConstValue.String s -> ValueSome(fun b -> b.WriteSerializedString s)
+            | TConstValue.Decimal _
+            | TConstValue.Unit -> ValueNone
+
+        match write with
+        | ValueSome w -> Ok(bytes w)
+        | ValueNone -> Error(AttributeEncodeFailure.UnencodableValue(FTConst(TConstValue.canonKey v, Block.empty)))
 
     /// One scalar or type value's `Elem` at its type `ty`: a `Type` is the SerString of the
-    /// type's name. `ValueNone` for a string-valued (TS) enum, and a scalar or type outside
-    /// the `Elem` encoding.
-    let private tryValueElem
-        (tryTypeName: FrozenType -> string voption)
-        (ty: FrozenType)
-        (r: TConstResult)
-        : ImmutableArray<byte> voption =
+    /// type's name. A string-valued (TS) enum is refused; `tryElemAt` encodes `null` and an
+    /// array at their position.
+    let private tryValueElem (tryTypeName: FrozenType -> string voption) (ty: FrozenType) (r: TConstResult) : Encoded =
         match ty, r with
-        | FTEnum _, TConstResult.Scalar(TConstValue.Integral _ as v) -> tryScalarElem v |> ValueOption.map bytes
-        | FTEnum _, _ -> ValueNone
-        | _, TConstResult.Scalar v -> tryScalarElem v |> ValueOption.map bytes
+        | FTEnum _, TConstResult.Scalar(TConstValue.Integral _ as v) -> tryScalarElem v
+        | FTEnum _, _ -> Error(AttributeEncodeFailure.UnencodableValue ty)
+        | _, TConstResult.Scalar v -> tryScalarElem v
         | _, TConstResult.TypeVal t ->
-            tryTypeName t
-            |> ValueOption.map (fun name -> bytes (fun b -> b.WriteSerializedString name))
+            spell tryTypeName t
+            |> Result.map (fun name -> bytes (fun b -> b.WriteSerializedString name))
         | _, TConstResult.Null
-        | _, TConstResult.ArrayVal _ -> ValueNone
+        | _, TConstResult.ArrayVal _ -> Error(AttributeEncodeFailure.UnencodableValue ty)
 
     /// The `Elem` of `e` at the position's declared type. An `obj` position boxes: the value's
-    /// own `FieldOrPropType` precedes its `Elem`. `ValueNone` for a value outside the `Elem`
-    /// encoding.
+    /// own `FieldOrPropType` precedes its `Elem`.
     let rec private tryElemAt
         (tryTypeName: FrozenType -> string voption)
         (declared: FrozenType)
         (e: TConstExpr)
-        : ImmutableArray<byte> voption =
+        : Encoded =
         match declared, e with
         | FTObj, TConstExpr.Null _ ->
-            ValueSome(
+            Ok(
                 bytes (fun b ->
                     b.WriteByte 0x0Euy
                     b.WriteByte 0xFFuy
                 )
             )
-        | FTObj, _ ->
-            let ty = TConstExpr.ty e
-
-            match tryFieldOrPropType tryTypeName ty, tryElemAt tryTypeName ty e with
-            | ValueSome fieldOrPropType, ValueSome value ->
-                ValueSome(
-                    bytes (fun b ->
-                        b.WriteBytes fieldOrPropType
-                        b.WriteBytes value
-                    )
-                )
-            | _ -> ValueNone
-        | FTArray _, TConstExpr.Null _ -> ValueSome(bytes (fun b -> b.WriteUInt32 0xFFFFFFFFu))
-        | _, TConstExpr.Null _ -> ValueSome(bytes (fun b -> b.WriteByte 0xFFuy))
+        | FTObj, _ -> tryBoxedElem tryTypeName (TConstExpr.ty e) e
+        | FTArray _, TConstExpr.Null _ -> Ok(bytes (fun b -> b.WriteUInt32 0xFFFFFFFFu))
+        | _, TConstExpr.Null _ -> Ok(bytes (fun b -> b.WriteByte 0xFFuy))
         | FTArray elemTy, TConstExpr.ArrayLit(items = items) ->
-            Block.tryMap (tryElemAt tryTypeName elemTy) items
-            |> ValueOption.map (fun elems ->
+            Block.mapResult (tryElemAt tryTypeName elemTy) items
+            |> Result.map (fun elems ->
                 bytes (fun b ->
                     b.WriteUInt32(uint32 elems.Length)
 
@@ -209,23 +216,47 @@ module internal AttributeBlob =
                         b.WriteBytes elem
                 )
             )
-        | _, TConstExpr.ArrayLit _ -> ValueNone
+        | _, TConstExpr.ArrayLit _ -> Error(AttributeEncodeFailure.UnencodableValue(TConstExpr.ty e))
         | _ -> tryValueElem tryTypeName declared (TConstExpr.result e)
+
+    /// `e` boxed at a position of type `ty`: its `FieldOrPropType`, then its `Elem`.
+    and private tryBoxedElem (tryTypeName: FrozenType -> string voption) (ty: FrozenType) (e: TConstExpr) : Encoded =
+        tryElemAt tryTypeName ty e
+        |> Result.bind (fun value ->
+            tryFieldOrPropType tryTypeName ty
+            |> Result.map (fun fieldOrPropType ->
+                bytes (fun b ->
+                    b.WriteBytes fieldOrPropType
+                    b.WriteBytes value
+                )
+            )
+        )
+
+    /// The innermost type in `e` that II.23.3 cannot encode at a position of declared type
+    /// `declared`. Every type is taken as spellable, so an unnamed type yields `ValueNone`.
+    let tryUnencodable (declared: FrozenType) (e: TConstExpr) : FrozenType voption =
+        let spellable _ = ValueSome ""
+
+        match tryBoxedElem spellable declared e with
+        | Ok _
+        | Error(AttributeEncodeFailure.UnspellableType _) -> ValueNone
+        | Error(AttributeEncodeFailure.UnencodableValue ty) -> ValueSome ty
 
     /// A named argument's segment: `0x54` for a property or `0x53` for a field, the member's
     /// `FieldOrPropType`, its SerString name, then the `Elem` at the member's type.
     let private tryNamedSegment
         (tryTypeName: FrozenType -> string voption)
         (m: TAttributeMember, e: TConstExpr)
-        : ImmutableArray<byte> voption =
+        : Encoded =
         let kind =
             match m with
             | TAttributeMember.Property _ -> 0x54uy
             | TAttributeMember.Field _ -> 0x53uy
 
-        match tryFieldOrPropType tryTypeName m.Ty, tryElemAt tryTypeName m.Ty e with
-        | ValueSome fieldOrPropType, ValueSome value ->
-            ValueSome(
+        tryElemAt tryTypeName m.Ty e
+        |> Result.bind (fun value ->
+            tryFieldOrPropType tryTypeName m.Ty
+            |> Result.map (fun fieldOrPropType ->
                 bytes (fun b ->
                     b.WriteByte kind
                     b.WriteBytes fieldOrPropType
@@ -233,20 +264,20 @@ module internal AttributeBlob =
                     b.WriteBytes value
                 )
             )
-        | _ -> ValueNone
+        )
 
     /// The blob: prolog `0x0001`, the fixed arguments in the constructor's parameter order,
     /// each at its parameter's type, the named-argument count, then the named arguments in
-    /// written order. `ValueNone` where any argument is unencodable.
+    /// written order; the first failing argument in that order.
     let tryEncode
         (tryTypeName: FrozenType -> string voption)
         (ctorParams: Block<FrozenType>)
         (args: Block<TAttributeArg>)
-        : BlobBuilder voption =
-        let fixedArg (i: int) (paramTy: FrozenType) : ImmutableArray<byte> voption =
-            args
-            |> Block.tryFind (fun a -> a.Target = TAttributeArgTarget.Parameter i)
-            |> ValueOption.bind (fun a -> tryElemAt tryTypeName paramTy a.Expr)
+        : Result<BlobBuilder, AttributeEncodeFailure> =
+        let fixedArg (i: int) (paramTy: FrozenType) : Encoded =
+            match args |> Block.tryFind (fun a -> a.Target = TAttributeArgTarget.Parameter i) with
+            | ValueSome a -> tryElemAt tryTypeName paramTy a.Expr
+            | ValueNone -> failwithf "AttributeBlob: the front end filled no argument for constructor parameter %d" i
 
         let named =
             Block.ofList
@@ -257,18 +288,21 @@ module internal AttributeBlob =
                         | TAttributeArgTarget.Parameter _ -> ()
                 ]
 
-        match Block.tryMap id (Block.mapi fixedArg ctorParams), Block.tryMap (tryNamedSegment tryTypeName) named with
-        | ValueSome fixedSegments, ValueSome namedSegments ->
-            let b = BlobBuilder()
-            b.WriteUInt16 1us
+        Block.mapResult id (Block.mapi fixedArg ctorParams)
+        |> Result.bind (fun fixedSegments ->
+            Block.mapResult (tryNamedSegment tryTypeName) named
+            |> Result.map (fun namedSegments ->
+                let b = BlobBuilder()
+                b.WriteUInt16 1us
 
-            for segment in fixedSegments do
-                b.WriteBytes segment
+                for segment in fixedSegments do
+                    b.WriteBytes segment
 
-            b.WriteUInt16(uint16 namedSegments.Length)
+                b.WriteUInt16(uint16 namedSegments.Length)
 
-            for segment in namedSegments do
-                b.WriteBytes segment
+                for segment in namedSegments do
+                    b.WriteBytes segment
 
-            ValueSome b
-        | _ -> ValueNone
+                b
+            )
+        )

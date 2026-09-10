@@ -390,6 +390,14 @@ type IExternalSymbolResolver =
     /// module follows the scope that holds it.
     abstract ImplicitOpens: ImplicitOpen list
 
+/// Whether the compiling target's attribute metadata can encode a checked constant.
+[<RequireQualifiedAccess>]
+type ConstEncoding =
+    | Encodable
+    /// The target's attribute metadata cannot encode `ty`, the innermost such type within the
+    /// constant: `decimal` for a `decimal` item boxed in an `obj[]`.
+    | Unencodable of ty: FrozenType
+
 /// What the COMPILING TARGET lays out and encodes, which no `.fsi` can state: `int` is a
 /// value type on the CLR and nothing is on JS. Implemented only by a source that IS the
 /// platform metadata.
@@ -400,6 +408,10 @@ type IPlatformFacts =
     /// The nominal a tuple of `arity` elements BECOMES: the OUTERMOST constructor, so a target
     /// that nests keeps the nesting in its encoder. `ValueNone` below arity 2, not a tuple.
     abstract TupleType: arity: int -> TypeKey voption
+
+    /// Whether the target's attribute metadata can hold `value` at a position of declared type
+    /// `declared`. A target that emits no attributes yields `Encodable` for every constant.
+    abstract ConstEncoding: declared: FrozenType * value: TConstExpr -> ConstEncoding
 
 /// The STORE view of the external-symbol contract: identity → payload, once identity is
 /// resolved. Addressed by `(namespace, arity-qualified name)` and NOTHING ELSE, so

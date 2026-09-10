@@ -34,6 +34,12 @@ module Anchor =
         | TokenIndex.Virtual ->
             failwithf "Anchor.ofToken: the VIRTUAL token %A has no place in the source, so it anchors nothing" tok
 
+    /// The diagnostic site of the anchored token; `Site.Nowhere` for `nowhere`.
+    let toSite (a: Anchor) : Site =
+        match a.Index with
+        | ValueSome i -> Site.At i
+        | ValueNone -> Site.Nowhere
+
     /// The wire form; `nowhere` travels as `-1`.
     let toStored (a: Anchor) : int =
         match a.Index with

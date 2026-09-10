@@ -313,9 +313,9 @@ type SkippedAttributeRowReason =
     | GenericAttributeClass
     /// The constructor the front end selected did not resolve in the reference set.
     | CtorUnresolved
-    /// An argument value is outside the II.23.3 encodable constant domain, or a reified
-    /// type the encoder cannot spell.
-    | UnencodableArgument
+    /// A type the encoder cannot spell: a reified type, or a named enum argument lacking a
+    /// reflection name.
+    | UnspellableArgumentType
 
 /// One skipped row: the attribute, the declaration element it was written on, and why.
 /// Rows are advisory because the `.fsi` contract is the Vesper→Vesper carrier, so a skip

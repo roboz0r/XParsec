@@ -634,6 +634,87 @@ let tests =
                 | other -> failtestf "expected exactly one error, got %A" other
             }
 
+            // (l) The encodability gate: II.23.3 lacks an `Elem` for `decimal`, and the front
+            // end reports it at the argument. `AttributeFoldTests` pins the same source
+            // folding clean under a provider without platform facts.
+            test "a decimal attribute argument is refused for the CLR target" {
+                let source =
+                    String.concat
+                        "
+"
+                        [
+                            "type DecAttribute(d: decimal) ="
+                            "    member _.D = d"
+                            ""
+                            "[<Dec(1.5M)>]"
+                            "type Priced() ="
+                            "    member _.X = 1"
+                        ]
+
+                let errors = diagnoseSourceErrors "AttrDecimalArg" source
+
+                match diagnosticMessages errors with
+                | [ msg ] ->
+                    Expect.stringContains
+                        msg
+                        "An attribute argument of type 'decimal' cannot be encoded on the clr target"
+                        "the gate names the type and the target"
+                | other -> failtestf "expected exactly one error, got %A" other
+            }
+
+            // II.23.3 lacks an `Elem` for a pointer-width integral too.
+            test "a nativeint attribute argument is refused for the CLR target" {
+                let source =
+                    String.concat
+                        "
+"
+                        [
+                            "type AddrAttribute(a: nativeint) ="
+                            "    member _.A = a"
+                            ""
+                            "[<Addr(1n)>]"
+                            "type Located() ="
+                            "    member _.X = 1"
+                        ]
+
+                let errors = diagnoseSourceErrors "AttrNativeIntArg" source
+
+                match diagnosticMessages errors with
+                | [ msg ] ->
+                    Expect.stringContains
+                        msg
+                        "An attribute argument of type 'nativeint' cannot be encoded on the clr target"
+                        "the gate names the type and the target"
+                | other -> failtestf "expected exactly one error, got %A" other
+            }
+
+            // The verdict carries the INNERMOST unencodable type, so an array of decimals is
+            // refused as `decimal`, the item, rather than `decimal[]`, the position.
+            test "an unencodable array item is reported at its own type" {
+                let source =
+                    String.concat
+                        "
+"
+                        [
+                            "type PricesAttribute(ps: decimal[]) ="
+                            "    member _.Ps = ps"
+                            ""
+                            "[<Prices([| 1.5M; 2.5M |])>]"
+                            "type Shelf() ="
+                            "    member _.X = 1"
+                        ]
+
+                let errors = diagnoseSourceErrors "AttrDecimalArrayArg" source
+
+                match diagnosticMessages errors with
+                | [ msg ] ->
+                    Expect.stringContains
+                        msg
+                        "An attribute argument of type 'decimal' cannot be encoded on the clr target"
+                        "the gate names the item type"
+                | other -> failtestf "expected exactly one error, got %A" other
+            }
+
             ptest "GAP: union-case and enum-case attribute rows are unemitted" {
                 // The frozen tree carries these attributes (AttributeFoldTests pins it); no
                 // metadata parent row exists for them, so no row is emitted.

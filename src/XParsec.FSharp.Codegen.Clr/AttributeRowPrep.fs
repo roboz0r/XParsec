@@ -88,8 +88,15 @@ module internal AttributeRowPrep =
                 | AttributeCtorResolution.Skipped reason -> skip attr reason
                 | AttributeCtorResolution.Ctor ctor ->
                     match AttributeBlob.tryEncode namer.TryTypeName attr.Ctor.ArgSig attr.Args with
-                    | ValueNone -> skip attr SkippedAttributeRowReason.UnencodableArgument
-                    | ValueSome blob -> rows.Add(struct (parentHandle, ctor, blob))
+                    | Ok blob -> rows.Add(struct (parentHandle, ctor, blob))
+                    | Error(AttributeEncodeFailure.UnspellableType _) ->
+                        skip attr SkippedAttributeRowReason.UnspellableArgumentType
+                    | Error(AttributeEncodeFailure.UnencodableValue ty) ->
+                        failwithf
+                            "AttributeRowPrep: %s on %s carries a %A argument, which the front end reports under the CLR platform facts; this tree was analysed without them"
+                            (SymbolKeyOps.typeMetaName attr.Key)
+                            parent
+                            ty
 
         let typeName (td: TastAccessor.TypeDecl) : string = SymbolKeyOps.typeMetaName td.TypeKey
 

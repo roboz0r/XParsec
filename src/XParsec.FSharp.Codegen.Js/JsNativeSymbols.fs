@@ -103,6 +103,9 @@ module JsNativeSymbols =
                     ValueNone
                 else
                     ValueSome(RuntimeNames.arrayTypeKey 1)
+
+            // The JS backend emits no attributes.
+            member _.ConstEncoding(_, _) = ConstEncoding.Encodable
         }
 
     let provider: IExternalSymbolProvider =
