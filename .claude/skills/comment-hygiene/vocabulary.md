@@ -22,6 +22,7 @@ where being the top element is the point. `header` and `ahead`/`lookAhead` never
 | sense | term |
 | --- | --- |
 | applied expression of an `App` chain (`f a b` → `f`) | `fn` for params and locals, `Function` for types (`AppliedFunction`, `ExternalFunction`, `RebuiltFn`) |
+| a declaration's name, parameters and annotations, as opposed to its body | `header` (`Headers` then `Bodies` for a group frame's stages) |
 | first segment of a `LongIdent` (`A.B.C` → `A`) | `anchorIdent` / `anchorKey` / `anchorTy` |
 | outermost type constructor of a nominal | `tyCtor` (`tyCtorKey`, `sameTyCtor`) |
 | LHS of a binding | `pattern` (the CST field is `Binding.pattern`), or `variable` |

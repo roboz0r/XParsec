@@ -112,7 +112,8 @@ Start here, in order:
 Then, per subsystem, as you need them: `du-architecture.md`,
 `records-architecture.md`, `printf-architecture.md`,
 `package-type-resolution-architecture.md`, `core-lib-architecture.md`,
-`dynamic-typing-design.md`.
+`dynamic-typing-design.md`, `elaboration-machine-design.md` (the planned
+single-machine driver with resumable boundaries; a decision record, not landed).
 
 The original spec is [`semantic-analysis.md`](../../semantic-analysis.md) at the
 repo root. It states intent; where it and the code disagree, the code won.
