@@ -4,7 +4,7 @@ Working document. Ephemeral: delete it when the work lands.
 
 Line numbers are deliberately absent — they rot. Constructs and file names only.
 
-Deferred until `typar-scope-plan.md` lands. Stage 2 is a format bump, and two format bumps
+Stage 2 is a format bump, and two format bumps
 never interleave.
 
 ## The gap
@@ -44,7 +44,7 @@ front-end ones.
 4. **JS emission.** Construction is the function value itself and `.Invoke` is a call, so a
    delegate erases; the golden pins that no wrapper survives.
 
-The `'a : delegate<_,_>` constraint import in `typar-scope-plan.md` waits on stage 2.
+The `'a : delegate<_,_>` constraint import (`typar-scope.md`, *Status*) waits on stage 2.
 
 ## Verify
 

@@ -41,7 +41,7 @@ typar as `!!j` whatever the member. A `Member` scope that carried the member's d
 index was tried (`MemberOrdinal`, 2026-09-06) and retired: a signature file numbers its
 members independently of its implementation, so every comparison had to erase the index
 again, and the homed signature had to be re-scoped onto the implementation's numbering.
-`MemberOrdinal` survives only as the registration index inside NameResolution.
+`MemberOrdinal` is deleted outright.
 
 ### Lexical ownership
 
@@ -255,7 +255,7 @@ interface; matching the two is conformance, not scoping.
 - `TyparAxis` and both `FTTypar` axes: replaced by `TyparScope`. The Extractor's and Manifest
   schema's diagnostic code is `method-scope-typar-erased`.
 - `FTLocalTypar` and `SchemeId`: folded into `FTTypar` with a `LocalFunction` scope.
-- `MemberOrdinal` outside NameResolution: `TTypeMemberG.Ordinal` becomes `Key: MemberKey`;
+- `MemberOrdinal`: deleted. `TTypeMemberG.Ordinal` becomes `Key: MemberKey`;
   the codec field, `ClassMemberDeclaring.OrdinalOf`, `MetadataSymbols.methodOrdinal`, the
   manifest translator's `InMember` and the `resolveMember` ordinal parameter are deleted,
   with `ConformanceTypars.rescopeToImplementation`, `FrozenType.rescopeMemberTypars` and
@@ -314,15 +314,56 @@ Abelian-group unification over them, which is its own plan. Measure-generic abbr
 undeclared measure typar (`float<'zz>`, which fsc generalises) are `NotYetSupported`.
 `MeasureResolutionTests` and `GenericParamFlagsTests` pin each gap, quoted in the test name.
 
-## Sequencing
+## CLI encoding of constraints
 
-The scope model, the slot tags, `MeasureAtom.Typar` and the store's measure states have
-landed, at format version 22. The remaining implementation steps are in
-`typar-scope-plan.md`, which interleaves the remaining typar-constraint emission and import
-stages with the model change. The ordering constraints are:
+The CLR backend writes each constraint as `fsc` does, read off FSharp.Core's metadata and an
+`fsi`-compiled probe of each clause in isolation. `GenericParamFlagsTests` pins the flag bits
+and `GenericParamConstraintTests` the rows and the row-less kinds; `MetadataSymbols.typarConstraints`
+reads the same encoding back on import.
 
-- `typar-scope-plan.md` rewrites `SemanticInfo.fs`, `SideTypes.fs`, the frozen codecs and
-  every backend's typar encoding, so each step lands on a branch from `main` with nothing
-  else open in SemanticAnalysis.
-- A step that bumps the format lands alone. `delegates-plan.md` stage 2 is another format
-  bump; the two never interleave, and the `delegate<_,_>` constraint import waits on it.
+| Source constraint | CLI encoding |
+| --- | --- |
+| `'a : struct` | `NotNullableValueTypeConstraint` |
+| `'a : not struct` | `ReferenceTypeConstraint` |
+| `'a : null` | `ReferenceTypeConstraint` |
+| `'a : not null` | none; nullability attributes are the only carrier, not yet written |
+| `'a : (new : unit -> 'a)` | `DefaultConstructorConstraint` |
+| `'a :> Ty` | `GenericParamConstraint` to `Ty`, class or interface alike; `'a :> obj` adds no row |
+| `'a : enum<'u>` | none |
+| `'a : delegate<_,_>` | none |
+| `'a : unmanaged` | `NotNullableValueTypeConstraint` + a `GenericParamConstraint` to `System.ValueType modreq(UnmanagedType)` + `IsUnmanagedAttribute`; only the flag is written today |
+| `'a : equality` / `comparison` | none; F# has no CLI encoding for these either |
+| SRTP member trait | none; an `inline` binding resolves it at the splice |
+
+A closure class's and a lifted local's rows are positional and unconstrained, where `fsc`
+copies the enclosing constraints onto the closure class; nothing consumes those rows yet.
+
+## Status
+
+The model has landed at format version 22: every scope but `Extension`, the slot tags,
+`MeasureAtom.Typar`, per-typar `ConstraintSet`, `FunctionScheme`, generic locals lifted to
+generic methods on the CLR, `GenericParamConstraint` rows, and constraint import and
+enforcement on a BCL, `.fsi` and cross-file generic alike. Every identifier the model retires
+is absent from `src`.
+
+Open, each its own piece of work:
+
+- `TyparScope.Extension` waits on `ExtensionKey` and the type extension design.
+  `TypeRegistration.rejectDetachedTypeExtension` refuses a detached `type … with` as
+  `NotYetSupported`, so there is no block to key yet.
+- `unmanaged` writes only its value-type flag, and `not null` writes nothing: the
+  `modreq(UnmanagedType)` row, `IsUnmanagedAttribute` and the nullability attributes are not
+  emitted, and reflection cannot read them, so `unmanaged` imports as `struct`.
+- The `'a : delegate<_,_>` constraint import waits on `delegates-plan.md` stage 2; a C#
+  `where T : Delegate` imports as the coercion it is written as.
+- The CLR reader models a BCL enum as a `Class` shape, so `enum<'u>` checks only a published
+  or manifest enum (`ConstraintCheck.enumUnderlyingType`).
+- Two `fsc` parity gaps are `ptest`s in `FrozenConstraintTests.fscParityTests`: `fsc` orders
+  typars by first appearance including the constraint clauses, and two coercions on one typar
+  to the same generic interface unify their arguments under FS0064.
+- Implicit widening: `fsc` accepts `under L.A 3` for `'a : enum<'u>` on an `int64` enum and
+  this compiler reports a mismatch on `3`. Both solve `'u` to `int64`; the divergence belongs
+  to implicit widening, not to this model.
+- A module tuple binding (`let (f, g) = …`) generalises per name and runs on JS;
+  `bindings/module-tuple-poly` is `pending` on the CLR, which lowers a generic module value
+  to a generic static method only when it is not function-typed.

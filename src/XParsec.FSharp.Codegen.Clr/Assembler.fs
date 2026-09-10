@@ -741,7 +741,8 @@ type internal Assembler
                 this.AddPrepared(
                     MethodKey.ClosureCtor c.Name,
                     {
-                        Signature = provider.ClosureCtorSignature(Block.map (fun (cap: Emit.Capture) -> cap.Ty) c.Captures)
+                        Signature =
+                            provider.ClosureCtorSignature(Block.map (fun (cap: Emit.Capture) -> cap.Ty) c.Captures)
                         Body = ctorMethodBody
                         ParamNames = paramNames f.EmitCtx.Pool (c.Captures |> Seq.map (fun cap -> cap.Key))
                         MethodTypars = []
