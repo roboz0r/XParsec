@@ -99,9 +99,7 @@ module internal NominalEmit =
 
         | NominalEmissionInput.Class cd ->
             let instanceFields = cd.Fields
-            let ctorParams = cd.CtorParams
             let staticLets = TPreambleEntryG.lets cd.StaticPreamble
-            let instanceLets = TPreambleEntryG.lets cd.InstancePreamble
             let secondaryCtors = cd.SecondaryCtors
             let isStruct = cd.ValueKind.IsValueType
 
@@ -147,9 +145,10 @@ module internal NominalEmit =
                 {
                     Name = td.Name
                     TypeArity = td.TypeParams.TypeArity
+                    CtorParamTys = Block.ofList [ for p in cd.CtorParams -> p.Type ]
                     Fields =
                         [
-                            for p in ctorParams ->
+                            for p in ClassDecl.fieldCtorParams cd ->
                                 {
                                     Name = p.Name
                                     Handle = toEntity (asm.FieldDef(FieldKey.ClassCtorParamField(td.Key, p.Name)))
@@ -166,7 +165,7 @@ module internal NominalEmit =
                                     Handle = toEntity (asm.FieldDef(FieldKey.ClassInstanceField(td.Key, f.Name)))
                                     Ty = f.Type
                                 }
-                            for l in instanceLets ->
+                            for l in ClassDecl.fieldLets cd ->
                                 {
                                     Name = l.Name
                                     Handle = toEntity (asm.FieldDef(FieldKey.ClassLetField(td.Key, l.Name)))
@@ -341,8 +340,8 @@ module internal NominalEmit =
                     [
                         for entry in staticPreamble ->
                             match entry with
-                            | TPreambleEntryG.Let sl -> Emit.PreambleStep.Store(staticFields.[sl.Name], sl.Init)
-                            | TPreambleEntryG.Do e -> Emit.PreambleStep.Run e
+                            | TPreambleEntryG.Let sl -> Emit.StaticPreambleStep.Store(staticFields.[sl.Name], sl.Init)
+                            | TPreambleEntryG.Do e -> Emit.StaticPreambleStep.Run e
                     ]
 
             let cctorBody = bodyOf asm (Emit.buildStaticCctor emitCtx cctorSteps)
@@ -393,7 +392,7 @@ module internal NominalEmit =
                                     typarMarkers,
                                     UserMemberKind.ClassMember(ClassMember.Field name)
                                 )
-                            elif ctorParams |> List.exists (fun (p: Frozen.TRecordField) -> p.Name = name) then
+                            elif ClassDecl.fieldCtorParams cd |> List.exists (fun p -> p.Name = name) then
                                 toEntity (asm.FieldDef(FieldKey.ClassCtorParamField(td.Key, name)))
                             elif instanceFields |> List.exists (fun (f: Frozen.TRecordField) -> f.Name = name) then
                                 toEntity (asm.FieldDef(FieldKey.ClassInstanceField(td.Key, name)))
@@ -460,15 +459,23 @@ module internal NominalEmit =
         // A generic class's ctor `stfld` sequence reaches each field through a
         // `MemberRef` on the open self-`TypeSpec` (`Box\`1<!0>::n`): the raw
         // `FieldDefinition` token resolves to the wrong slot at index >= 1.
-        let ctorFieldRefs =
+        let ctorParamStores =
             Block.ofList
                 [
                     for p in ctorParams ->
-                        selfMemberRef
-                            asm
-                            td
-                            (UserMemberKind.ClassMember(ClassMember.Field p.Name))
-                            (toEntity (asm.FieldDef(FieldKey.ClassCtorParamField(td.Key, p.Name))))
+                        let storage =
+                            match p.Storage with
+                            | CtorValueStorage.CtorLocal -> Emit.CtorParamStorage.CtorLocal
+                            | CtorValueStorage.Field ->
+                                Emit.CtorParamStorage.Field(
+                                    selfMemberRef
+                                        asm
+                                        td
+                                        (UserMemberKind.ClassMember(ClassMember.Field p.Name))
+                                        (toEntity (asm.FieldDef(FieldKey.ClassCtorParamField(td.Key, p.Name))))
+                                )
+
+                        ({ Name = p.Name; Storage = storage }: Emit.CtorParam)
                 ]
 
         let ctorChain = classCtorChain asm td isStruct baseShape baseCtorCall
@@ -488,8 +495,10 @@ module internal NominalEmit =
                 [
                     for entry in cd.InstancePreamble ->
                         match entry with
-                        | TPreambleEntryG.Let l ->
-                            Emit.PreambleStep.Store(
+                        | InstancePreambleEntry.Let(l, CtorValueStorage.CtorLocal) ->
+                            Emit.InstancePreambleStep.Local(l.Name, l.Type, l.Init)
+                        | InstancePreambleEntry.Let(l, CtorValueStorage.Field) ->
+                            Emit.InstancePreambleStep.StoreField(
                                 selfMemberRef
                                     asm
                                     td
@@ -497,11 +506,11 @@ module internal NominalEmit =
                                     (toEntity (asm.FieldDef(FieldKey.ClassLetField(td.Key, l.Name)))),
                                 l.Init
                             )
-                        | TPreambleEntryG.Do e -> Emit.PreambleStep.Run e
+                        | InstancePreambleEntry.Do e -> Emit.InstancePreambleStep.Run e
                 ]
 
         let ctorBody =
-            Emit.buildClassPrimaryCtor emitCtx ctorChain cd.ThisKey ctorParamArgs ctorFieldRefs instanceSteps
+            Emit.buildClassPrimaryCtor emitCtx ctorChain cd.ThisKey ctorParamArgs ctorParamStores instanceSteps
 
         if emitPrimaryCtor then
             let ctorMethodBody = bodyOf asm ctorBody

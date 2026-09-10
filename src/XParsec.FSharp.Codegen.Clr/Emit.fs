@@ -35,7 +35,10 @@ module Emit =
     type LiftedLocalRef = EmitTypes.LiftedLocalRef
     type Discovered = EmitClosures.Discovered
     type EmitContext = EmitTypes.EmitContext
-    type PreambleStep = EmitTypes.PreambleStep
+    type StaticPreambleStep = EmitTypes.StaticPreambleStep
+    type InstancePreambleStep = EmitTypes.InstancePreambleStep
+    type CtorParam = EmitTypes.CtorParam
+    type CtorParamStorage = EmitTypes.CtorParamStorage
     type CtorChain = EmitTypes.CtorChain
     type ClosureNamer = EmitClosures.ClosureNamer
 
@@ -277,21 +280,21 @@ module Emit =
         b.Body
 
     /// Build a class primary `.ctor`: chain the base ctor (a value type chains none),
-    /// store each ctor param into its backing field, then run the instance preamble.
-    /// Base args read params as `ldarg.1…`; `this` is unusable until the chain returns.
+    /// `stfld` each field-backed ctor param, then run the instance preamble. Base args
+    /// read params as `ldarg.1…`; `this` is unusable until the chain returns.
     let buildClassPrimaryCtor
         (ctx: EmitContext)
         (chain: CtorChain)
         (thisKey: BoundVarKeyG<BoundVarId>)
-        (ctorParams: Block<BoundVarKeyG<BoundVarId> * FrozenType>)
-        (fields: Block<EntityHandle>)
-        (preamble: Block<PreambleStep>)
+        (baseArgParams: Block<BoundVarKeyG<BoundVarId> * FrozenType>)
+        (ctorParams: Block<CtorParam>)
+        (preamble: Block<InstancePreambleStep>)
         : ILBody =
         let b = IlBuilder()
         let args = Dictionary<BoundVarId, int>()
         args.[BoundVarKey.identity thisKey] <- 0
 
-        ctorParams
+        baseArgParams
         |> Block.iteri (fun i (k, _) -> args.[BoundVarKey.identity k] <- 1 + i)
         // `this` as `SelfKey`: on a value type `ldarg.0` is the byref `this`, so a
         // self-call must load it directly rather than spill a copy.
@@ -308,20 +311,30 @@ module Emit =
 
             b.Add(ILInstr.Call(baseCtor, baseArgs.Length + 1, 0))
 
-        fields
-        |> Block.iteri (fun i field ->
-            b.Add(ILInstr.Ldarg 0)
-            b.Add(ILInstr.Ldarg(i + 1))
-            b.Add(ILInstr.Stfld field)
+        ctorParams
+        |> Block.iteri (fun i p ->
+            let arg = 1 + i
+
+            match p.Storage with
+            | CtorParamStorage.Field field ->
+                b.Add(ILInstr.Ldarg 0)
+                b.Add(ILInstr.Ldarg arg)
+                b.Add(ILInstr.Stfld field)
+            | CtorParamStorage.CtorLocal -> env.CtorLocals.[p.Name] <- CtorLocal.Arg arg
         )
 
         for step in preamble do
             match step with
-            | PreambleStep.Store(field, init) ->
+            | InstancePreambleStep.StoreField(field, init) ->
                 b.Add(ILInstr.Ldarg 0)
                 buildExpr env b init
                 b.Add(ILInstr.Stfld field)
-            | PreambleStep.Run body -> buildStatement env b body
+            | InstancePreambleStep.Local(name, ty, init) ->
+                let slot = b.Local ty
+                buildExpr env b init
+                b.Add(ILInstr.Stloc slot)
+                env.CtorLocals.[name] <- CtorLocal.Slot slot
+            | InstancePreambleStep.Run body -> buildStatement env b body
 
         b.Add ILInstr.Ret
         b.Body
@@ -329,16 +342,16 @@ module Emit =
     /// Build a `.cctor` body from a static preamble, in declaration order: a `let`
     /// initialiser `stsfld`ed into its backing field, a `static do` body run for
     /// effect. A `.cctor` is parameterless, so the env carries no args.
-    let buildStaticCctor (ctx: EmitContext) (steps: Block<PreambleStep>) : ILBody =
+    let buildStaticCctor (ctx: EmitContext) (steps: Block<StaticPreambleStep>) : ILBody =
         let b = IlBuilder()
         let env = EmitEnv.ofContext ctx (Dictionary())
 
         for step in steps do
             match step with
-            | PreambleStep.Store(field, init) ->
+            | StaticPreambleStep.Store(field, init) ->
                 buildExpr env b init
                 b.Add(ILInstr.Stsfld field)
-            | PreambleStep.Run body -> buildStatement env b body
+            | StaticPreambleStep.Run body -> buildStatement env b body
 
         b.Add ILInstr.Ret
         b.Body

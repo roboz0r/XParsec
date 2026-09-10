@@ -230,15 +230,48 @@ module EmitTypes =
             MethodTyparCount: int<typeSlot>
         }
 
-    /// One step of a class preamble, in declaration order: what the `.cctor` (static
-    /// sequence) or the primary `.ctor` (instance sequence) runs. One step type serves
-    /// both: the enclosing builder decides whether `Store` is `stsfld` or `stfld`.
+    /// One step of a static preamble (`static let` / `static do`, or a module class's
+    /// values) in declaration order: what the `.cctor` runs.
     [<RequireQualifiedAccess>]
-    type PreambleStep =
-        /// A `[static] let`: evaluate the initialiser and store it into the backing field.
+    type StaticPreambleStep =
+        /// A `static let`: evaluate the initialiser and `stsfld` it into the backing field.
         | Store of field: EntityHandle * init: TastAccessor.ExprId
-        /// A `[static] do`: run the body for effect (its `unit` result is popped).
+        /// A `static do`: run the body for effect (its `unit` result is popped).
         | Run of body: TastAccessor.ExprId
+
+    /// One step of an instance preamble in declaration order: what the primary `.ctor`
+    /// runs after the ctor-param field stores.
+    [<RequireQualifiedAccess>]
+    type InstancePreambleStep =
+        /// A field-backed `let`: evaluate the initialiser and `stfld` it into the backing
+        /// field.
+        | StoreField of field: EntityHandle * init: TastAccessor.ExprId
+        /// A `.ctor`-local `let`: evaluate the initialiser into a `.ctor` local, which a
+        /// later `this.<name>` access in the `.ctor` reads.
+        | Local of name: string * ty: FrozenType * init: TastAccessor.ExprId
+        /// A `do`: run the body for effect (its `unit` result is popped).
+        | Run of body: TastAccessor.ExprId
+
+    /// Where a primary-ctor parameter lives after the `.ctor` runs.
+    [<RequireQualifiedAccess>]
+    type CtorParamStorage =
+        /// `stfld` into the backing field on entry.
+        | Field of EntityHandle
+        /// Read in place as `ldarg`.
+        | CtorLocal
+
+    /// A primary-ctor parameter. Its `ldarg` index is its position in the block plus one.
+    type CtorParam =
+        {
+            Name: string
+            Storage: CtorParamStorage
+        }
+
+    /// The `.ctor` location a `.ctor`-local name resolves to.
+    [<RequireQualifiedAccess>]
+    type CtorLocal =
+        | Slot of int
+        | Arg of int
 
     /// A class primary `.ctor`'s base-constructor chain.
     [<RequireQualifiedAccess>]
@@ -362,9 +395,11 @@ module EmitTypes =
         {
             Name: string
             TypeArity: int<typeSlot>
-            /// Primary-constructor backing fields in declaration order. Its LENGTH is the
-            /// primary ctor's arity, which a `TExpr.New` matches against, so explicit `val`
-            /// fields stay out of it, in `InstanceFields`.
+            /// The primary ctor's parameter types in declaration order: the signature used
+            /// to resolve a `TExpr.New`.
+            CtorParamTys: Block<FrozenType>
+            /// Backing fields of the field-backed primary-ctor parameters, in declaration
+            /// order. Explicit `val` fields are in `InstanceFields`.
             Fields: EmittedClassField list
             /// Explicit `val [mutable] x: T` instance fields. Default-initialised (not set by
             /// the primary ctor); a `this.x` `FieldGet`/`FieldSet` resolves its handle here.
@@ -565,6 +600,9 @@ module EmitTypes =
             /// through this type's token. `ValueNone` for a reference type.
             SelfValueType: FrozenType voption
             CaptureFields: Dictionary<BoundVarId, EntityHandle>
+            /// The primary `.ctor`'s own locals, which a `this.<name>` `FieldGet` /
+            /// `FieldSet` resolves to. Empty in every builder other than the primary `.ctor`.
+            CtorLocals: Dictionary<string, CtorLocal>
             Unions: Dictionary<TypeKey, EmittedUnion>
             Records: Dictionary<TypeKey, EmittedRecord>
             Classes: Dictionary<TypeKey, EmittedClass>
@@ -610,6 +648,23 @@ module EmitTypes =
             | false, _ -> ValueNone
         | _ -> ValueNone
 
+    /// The `.ctor` location of a `this.<name>` field access when `name` is a `.ctor` local in
+    /// `env`.
+    let tryCtorLocal (env: EmitEnv) (objArg: TastAccessor.ExprId) (name: string) : CtorLocal voption =
+        match objArg with
+        | TastAccessor.EVar k when env.SelfKey = ValueSome k ->
+            match env.CtorLocals.TryGetValue name with
+            | true, local -> ValueSome local
+            | false, _ -> ValueNone
+        | _ -> ValueNone
+
+    /// A `this.<name>` `FieldGet` node on a `.ctor` local in `env` → its location.
+    [<return: Struct>]
+    let (|CtorLocalAccess|_|) (env: EmitEnv) (e: TastAccessor.ExprId) : CtorLocal voption =
+        match e with
+        | TastAccessor.EFieldGet fg -> tryCtorLocal env fg.ObjArg fg.FieldName
+        | _ -> ValueNone
+
     module EmitEnv =
         /// `args` maps each parameter to its `ldarg` index; locals (`Slots`) always start
         /// empty. `selfKey` / `captureFields` are the closure-`Invoke` extras, so every
@@ -630,6 +685,7 @@ module EmitTypes =
                 SelfKey = selfKey
                 SelfValueType = ValueNone
                 CaptureFields = captureFields
+                CtorLocals = Dictionary<string, CtorLocal>()
                 Unions = ctx.Unions
                 Records = ctx.Records
                 Classes = ctx.Classes

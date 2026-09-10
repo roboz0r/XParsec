@@ -27,7 +27,7 @@ module internal NominalRegistration =
 
             if td.TypeParams.HasTypeTypars then
                 let fields = caseFields ud c
-                provider.RegisterGenericClass(caseKey, TyparList.typeNames td.TypeParams, List.length fields, fields)
+                provider.RegisterGenericClass(caseKey, TyparList.typeNames td.TypeParams, List.map snd fields, fields)
 
     let private registerUnion (provider: ClrProvider) (handles: LayoutHandles) (ud: UnionDecl) : unit =
         let td = ud.Decl
@@ -50,12 +50,12 @@ module internal NominalRegistration =
             if t.IsGeneric && td.TypeParams.HasTypeTypars then
                 let fields = t.Fields(td.TypeKey, td.TypeParams.TypeArity)
 
-                let ctorParamCount =
+                let ctorParamTys =
                     match t with
-                    | UnionNestedType.View _ -> List.length fields
-                    | UnionNestedType.Payload _ -> 0
+                    | UnionNestedType.View _ -> List.map snd fields
+                    | UnionNestedType.Payload _ -> []
 
-                provider.RegisterGenericClass(typeKey, TyparList.typeNames td.TypeParams, ctorParamCount, fields)
+                provider.RegisterGenericClass(typeKey, TyparList.typeNames td.TypeParams, ctorParamTys, fields)
 
         match ud.Placements with
         | ValueSome p ->
@@ -102,22 +102,21 @@ module internal NominalRegistration =
             provider.RegisterUserValueType td.TypeKey
 
         if td.TypeParams.HasTypeTypars then
-            // On a generic class, ctor-param, `val`, instance-`let` and `static let`
-            // fields all reach their `ldfld`/`stfld`/`ldsfld` through a `MemberRef` on
-            // the open self-`TypeSpec`, so all four must be registered by name.
-            let ctorParamFields = [ for p in cd.CtorParams -> p.Name, p.Type ]
-
-            let shape =
-                ctorParamFields
-                @ [ for f in cd.Fields -> f.Name, f.Type ]
-                @ [ for l in TPreambleEntryG.lets cd.InstancePreamble -> l.Name, l.Type ]
-                @ [ for sl in TPreambleEntryG.lets cd.StaticPreamble -> sl.Name, sl.Type ]
+            // Registered by name: on a generic class an `ldfld`/`stfld`/`ldsfld` reaches
+            // each field through a `MemberRef` on the open self-`TypeSpec`.
+            let fields =
+                [
+                    for p in ClassDecl.fieldCtorParams cd -> p.Name, p.Type
+                    for f in cd.Fields -> f.Name, f.Type
+                    for l in ClassDecl.fieldLets cd -> l.Name, l.Type
+                    for sl in TPreambleEntryG.lets cd.StaticPreamble -> sl.Name, sl.Type
+                ]
 
             provider.RegisterGenericClass(
                 td.TypeKey,
                 TyparList.typeNames td.TypeParams,
-                List.length ctorParamFields,
-                shape
+                [ for p in cd.CtorParams -> p.Type ],
+                fields
             )
 
     /// Every nominal, module function and generic closure one file declares.
@@ -140,7 +139,7 @@ module internal NominalRegistration =
             provider.RegisterUserType(td.TypeKey, toEntity (handles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
 
             if td.TypeParams.HasTypeTypars then
-                provider.RegisterGenericClass(td.TypeKey, TyparList.typeNames td.TypeParams, 0, [])
+                provider.RegisterGenericClass(td.TypeKey, TyparList.typeNames td.TypeParams, [], [])
 
         // Numeric enums (a `System.Enum` subclass) and string/mixed ones (a `[<Struct>]`
         // wrapper) are both project-local value types → `ELEMENT_TYPE_VALUETYPE`.

@@ -22,22 +22,17 @@ using Vesper;
 [assembly: AssemblyVersion("1.0.0.0")]
 public class Ordered
 {
-	internal readonly int n;
-
-	internal readonly int a;
-
 	internal readonly int b;
 
 	public Ordered(int n)
 	{
-		this.n = n;
-		a = this.n + 1;
+		int num = n + 1;
 		Formatter formatter = new Formatter(7, 1, Console.Out);
 		formatter.AppendLiteral("ctor a=");
-		formatter.AppendFormatted(a);
+		formatter.AppendFormatted(num);
 		formatter.AppendLiteral("\n");
 		formatter.Flush();
-		b = a * 3;
+		b = num * 3;
 		Formatter formatter2 = new Formatter(7, 1, Console.Out);
 		formatter2.AppendLiteral("ctor b=");
 		formatter2.AppendFormatted(b);

@@ -2937,6 +2937,90 @@ let classPreambleTests =
                 Expect.equal (m.Invoke(instance, [||]) :?> int) 50 "C(4).M() reads m = n + 1 = 5"
             }
 
+            // fsc backs a ctor param or instance `let` with a field only when a member
+            // reads it; one read exclusively by the ctor is a ctor local.
+            test "a ctor param and `let`s referenced only from the ctor take no backing field" {
+                let artifact =
+                    compileSource
+                        "PreambleCtorLocals"
+                        (lines
+                            [
+                                "type C(n: int) ="
+                                "    let a = n + 1"
+                                "    let mutable acc = a * 2"
+                                "    do acc <- acc + n"
+                                "    let b = acc * 3"
+                                "    member this.B () = b"
+                                "let c = C(1)"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "C"
+
+                Expect.isNull (backingField ty "n") "the ctor param n is read only by the ctor"
+                Expect.isNull (backingField ty "a") "the `let` a is read only by the ctor"
+                Expect.isNull (backingField ty "acc") "the `let mutable` acc is read and written only by the ctor"
+                Expect.isNotNull (backingField ty "b") "the `let` b is read by a member"
+
+                let instance = Activator.CreateInstance(ty, [| box 1 |])
+                let m = ty.GetMethod("B", declaredInstance, null, [||], null)
+                Expect.equal (m.Invoke(instance, [||]) :?> int) 15 "C(1).B() = ((1 + 1) * 2 + 1) * 3"
+            }
+
+            // A lambda in the preamble captures `this` and reads the `let` through it, so
+            // the `let` keeps its field even though only the ctor's frame applies the lambda.
+            test "a `let` read inside a preamble lambda keeps its backing field" {
+                let artifact =
+                    compileSource
+                        "PreambleLambdaRead"
+                        (lines
+                            [
+                                "type C(n: int) ="
+                                "    let a = n + 1"
+                                "    let f = fun (k: int) -> a + k"
+                                "    let b = f 10"
+                                "    member this.B () = b"
+                                "let c = C(1)"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "C"
+
+                Expect.isNull (backingField ty "n") "the ctor param n is read only by the ctor"
+                Expect.isNotNull (backingField ty "a") "the `let` a is read by the lambda"
+                Expect.isNull (backingField ty "f") "the closure f is applied only by the ctor"
+
+                let instance = Activator.CreateInstance(ty, [| box 1 |])
+                let m = ty.GetMethod("B", declaredInstance, null, [||], null)
+                Expect.equal (m.Invoke(instance, [||]) :?> int) 12 "C(1).B() = (1 + 1) + 10"
+            }
+
+            // A value-type ctor local is addressed in place (`ldarga` / `ldloca`) for an
+            // instance member call, as a slot-bound local is.
+            test "a struct-typed ctor local is addressed in place for a member call" {
+                let artifact =
+                    compileSource
+                        "PreambleStructLocal"
+                        (lines
+                            [
+                                "type C(d: System.DateTime) ="
+                                "    let next = d.AddDays(1.0)"
+                                "    let y = next.Year"
+                                "    member this.Y () = y"
+                                "let c = C(System.DateTime(2020, 12, 31))"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "C"
+
+                Expect.isNull (backingField ty "d") "the ctor param d is read only by the ctor"
+                Expect.isNull (backingField ty "next") "the `let` next is read only by the ctor"
+
+                let instance = Activator.CreateInstance(ty, [| box (DateTime(2020, 12, 31)) |])
+                let m = ty.GetMethod("Y", declaredInstance, null, [||], null)
+                Expect.equal (m.Invoke(instance, [||]) :?> int) 2021 "C(2020-12-31).Y() = 2021"
+            }
+
             // A `let mutable` is an ordinary mutable FIELD, never a ref cell, so the
             // function-`let` closure and every member body share one storage location.
             test "a `let mutable` mutated through a function-`let` persists across calls" {

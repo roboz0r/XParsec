@@ -14,6 +14,7 @@ open XParsec.FSharp.SemanticAnalysis
 [<RequireQualifiedAccess>]
 type ILInstr =
     | Ldarg of int
+    | Ldarga of int
     | Ldloc of int
     | Stloc of int
     | Ldloca of int
@@ -126,6 +127,7 @@ module private InstrDelta =
     let ofInstr (i: ILInstr) : int =
         match i with
         | ILInstr.Ldarg _
+        | ILInstr.Ldarga _
         | ILInstr.Ldloc _
         | ILInstr.Ldloca _
         | ILInstr.LdcI4 _
@@ -224,6 +226,7 @@ module IlIr =
     let private straightDelta (i: ILInstr) : int =
         match i with
         | ILInstr.Ldarg _
+        | ILInstr.Ldarga _
         | ILInstr.Ldloc _
         | ILInstr.Ldloca _
         | ILInstr.LdcI4 _
@@ -429,6 +432,7 @@ module IlIr =
         for i in body.Instrs do
             match i with
             | ILInstr.Ldarg n -> Cil.emitLdarg il n
+            | ILInstr.Ldarga n -> Cil.emitLdarga il n
             | ILInstr.Ldloc n -> Cil.emitLdloc il n
             | ILInstr.Stloc n -> Cil.emitStloc il n
             | ILInstr.Ldloca n -> Cil.emitLdloca il n

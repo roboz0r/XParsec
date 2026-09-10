@@ -45,7 +45,7 @@ module EmitResolve =
         [
             if c.HasPrimaryCtor then
                 {
-                    ParamTys = Block.ofList [ for f in c.Fields -> f.Ty ]
+                    ParamTys = c.CtorParamTys
                     Kind = UserMemberKind.ClassMember ClassMember.Ctor
                     Handle = c.Ctor
                 }

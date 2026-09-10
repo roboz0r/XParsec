@@ -62,6 +62,12 @@ module Cil =
         il.Encoder.LoadArgument(n)
         il.Adjust 1
 
+    /// Managed pointer to argument `n`, the `this` pointer for a value-type instance call on
+    /// a parameter.
+    let emitLdarga (il: Il) (n: int) : unit =
+        il.Encoder.LoadArgumentAddress(n)
+        il.Adjust 1
+
     let emitLdfld (il: Il) (field: EntityHandle) : unit =
         il.Encoder.OpCode(ILOpCode.Ldfld)
         il.Encoder.Token(field)

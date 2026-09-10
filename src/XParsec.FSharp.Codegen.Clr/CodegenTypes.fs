@@ -114,14 +114,34 @@ type internal RecordDecl =
         ValueKind: NominalValueKind
     }
 
+/// Where a primary-ctor parameter or instance `let` lives after the primary `.ctor` runs.
+[<RequireQualifiedAccess>]
+type internal CtorValueStorage =
+    /// A backing field on the instance, stored by the primary `.ctor`.
+    | Field
+    /// A local of the primary `.ctor`, referenced exclusively from the `.ctor`'s own frame
+    /// through `this`.
+    | CtorLocal
+
+type internal ClassCtorParam =
+    {
+        Name: string
+        Type: FrozenType
+        Storage: CtorValueStorage
+    }
+
+[<RequireQualifiedAccess>]
+type internal InstancePreambleEntry =
+    | Let of TastAccessor.ClassLet * CtorValueStorage
+    | Do of TastAccessor.ExprId
+
 /// A partitioned class declaration. `Fields` are the explicit `val [mutable] x: T`
-/// instance fields; `CtorParams` are the primary constructor's parameters, which also
-/// become backing fields.
+/// instance fields; `CtorParams` are the primary constructor's parameters.
 type internal ClassDecl =
     {
         Decl: TastAccessor.TypeDecl
         Fields: Frozen.TRecordField list
-        CtorParams: Frozen.TRecordField list
+        CtorParams: ClassCtorParam list
         Members: TastAccessor.TypeMember list
         Base: TastAccessor.Base voption
         Interfaces: (FrozenNominal * TastAccessor.TypeMember list) list
@@ -130,9 +150,8 @@ type internal ClassDecl =
         /// `.cctor`. A `let` also takes a static backing field.
         StaticPreamble: TastAccessor.PreambleEntry list
         /// Instance `let` / `do` in declaration order: the END of the primary `.ctor`,
-        /// after the base-ctor call and the ctor-param field stores (so an initialiser
-        /// reads a ctor param through its already-stored field).
-        InstancePreamble: TastAccessor.PreambleEntry list
+        /// after the base-ctor call and the ctor-param field stores.
+        InstancePreamble: InstancePreambleEntry list
         /// The class-level `this` bound variable. The instance preamble reads fields through it
         /// (`FieldGet(Var ThisKey, …)`), so the primary `.ctor` maps it to `ldarg.0`.
         ThisKey: BoundVarKeyG<BoundVarId>
@@ -142,6 +161,30 @@ type internal ClassDecl =
         /// secondaries are the only ctors (no synthesised primary `.ctor`).
         HasPrimaryCtor: bool
     }
+
+module internal ClassDecl =
+    /// The primary-ctor parameters backed by a field, in declaration order.
+    let fieldCtorParams (cd: ClassDecl) : ClassCtorParam list =
+        cd.CtorParams |> List.filter (fun p -> p.Storage = CtorValueStorage.Field)
+
+    /// The instance `let`s backed by a field, in declaration order.
+    let fieldLets (cd: ClassDecl) : TastAccessor.ClassLet list =
+        [
+            for entry in cd.InstancePreamble do
+                match entry with
+                | InstancePreambleEntry.Let(l, CtorValueStorage.Field) -> l
+                | InstancePreambleEntry.Let(_, CtorValueStorage.CtorLocal)
+                | InstancePreambleEntry.Do _ -> ()
+        ]
+
+    /// The body of every instance-preamble entry, in declaration order.
+    let instancePreambleBodies (cd: ClassDecl) : TastAccessor.ExprId list =
+        [
+            for entry in cd.InstancePreamble ->
+                match entry with
+                | InstancePreambleEntry.Let(l, _) -> l.Init
+                | InstancePreambleEntry.Do e -> e
+        ]
 
 /// A partitioned NUMERIC enum — all-integer cases only (string/mixed land in
 /// `StructEnumDecl`). `Underlying` is the integral primitive identity (`int` / `byte` /

@@ -17,14 +17,11 @@ using Vesper;
 [assembly: AssemblyVersion("1.0.0.0")]
 public class Boxed
 {
-	internal readonly int n;
-
 	internal readonly int m;
 
 	public Boxed(int n)
 	{
-		this.n = n;
-		m = this.n + 1;
+		m = n + 1;
 	}
 
 	public int M()

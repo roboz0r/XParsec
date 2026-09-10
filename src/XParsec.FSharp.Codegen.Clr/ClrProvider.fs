@@ -121,12 +121,16 @@ type ClrProvider
             }
 
     member _.RegisterGenericClass
-        (key: TypeKey, typars: BlockM<string, typeSlot>, ctorParamCount: int, fields: (string * FrozenType) list)
-        : unit =
+        (
+            key: TypeKey,
+            typars: BlockM<string, typeSlot>,
+            ctorParamTys: FrozenType list,
+            fields: (string * FrozenType) list
+        ) : unit =
         env.GenericClasses.[key] <-
             {
                 Typars = typars
-                CtorParamCount = ctorParamCount
+                CtorParamTys = Block.ofList ctorParamTys
                 Fields = Block.ofList fields
             }
 

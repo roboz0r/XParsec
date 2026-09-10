@@ -83,13 +83,14 @@ let structTests =
                 Expect.isTrue ty.IsValueType "SPoint emits as a value type"
                 Expect.isTrue ty.IsSealed "a value type is sealed"
 
-                // FSC emits ctor-param backing fields `assembly` on a struct too.
+                // FSC emits ctor-param backing fields `assembly` on a struct too, and only
+                // for a param a member reads: `y` stays a `.ctor` local.
                 let fields =
                     ty.GetFields(BindingFlags.NonPublic ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly)
 
                 let names = fields |> Array.map (fun f -> f.Name) |> Set.ofArray
-                Expect.equal names (Set.ofList [ "x"; "y" ]) "both ctor-param backing fields are present"
-                Expect.isTrue (fields |> Array.forall (fun f -> f.IsAssembly)) "both are `assembly`-visible"
+                Expect.equal names (Set.ofList [ "x" ]) "only the member-read ctor param backs a field"
+                Expect.isTrue (fields |> Array.forall (fun f -> f.IsAssembly)) "the field is `assembly`-visible"
             }
 
             test "a struct ctor stores ctor params + a member reads one back (boxed dispatch)" {

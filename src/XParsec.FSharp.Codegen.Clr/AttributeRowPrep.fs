@@ -45,7 +45,10 @@ module internal AttributeRowPrep =
         else
             match classes.TryGetValue attr.Key with
             | true, c when c.TypeArity = 0<_> ->
-                match EmitResolve.localCtors c |> List.tryFind (fun ctor -> ctor.ParamTys = attr.Ctor.ArgSig) with
+                match
+                    EmitResolve.localCtors c
+                    |> List.tryFind (fun ctor -> ctor.ParamTys = attr.Ctor.ArgSig)
+                with
                 | Some ctor -> AttributeCtorResolution.Ctor ctor.Handle
                 | None ->
                     failwithf

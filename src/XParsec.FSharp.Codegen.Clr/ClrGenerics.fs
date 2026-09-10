@@ -57,10 +57,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
 
         match which with
         | ClassMember.Ctor ->
-            // Only the primary ctor's own parameters (the leading `CtorParamCount`
-            // entries), not the trailing `val`/`static let` backing fields that also
-            // live in `Fields` for name-based `ClassMember.Field` resolution.
-            let paramTys = shape.Fields |> Block.truncate shape.CtorParamCount |> Block.map snd
+            let paramTys = shape.CtorParamTys
 
             let s = BlobBuilder()
 

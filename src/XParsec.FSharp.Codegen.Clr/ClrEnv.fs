@@ -67,13 +67,13 @@ type internal GenericRecordShape =
         Fields: Block<GenericRecordField>
     }
 
-/// A *generic* user class. `Fields` is the FULL field shape in order: ctor-param backing
-/// fields, then `val`s, then instance-`let` / `static let` backing. The first
-/// `CtorParamCount` of them are the primary ctor's parameters; the rest are not ctor args.
+/// A *generic* user class: the primary `.ctor`'s parameter types, and every field reachable
+/// by name through a `MemberRef` on the open self-`TypeSpec` (field-backed ctor params,
+/// `val`s, field-backed instance `let`s and `static let`s).
 type internal GenericClassShape =
     {
         Typars: BlockM<string, typeSlot>
-        CtorParamCount: int
+        CtorParamTys: Block<FrozenType>
         Fields: Block<string * FrozenType>
     }
 

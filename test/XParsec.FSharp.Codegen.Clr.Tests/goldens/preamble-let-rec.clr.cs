@@ -21,17 +21,14 @@ using Vesper;
 [assembly: AssemblyVersion("1.0.0.0")]
 public class Factorial
 {
-	internal readonly int n;
-
 	internal readonly Fun<int, int> fact;
 
 	internal readonly int value;
 
 	public Factorial(int n)
 	{
-		this.n = n;
 		fact = new <closure>$0(this);
-		value = fact.Invoke(this.n);
+		value = fact.Invoke(n);
 	}
 
 	public int Value()

@@ -18,6 +18,80 @@ module internal LayoutNodes =
             for (ifaceTy, ms) in interfaces -> FrozenNominal.ofFrozen "an `interface` clause" ifaceTy, Block.toList ms
         ]
 
+    /// The storage of each of a class's primary-ctor parameters and instance `let`s, by
+    /// name. A `this.x` access in the `.ctor`'s own frame is a local access; every other
+    /// access of `x` on the class backs `x` with a field.
+    let private ctorValueStorage
+        (td: TastAccessor.TypeDecl)
+        (c: TClassG<FrozenType, BoundVarId, TastAccessor.ExprId>)
+        : string -> CtorValueStorage =
+        let candidates =
+            HashSet<string>(
+                seq {
+                    for p in c.CtorParams -> p.Name
+
+                    for l in TPreambleEntryG.lets (Block.toList c.InstancePreamble) -> l.Name
+                }
+            )
+
+        let thisKey = BoundVarKey.identity c.ThisKey
+        let fieldBacked = HashSet<string>()
+
+        let isSelfTyped (objArg: TastAccessor.ExprId) =
+            match FrozenNominal.tryOfFrozen (TastAccessor.exprTy objArg) with
+            | ValueSome n -> n.Key = td.TypeKey
+            | ValueNone -> false
+
+        // `escaped` is true outside the `.ctor`'s own frame: in a member body or a lambda.
+        let backsField (escaped: bool) (objArg: TastAccessor.ExprId) =
+            match objArg with
+            | TastAccessor.EVar k when k = thisKey -> escaped
+            | _ -> true
+
+        let access (escaped: bool) (objArg: TastAccessor.ExprId) (name: string) =
+            if candidates.Contains name && isSelfTyped objArg && backsField escaped objArg then
+                fieldBacked.Add name |> ignore
+
+        let rec walk (escaped: bool) (e: TastAccessor.ExprId) =
+            match e with
+            | TastAccessor.EFieldGet fg ->
+                access escaped fg.ObjArg fg.FieldName
+                walk escaped fg.ObjArg
+            | TastAccessor.ELambda lam -> walk true lam.Body
+            | _ ->
+                match TastAccessor.exprKind e with
+                | ExprShape.FieldSet ->
+                    let fs = TastAccessor.exprFieldSet e
+                    access escaped fs.ObjArg fs.FieldName
+                | _ -> ()
+
+                TastAccessor.iterChildren (walk escaped) e
+
+        for entry in c.InstancePreamble do
+            match entry with
+            | TPreambleEntryG.Let l -> walk false l.Init
+            | TPreambleEntryG.Do e -> walk false e
+
+        for m in c.Members do
+            walk true m.Body
+
+        for (_, ms) in c.Interfaces do
+            for m in ms do
+                walk true m.Body
+
+        for sc in c.SecondaryCtors do
+            match sc.Body with
+            | TSecondaryCtorBodyG.ExplicitFieldInit inits ->
+                for fi in inits do
+                    fieldBacked.Add fi.Field |> ignore
+            | TSecondaryCtorBodyG.Chain _ -> ()
+
+        fun name ->
+            if fieldBacked.Contains name then
+                CtorValueStorage.Field
+            else
+                CtorValueStorage.CtorLocal
+
     let partitionTypeDecls (symbols: ICodegenSymbols) (decls: TastAccessor.DeclId list) : PartitionedTypeDecls =
         let interfaces = ResizeArray()
         let unions = ResizeArray()
@@ -101,17 +175,33 @@ module internal LayoutNodes =
                     // No case resolved to a legal literal, so there is nothing to emit.
                     | ValueNone -> ()
                 | TTypeKindG.Class c ->
+                    let storageOf = ctorValueStorage td c
+
                     classes.Add
                         {
                             Decl = td
                             Fields = Block.toList c.Fields
-                            CtorParams = Block.toList c.CtorParams
+                            CtorParams =
+                                [
+                                    for p in c.CtorParams ->
+                                        {
+                                            Name = p.Name
+                                            Type = p.Type
+                                            Storage = storageOf p.Name
+                                        }
+                                ]
                             Members = Block.toList c.Members
                             Base = c.Base
                             Interfaces = ifaceBlocks c.Interfaces
                             IsSealed = c.Declared.IsSealed
                             StaticPreamble = Block.toList c.StaticPreamble
-                            InstancePreamble = Block.toList c.InstancePreamble
+                            InstancePreamble =
+                                [
+                                    for entry in c.InstancePreamble ->
+                                        match entry with
+                                        | TPreambleEntryG.Let l -> InstancePreambleEntry.Let(l, storageOf l.Name)
+                                        | TPreambleEntryG.Do e -> InstancePreambleEntry.Do e
+                                ]
                             ThisKey = c.ThisKey
                             SecondaryCtors = Block.toList c.SecondaryCtors
                             ValueKind = c.ValueKind
@@ -391,9 +481,9 @@ module internal LayoutNodes =
                 nominalNode (TypeSlotKind.Record rd.ValueKind) td fields methodRows properties
         ]
 
-    /// Per class: ctor-param backing fields (`initonly`), `val` fields (immutable ⇒ `initonly`),
-    /// then instance-`let` and `static let` fields. Methods: primary `.ctor`,
-    /// [`.cctor`], [secondary `.ctor`s], own members, interface-impl members.
+    /// Per class: field-backed ctor-param fields (`initonly`), `val` fields (immutable ⇒
+    /// `initonly`), then field-backed instance-`let` and `static let` fields. Methods:
+    /// primary `.ctor`, [`.cctor`], [secondary `.ctor`s], own members, interface-impl members.
     let buildClassNodes (symbols: ICodegenSymbols) (classes: ClassDecl list) : TypeNode list =
         [
             for cd in classes ->
@@ -401,7 +491,7 @@ module internal LayoutNodes =
 
                 let fields =
                     [
-                        for p in cd.CtorParams ->
+                        for p in ClassDecl.fieldCtorParams cd ->
                             {
                                 Key = FieldKey.ClassCtorParamField(td.Key, p.Name)
                                 Name = p.Name
@@ -421,7 +511,7 @@ module internal LayoutNodes =
                         // A preamble `let` is written by the initialiser its binding sits in —
                         // the primary `.ctor` for an instance one, the `.cctor` for a
                         // `static let` — so `mutable` is what decides `initonly` for both.
-                        for l in TPreambleEntryG.lets cd.InstancePreamble ->
+                        for l in ClassDecl.fieldLets cd ->
                             {
                                 Key = FieldKey.ClassLetField(td.Key, l.Name)
                                 Name = l.Name

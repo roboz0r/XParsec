@@ -211,14 +211,11 @@ module internal Layout =
                 // A preamble initialiser runs in the constructor, which has no typars of its own.
                 let preambleRoot
                     (td: TastAccessor.TypeDecl)
-                    (entry: TastAccessor.PreambleEntry)
+                    (body: TastAccessor.ExprId)
                     : EmitClosures.MemberClosureRoot =
                     {
                         Frame = TyparFrame.ofType td.TypeKey td.TypeParams.TypeArity
-                        Body =
-                            match entry with
-                            | TPreambleEntryG.Let l -> l.Init
-                            | TPreambleEntryG.Do e -> e
+                        Body = body
                     }
 
                 for ud in partitioned.Unions do
@@ -236,7 +233,12 @@ module internal Layout =
                     for (_, ms) in cd.Interfaces do
                         for m in ms -> memberRoot cd.Decl m
 
-                    for entry in cd.StaticPreamble @ cd.InstancePreamble -> preambleRoot cd.Decl entry
+                    for entry in cd.StaticPreamble ->
+                        match entry with
+                        | TPreambleEntryG.Let l -> preambleRoot cd.Decl l.Init
+                        | TPreambleEntryG.Do e -> preambleRoot cd.Decl e
+
+                    for body in ClassDecl.instancePreambleBodies cd -> preambleRoot cd.Decl body
             ]
 
         let discovered = FilePlan.discoverClosures closureNamer file memberRoots

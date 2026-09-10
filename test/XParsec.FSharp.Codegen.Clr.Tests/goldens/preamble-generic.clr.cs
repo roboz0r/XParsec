@@ -23,8 +23,6 @@ public class Cell<T>
 {
 	internal readonly T x;
 
-	internal readonly int n;
-
 	internal readonly int k;
 
 	internal readonly Fun<ValueTuple, T> get;
@@ -32,8 +30,7 @@ public class Cell<T>
 	public Cell(T x, int n)
 	{
 		this.x = x;
-		this.n = n;
-		k = this.n * 2 + 1;
+		k = n * 2 + 1;
 		get = new <closure>$0<T>(this);
 	}
 

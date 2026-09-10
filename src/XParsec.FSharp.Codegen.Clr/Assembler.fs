@@ -934,7 +934,7 @@ type internal Assembler
                 Block.ofList
                     [
                         for mv in ModuleClassPlan.moduleClassValues plan h ->
-                            Emit.PreambleStep.Store(moduleValueFields.[mv.Key], retypeBody mv.Init)
+                            Emit.StaticPreambleStep.Store(moduleValueFields.[mv.Key], retypeBody mv.Init)
                     ]
 
             let staticBody = methodBody (Emit.buildStaticCctor emitCtx lets)
@@ -956,7 +956,7 @@ type internal Assembler
                 Block.ofList
                     [
                         for mv in plan.ProgramCctorValues ->
-                            Emit.PreambleStep.Store(moduleValueFields.[mv.Key], retypeBody mv.Init)
+                            Emit.StaticPreambleStep.Store(moduleValueFields.[mv.Key], retypeBody mv.Init)
                     ]
 
             let staticBody = methodBody (Emit.buildStaticCctor emitCtx lets)

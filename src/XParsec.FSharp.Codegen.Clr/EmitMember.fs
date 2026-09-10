@@ -28,6 +28,9 @@ module EmitMember =
         match objArg with
         | LocalSlot env slot -> b.Add(ILInstr.Ldloca slot)
         | TastAccessor.EVar k when env.SelfKey = ValueSome k -> b.Add(ILInstr.Ldarg 0)
+        // A `this.x` on a `.ctor` local is addressed in place, like a slot-bound local.
+        | CtorLocalAccess env (CtorLocal.Slot slot) -> b.Add(ILInstr.Ldloca slot)
+        | CtorLocalAccess env (CtorLocal.Arg arg) -> b.Add(ILInstr.Ldarga arg)
         | TastAccessor.EVar k when env.ModuleValues.ContainsKey k -> b.Add(ILInstr.Ldsflda env.ModuleValues.[k])
         // A struct-typed CLASS FIELD object argument (`this.Source.MoveNext()`) is addressed
         // with `ldflda`; the parent recurses when it is itself a struct (`this.a.b.M()`).
@@ -161,14 +164,19 @@ module EmitMember =
         let objArg = view.ObjArg
         let name = view.FieldName
         // `r.X` — `ldfld` a class field off the object argument; `call` a record field's
-        // getter, whose `this` is the address of a struct record.
-        match resolveRecordField env (nominalOfExpr objArg) name TAccessorRole.Getter with
-        | FieldAccess.Direct handle ->
-            recur env b objArg
-            b.Add(ILInstr.Ldfld handle)
-        | FieldAccess.Accessor getter ->
-            pushObjArgAsThis recur env b objArg
-            b.Add(ILInstr.Call(getter, 1, 1))
+        // getter, whose `this` is the address of a struct record. A `this.x` on a `.ctor`
+        // local loads the local.
+        match tryCtorLocal env objArg name with
+        | ValueSome(CtorLocal.Slot slot) -> b.Add(ILInstr.Ldloc slot)
+        | ValueSome(CtorLocal.Arg arg) -> b.Add(ILInstr.Ldarg arg)
+        | ValueNone ->
+            match resolveRecordField env (nominalOfExpr objArg) name TAccessorRole.Getter with
+            | FieldAccess.Direct handle ->
+                recur env b objArg
+                b.Add(ILInstr.Ldfld handle)
+            | FieldAccess.Accessor getter ->
+                pushObjArgAsThis recur env b objArg
+                b.Add(ILInstr.Call(getter, 1, 1))
 
     let buildAssignment (recur: Recur) (pos: ExprPos) (env: EmitEnv) (b: IlBuilder) (e: TastAccessor.ExprId) : unit =
         let view = TastAccessor.exprAssignment e
@@ -193,15 +201,21 @@ module EmitMember =
         let name = view.FieldName
         let value = view.Value
         // `r.X <- v` on a `mutable` field: `stfld` a class field, `call` a record field's
-        // setter. Either consumes both pushes and leaves nothing, and a `FieldSet` is
-        // UNIT-TYPED, so a value-position consumer takes a reified `unit`.
-        let access = resolveRecordField env (nominalOfExpr objArg) name TAccessorRole.Setter
-        pushObjArgAsThis recur env b objArg
-        recur env b value
+        // setter, `stloc` a `.ctor` local (a `let mutable`). A `FieldSet` is UNIT-TYPED, so
+        // a value-position consumer takes a reified `unit`.
+        match tryCtorLocal env objArg name with
+        | ValueSome(CtorLocal.Slot slot) ->
+            recur env b value
+            b.Add(ILInstr.Stloc slot)
+        | ValueSome(CtorLocal.Arg _) -> failwithf "Emit: assignment to primary-ctor parameter '%s'" name
+        | ValueNone ->
+            let access = resolveRecordField env (nominalOfExpr objArg) name TAccessorRole.Setter
+            pushObjArgAsThis recur env b objArg
+            recur env b value
 
-        match access with
-        | FieldAccess.Direct handle -> b.Add(ILInstr.Stfld handle)
-        | FieldAccess.Accessor setter -> b.Add(ILInstr.Call(setter, 2, 0))
+            match access with
+            | FieldAccess.Direct handle -> b.Add(ILInstr.Stfld handle)
+            | FieldAccess.Accessor setter -> b.Add(ILInstr.Call(setter, 2, 0))
 
         ExprPos.reifyUnit env b pos
 
