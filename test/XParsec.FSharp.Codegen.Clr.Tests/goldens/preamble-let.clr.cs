@@ -24,14 +24,12 @@ public class Boxed
 	public Boxed(int n)
 	{
 		this.n = n;
-		int num = this.n;
-		m = num + 1;
+		m = this.n + 1;
 	}
 
 	public int M()
 	{
-		int num = m;
-		return num * 10;
+		return m * 10;
 	}
 }
 public static class Program

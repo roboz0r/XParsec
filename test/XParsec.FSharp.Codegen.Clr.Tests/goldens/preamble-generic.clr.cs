@@ -33,9 +33,7 @@ public class Cell<T>
 	{
 		this.x = x;
 		this.n = n;
-		int num = this.n;
-		int num2 = num * 2;
-		k = num2 + 1;
+		k = this.n * 2 + 1;
 		get = new <closure>$0<T>(this);
 	}
 

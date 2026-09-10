@@ -238,6 +238,46 @@ module Cil =
         | "conv.r.un" -> ValueSome ILOpCode.Conv_r_un
         | _ -> ValueNone
 
+    /// A pop-n-push-1 op that computes from its operands alone and always returns. Division,
+    /// remainder and the overflow-checked arithmetic throw on some operand.
+    let isTotal (code: ILOpCode) : bool =
+        match code with
+        | ILOpCode.Ceq
+        | ILOpCode.Cgt
+        | ILOpCode.Cgt_un
+        | ILOpCode.Clt
+        | ILOpCode.Clt_un
+        | ILOpCode.Add
+        | ILOpCode.Sub
+        | ILOpCode.Mul
+        | ILOpCode.Neg
+        | ILOpCode.And
+        | ILOpCode.Or
+        | ILOpCode.Xor
+        | ILOpCode.Not
+        | ILOpCode.Shl
+        | ILOpCode.Shr
+        | ILOpCode.Shr_un
+        | ILOpCode.Conv_i1
+        | ILOpCode.Conv_i2
+        | ILOpCode.Conv_i4
+        | ILOpCode.Conv_i8
+        | ILOpCode.Conv_u1
+        | ILOpCode.Conv_u2
+        | ILOpCode.Conv_u4
+        | ILOpCode.Conv_u8
+        | ILOpCode.Conv_i
+        | ILOpCode.Conv_u
+        | ILOpCode.Conv_r4
+        | ILOpCode.Conv_r8
+        | ILOpCode.Conv_r_un -> true
+        | _ -> false
+
+    /// A mnemonic whose `ILOpCode` is total, plus the empty reinterpret `(# "" x : T #)`,
+    /// which is a stack no-op.
+    let isTotalMnemonic (mnemonic: string) : bool =
+        mnemonic = "" || (tryOpCodeOfMnemonic mnemonic |> ValueOption.exists isTotal)
+
     /// The `argCount` operands are already on the stack and the op leaves exactly one
     /// result, so the delta is `1 - argCount`: `-1` for `add`, `0` for `conv.i4`.
     let emitIntrinsicValueOp (il: Il) (code: ILOpCode) (argCount: int) : unit =

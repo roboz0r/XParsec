@@ -31,15 +31,13 @@ public class Ordered
 	public Ordered(int n)
 	{
 		this.n = n;
-		int num = this.n;
-		a = num + 1;
+		a = this.n + 1;
 		Formatter formatter = new Formatter(7, 1, Console.Out);
 		formatter.AppendLiteral("ctor a=");
 		formatter.AppendFormatted(a);
 		formatter.AppendLiteral("\n");
 		formatter.Flush();
-		int num2 = a;
-		b = num2 * 3;
+		b = a * 3;
 		Formatter formatter2 = new Formatter(7, 1, Console.Out);
 		formatter2.AppendLiteral("ctor b=");
 		formatter2.AppendFormatted(b);

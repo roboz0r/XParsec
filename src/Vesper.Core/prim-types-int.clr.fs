@@ -2,9 +2,9 @@ namespace Vesper
 
 #nowarn "42"
 
-// The arithmetic mnemonics compute on the int32 evaluation stack, so every sub-int32
-// width truncates its result back through a `conv.*` — without it `200uy + 100uy` answers
-// 300 rather than wrapping to 44uy. The bitwise mnemonics stay in range and need none.
+// The mnemonics compute on the int32 evaluation stack, so a sub-int32 result that leaves the
+// width truncates back through a `conv.*`: the arithmetic, `<<<`, and unsigned `~~~`
+// (`200uy + 100uy` is 300, `~~~0uy` is -1). `&&& ||| ^^^ >>>` and signed `~~~` stay in range.
 
 type sbyte =
     (# "System.SByte" #)
@@ -20,7 +20,8 @@ type sbyte =
         static member inline (|||)(x: sbyte, y: sbyte) : sbyte = (# "or" x y : sbyte #)
         static member inline (^^^)(x: sbyte, y: sbyte) : sbyte = (# "xor" x y : sbyte #)
         static member inline (~~~)(value: sbyte) : sbyte = (# "not" value : sbyte #)
-        static member inline (<<<)(value: sbyte, shift: int) : sbyte = (# "shl" value shift : sbyte #)
+        static member inline (<<<)(value: sbyte, shift: int) : sbyte =
+            (# "conv.i1" (# "shl" value shift : int #) : sbyte #)
         static member inline (>>>)(value: sbyte, shift: int) : sbyte = (# "shr" value shift : sbyte #)
     end
 
@@ -37,8 +38,10 @@ type byte =
         static member inline (&&&)(x: byte, y: byte) : byte = (# "and" x y : byte #)
         static member inline (|||)(x: byte, y: byte) : byte = (# "or" x y : byte #)
         static member inline (^^^)(x: byte, y: byte) : byte = (# "xor" x y : byte #)
-        static member inline (~~~)(value: byte) : byte = (# "not" value : byte #)
-        static member inline (<<<)(value: byte, shift: int) : byte = (# "shl" value shift : byte #)
+        static member inline (~~~)(value: byte) : byte = (# "conv.u1" (# "not" value : int #) : byte #)
+
+        static member inline (<<<)(value: byte, shift: int) : byte =
+            (# "conv.u1" (# "shl" value shift : int #) : byte #)
         static member inline (>>>)(value: byte, shift: int) : byte = (# "shr.un" value shift : byte #)
     end
 
@@ -59,7 +62,8 @@ type int16 =
         static member inline (|||)(x: int16, y: int16) : int16 = (# "or" x y : int16 #)
         static member inline (^^^)(x: int16, y: int16) : int16 = (# "xor" x y : int16 #)
         static member inline (~~~)(value: int16) : int16 = (# "not" value : int16 #)
-        static member inline (<<<)(value: int16, shift: int) : int16 = (# "shl" value shift : int16 #)
+        static member inline (<<<)(value: int16, shift: int) : int16 =
+            (# "conv.i2" (# "shl" value shift : int #) : int16 #)
         static member inline (>>>)(value: int16, shift: int) : int16 = (# "shr" value shift : int16 #)
     end
 
@@ -75,8 +79,10 @@ type uint16 =
         static member inline (&&&)(x: uint16, y: uint16) : uint16 = (# "and" x y : uint16 #)
         static member inline (|||)(x: uint16, y: uint16) : uint16 = (# "or" x y : uint16 #)
         static member inline (^^^)(x: uint16, y: uint16) : uint16 = (# "xor" x y : uint16 #)
-        static member inline (~~~)(value: uint16) : uint16 = (# "not" value : uint16 #)
-        static member inline (<<<)(value: uint16, shift: int) : uint16 = (# "shl" value shift : uint16 #)
+        static member inline (~~~)(value: uint16) : uint16 = (# "conv.u2" (# "not" value : int #) : uint16 #)
+
+        static member inline (<<<)(value: uint16, shift: int) : uint16 =
+            (# "conv.u2" (# "shl" value shift : int #) : uint16 #)
         static member inline (>>>)(value: uint16, shift: int) : uint16 = (# "shr.un" value shift : uint16 #)
     end
 

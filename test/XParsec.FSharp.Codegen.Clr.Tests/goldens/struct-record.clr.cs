@@ -117,9 +117,7 @@ public static class Program
 		P p = a;
 		d = new P(10, p.Y);
 		Formatter formatter5 = new Formatter(0, 1, Console.Out);
-		int x = d.X;
-		int y = d.Y;
-		formatter5.AppendFormatted(x + y);
+		formatter5.AppendFormatted(d.X + d.Y);
 		formatter5.AppendLiteral("\n");
 		formatter5.Flush();
 		return 0;

@@ -51,28 +51,23 @@ public static class Program
 	public static int Main(string[] args)
 	{
 		Formatter formatter = new Formatter(0, 1, Console.Out);
-		nint num = addN(10, 20);
-		formatter.AppendFormatted((int)num);
+		formatter.AppendFormatted((int)addN(10, 20));
 		formatter.AppendLiteral("\n");
 		formatter.Flush();
 		Formatter formatter2 = new Formatter(0, 1, Console.Out);
-		nint num2 = subN(10, 20);
-		formatter2.AppendFormatted((int)num2);
+		formatter2.AppendFormatted((int)subN(10, 20));
 		formatter2.AppendLiteral("\n");
 		formatter2.Flush();
 		Formatter formatter3 = new Formatter(0, 1, Console.Out);
-		nint num3 = mulN(6, 7);
-		formatter3.AppendFormatted((int)num3);
+		formatter3.AppendFormatted((int)mulN(6, 7));
 		formatter3.AppendLiteral("\n");
 		formatter3.Flush();
 		Formatter formatter4 = new Formatter(0, 1, Console.Out);
-		nint num4 = divN(100, 7);
-		formatter4.AppendFormatted((int)num4);
+		formatter4.AppendFormatted((int)divN(100, 7));
 		formatter4.AppendLiteral("\n");
 		formatter4.Flush();
 		Formatter formatter5 = new Formatter(0, 1, Console.Out);
-		nint num5 = remN(100, 7);
-		formatter5.AppendFormatted((int)num5);
+		formatter5.AppendFormatted((int)remN(100, 7));
 		formatter5.AppendLiteral("\n");
 		formatter5.Flush();
 		return 0;

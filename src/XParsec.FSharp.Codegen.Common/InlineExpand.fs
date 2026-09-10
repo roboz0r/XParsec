@@ -164,6 +164,135 @@ module InlineExpand =
                 && not (referencedUnderLambda param body))
         | _ -> false
 
+    /// Where a bound variable's use stands in an expression's evaluation order.
+    [<RequireQualifiedAccess>]
+    type private Reach =
+        /// The use is evaluated here, with only total evaluation ahead of it.
+        | Use
+        /// The use is absent, and this subtree may be evaluated ahead of the binding's value.
+        | Clear
+        /// The use is conditional, repeated, deferred, or preceded by evaluation that must stay
+        /// ahead of it.
+        | Barred
+
+    /// Whether a node's own operation, its children aside, computes from immutable operands
+    /// alone and always returns.
+    let private totalNode (totalIntrinsic: string -> bool) (e: TastAccessor.ExprId) : bool =
+        match TastAccessor.exprKind e with
+        | ExprShape.Const
+        | ExprShape.Null -> true
+        | ExprShape.Var -> not (TastPoolBuilder.boundVarIsMutable e.Pool (TastAccessor.exprVarBoundVar e))
+        | ExprShape.ILIntrinsic -> totalIntrinsic (TastAccessor.exprILIntrinsicOpCode e)
+        | _ -> false
+
+    /// The child expressions at `first .. last`, an empty range yielding nothing.
+    let private childRange (e: TastAccessor.ExprId) (first: int) (last: int) : TastAccessor.ExprId seq =
+        seq { for i in first..last -> TastAccessor.exprChild e i }
+
+    /// Fold subtrees in evaluation order. One evaluated after the use is immaterial; one ahead of
+    /// it that is not total bars it.
+    let rec private reachSeq
+        (totalIntrinsic: string -> bool)
+        (k: BoundVarId)
+        (subtrees: TastAccessor.ExprId seq)
+        : Reach =
+        let mutable state = Reach.Clear
+
+        for e in subtrees do
+            match state with
+            | Reach.Clear -> state <- reach totalIntrinsic k e
+            | Reach.Use
+            | Reach.Barred -> ()
+
+        state
+
+    /// A node whose leading `n` children are evaluated once, unconditionally and in order, and
+    /// whose remaining children are conditional or repeated. Only a use among the leading
+    /// children is reached.
+    and private reachLeading
+        (totalIntrinsic: string -> bool)
+        (k: BoundVarId)
+        (n: int)
+        (e: TastAccessor.ExprId)
+        : Reach =
+        let last = TastAccessor.exprChildCount e - 1
+
+        if childRange e n last |> Seq.exists (references k) then
+            Reach.Barred
+        else
+            reachSeq totalIntrinsic k (childRange e 0 (min (n - 1) last))
+
+    and private reach (totalIntrinsic: string -> bool) (k: BoundVarId) (e: TastAccessor.ExprId) : Reach =
+        match e with
+        | TastAccessor.EVar b when b = k -> Reach.Use
+        | _ ->
+            // The node's own operation runs after its children, so a use-free subtree is
+            // `Clear` only where the operation is total as well.
+            let ownOperation (r: Reach) : Reach =
+                match r with
+                | Reach.Clear when not (totalNode totalIntrinsic e) -> Reach.Barred
+                | r -> r
+
+            match TastAccessor.exprKind e with
+            // Every child is evaluated once, left to right, ahead of the node's own operation.
+            | ExprShape.Const
+            | ExprShape.Null
+            | ExprShape.Var
+            | ExprShape.App
+            | ExprShape.Let
+            | ExprShape.Tuple
+            | ExprShape.ArrayLit
+            | ExprShape.Sequential
+            | ExprShape.RecordCons
+            | ExprShape.RecordClone
+            | ExprShape.FieldGet
+            | ExprShape.FieldSet
+            | ExprShape.UnionCons
+            | ExprShape.New
+            | ExprShape.MethodCall
+            | ExprShape.PropertyGet
+            | ExprShape.StaticMethodCall
+            | ExprShape.StaticFieldSet
+            | ExprShape.ExternalMember
+            | ExprShape.Format
+            | ExprShape.ILIntrinsic
+            | ExprShape.Upcast
+            | ExprShape.Downcast
+            | ExprShape.TypeTest ->
+                reachSeq totalIntrinsic k (childRange e 0 (TastAccessor.exprChildCount e - 1))
+                |> ownOperation
+            // An assignment's target is a store address rather than a read, so only the value
+            // is evaluated ahead of the store.
+            | ExprShape.Assignment -> reach totalIntrinsic k (TastAccessor.exprAssignment e).Rhs |> ownOperation
+            | ExprShape.IfThenElse
+            | ExprShape.Match
+            | ExprShape.ForIn -> reachLeading totalIntrinsic k 1 e |> ownOperation
+            | ExprShape.ForTo -> reachLeading totalIntrinsic k 2 e |> ownOperation
+            // A lambda, a loop and a protected region defer, repeat or guard their bodies.
+            | _ -> Reach.Barred
+
+    /// The number of references to `boundVar` under `e`.
+    let rec private useCount (boundVar: BoundVarId) (e: TastAccessor.ExprId) : int =
+        match e with
+        | TastAccessor.EVar b when b = boundVar -> 1
+        | _ ->
+            let mutable n = 0
+            TastAccessor.iterChildren (fun c -> n <- n + useCount boundVar c) e
+            n
+
+    /// Whether `value` evaluated AT the use of `param` yields the program the binding does:
+    /// `param` is read once, unconditionally, with only total evaluation ahead of it. A lambda
+    /// value keeps its binding, which both backends read as the lambda's self-key.
+    let private movableToUse
+        (totalIntrinsic: string -> bool)
+        (param: BoundVarId)
+        (value: TastAccessor.ExprId)
+        (body: TastAccessor.ExprId)
+        : bool =
+        TastAccessor.exprKind value <> ExprShape.Lambda
+        && useCount param body = 1
+        && reach totalIntrinsic param body = Reach.Use
+
     /// Replace every reference to `boundVar` under `e` with `replacement`. Only the path down to
     /// a reference is rebuilt, and each rebuilt node is filed in `d` as authored from the node
     /// it replaces.
@@ -180,11 +309,16 @@ module InlineExpand =
             Derivation.authored d e result
             result
 
-    /// Collapse every `let` under `e` whose bound variable is immutable and whose value is
-    /// `substitutable` into its substituted body. Each rebuilt node is filed in `d` as authored
-    /// from the node it replaces.
-    let rec private reduceLets (d: Derivation) (e: TastAccessor.ExprId) : TastAccessor.ExprId =
-        let reduced = TastAccessor.mapChildren (reduceLets d) e
+    /// Collapse every `let` under `e` whose bound variable is immutable into its substituted
+    /// body: the value is `substitutable`, or `movableToUse` holds of a binding recorded in
+    /// `freshened`. Each rebuilt node is filed in `d` as authored from the node it replaces.
+    let rec private reduceLets
+        (d: Derivation)
+        (totalIntrinsic: string -> bool)
+        (freshened: #IReadOnlyDictionary<BoundVarId, BoundVarId>)
+        (e: TastAccessor.ExprId)
+        : TastAccessor.ExprId =
+        let reduced = TastAccessor.mapChildren (reduceLets d totalIntrinsic freshened) e
         Derivation.authored d e reduced
 
         match reduced with
@@ -192,7 +326,8 @@ module InlineExpand =
             match l.Binding.Pattern with
             | TastAccessor.PNamed k when
                 not (TastPoolBuilder.boundVarIsMutable reduced.Pool k)
-                && substitutable k l.Binding.Value l.Body
+                && (substitutable k l.Binding.Value l.Body
+                    || (freshened.ContainsKey k && movableToUse totalIntrinsic k l.Binding.Value l.Body))
                 ->
                 substituteVar d k l.Binding.Value l.Body
             | _ -> reduced
@@ -201,7 +336,9 @@ module InlineExpand =
     /// Splice every `TExprG.InlineCall` in `decls` — member bodies included, via
     /// `mapDeclBodies` — with the entry it identifies, applied to the edge's own arguments. A
     /// `TExprG.CallerExpr` is unwrapped and its subtree left where it stands, being the caller's.
-    let expand (pool: PoolBuilder) (decls: TastAccessor.DeclId list) : Expansion =
+    /// `totalIntrinsic` classifies an `ILIntrinsic` opcode as computing from its operands alone
+    /// and always returning.
+    let expand (totalIntrinsic: string -> bool) (pool: PoolBuilder) (decls: TastAccessor.DeclId list) : Expansion =
         let origins = Dictionary<TastAccessor.ExprId, NodeOrigin>()
         let derived = Derivation.create ()
         let freshened = Dictionary<BoundVarId, BoundVarId>()
@@ -423,7 +560,7 @@ module InlineExpand =
         let expandDecl (decl: TastAccessor.DeclId) : TastAccessor.DeclId =
             decl
             |> TastAccessor.mapDeclBodies (go Compiling [] InPlace)
-            |> TastAccessor.mapDeclBodies (reduceLets derived)
+            |> TastAccessor.mapDeclBodies (reduceLets derived totalIntrinsic freshened)
 
         {
             Decls = List.map expandDecl decls

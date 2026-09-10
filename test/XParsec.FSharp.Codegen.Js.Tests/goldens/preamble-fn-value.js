@@ -2,7 +2,7 @@ class Adder {
   constructor(k) {
     this.k = k;
     const _s3 = this;
-    (this.add = (x) => ((_s14) => (((x) + (_s14)) | 0))(_s3.k));
+    (this.add = (x) => (((x) + (_s3.k)) | 0));
   }
 }
 const Adder__Twice = (_s3) => (n) => twice(_s3.add, n);

@@ -3,7 +3,7 @@ class Cell {
     this.x = x;
     this.n = n;
     const _s0 = this;
-    (this.k = ((_s19) => (((_s19) + (1)) | 0))(((_s15) => (Math.imul((_s15), (2))))(_s0.n)));
+    (this.k = ((((Math.imul((_s0.n), (2)))) + (1)) | 0));
     (this.get = (_u23) => _s0.x);
   }
 }

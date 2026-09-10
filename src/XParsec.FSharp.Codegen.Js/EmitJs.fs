@@ -933,9 +933,11 @@ module EmitJs =
     /// classes are not hoisted; lowering the rest drops `let inline` templates and `type` decls.
     let buildProgram (inputs: EmissionInputs) : JsProgram =
         // The specialization graph splices HERE, before anything reads a decl: an edge left
-        // standing in a member body would reach the emit router with no body to emit.
+        // standing in a member body would reach the emit router with no body to emit. A JS
+        // intrinsic is a source template rather than an opcode, so a copied binding evaluated
+        // after one keeps its `let`.
         let expansion =
-            InlineExpand.expand inputs.Pool (TastAccessor.roots inputs.Pool |> List.ofArray)
+            InlineExpand.expand (fun _ -> false) inputs.Pool (TastAccessor.roots inputs.Pool |> List.ofArray)
 
         let moduleMembers = TastPoolBuilder.moduleMembers inputs.Pool
 

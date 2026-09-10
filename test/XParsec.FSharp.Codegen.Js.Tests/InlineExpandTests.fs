@@ -46,6 +46,9 @@ let private opened (input: string) : PoolBuilder * TastAccessor.DeclId list =
     let pool = TastPoolBuilder.openOver (frozenOf input)
     pool, TastAccessor.roots pool |> List.ofArray
 
+/// The JS emitter's classifier: a JS intrinsic is a source template rather than an opcode.
+let private noTotalIntrinsic (_: string) : bool = false
+
 /// Where each ENTRY-OWN node was written, walked independently of the expansion: each entry's
 /// body, stopping AT a `CallerExpr`, since everything under one is the caller's material.
 /// Keyed by the ENTRY's node, so a copy is looked up through the chain that reaches it.
@@ -115,7 +118,7 @@ let tests =
                     "the member body really does carry an edge, or nothing below is being tested"
 
                 Expect.equal
-                    (edgeCount (InlineExpand.expand pool decls).Decls)
+                    (edgeCount (InlineExpand.expand noTotalIntrinsic pool decls).Decls)
                     0
                     "every edge is placed, member bodies included"
 
@@ -137,7 +140,7 @@ let tests =
                     1
                     "the fixture reaches more than one entry"
 
-                let expansion = InlineExpand.expand pool decls
+                let expansion = InlineExpand.expand noTotalIntrinsic pool decls
 
                 Expect.equal (edgeCount expansion.Decls) 0 "no edge survives, at either level"
 
@@ -151,7 +154,7 @@ let tests =
                 let input = "let b = true\nlet a = b |> not\n"
                 let pool, decls = opened input
                 let owners = entryOwners pool
-                let expansion = InlineExpand.expand pool decls
+                let expansion = InlineExpand.expand noTotalIntrinsic pool decls
 
                 Expect.isNonEmpty
                     (List.ofSeq expansion.Origins)
@@ -183,23 +186,26 @@ let tests =
             }
 
             test "a node re-authored REPEATEDLY still points to the file it was copied from" {
-                // Each operand of the outer `+` is compound, so stays bound, and each collapse
-                // re-authors the operator node: the origin is filed several links from the node
-                // emitted. Following one link falls back to the CALL SITE's anchor: in range,
-                // wrong file.
-                let pool, decls = opened "let a = (1 + 2) + (3 + 4)\n"
-                let expansion = InlineExpand.expand pool decls
+                // `sum2` reads each parameter twice, so each compound argument stays bound, and
+                // each collapse re-authors the operator node: the origin is filed several links
+                // from the node emitted. Following one link falls back to the CALL SITE's
+                // anchor: in range, wrong file.
+                let pool, decls =
+                    opened "let inline sum2 (x: int) (y: int) = x + y + x + y\nlet a = sum2 (1 + 2) (3 + 4)\n"
+
+                let expansion = InlineExpand.expand noTotalIntrinsic pool decls
 
                 let derivation = InlineExpand.Derivation.create ()
                 InlineExpand.Derivation.absorb derivation expansion.Derived
 
+                // `a`, the call site; `sum2` ahead of it is the template.
                 let body =
                     match
                         expansion.Decls
                         |> List.filter (fun d -> TastAccessor.declKind d = DeclShape.Let)
                     with
-                    | [ d ] -> (TastAccessor.declLet d).Binding.Value
-                    | ds -> failtestf "expected one `let` declaration, got %d" (List.length ds)
+                    | [ _; d ] -> (TastAccessor.declLet d).Binding.Value
+                    | ds -> failtestf "expected two `let` declarations, got %d" (List.length ds)
 
                 // The operator node as the EXPANSION left it: under every bound-variable `let`,
                 // and the node the declaring file origin is filed against. Walked rather than counted,
@@ -244,12 +250,15 @@ let tests =
             test "two call sites at one grounding get their OWN bound variables" {
                 // One entry, two edges. Each edge takes its own copy, so the bound variables, and
                 // the codegen local slots they become, must not alias: a shared slot would be one
-                // site's value read at the other's.
-                let input = "let a = (1 + 2) + (3 + 4)\nlet b = (30 + 40) + (50 + 60)\n"
+                // site's value read at the other's. `twice` reads its parameter twice, so each
+                // site's compound argument stays bound rather than collapsing into its use.
+                let input =
+                    "let inline twice (x: int) = x + x\nlet a = twice (1 + 2)\nlet b = twice (30 + 40)\n"
+
                 let pool, decls = opened input
                 let frozenBoundVars = TastPoolBuilder.boundVarCount pool
 
-                let expanded = (InlineExpand.expand pool decls).Decls
+                let expanded = (InlineExpand.expand noTotalIntrinsic pool decls).Decls
 
                 let boundVars = expanded |> List.collect introducedBoundVars
 
@@ -268,7 +277,7 @@ let tests =
             test "an IMMUTABLE variable argument is substituted, spending no binding" {
                 // Both operands of the inlined `+` are references to an immutable parameter.
                 let pool, decls = opened "let f (a: int) = a + a\n"
-                let expansion = InlineExpand.expand pool decls
+                let expansion = InlineExpand.expand noTotalIntrinsic pool decls
                 Expect.equal (countKind ExprShape.Let expansion.Decls) 0 "the expansion binds nothing"
             }
 
@@ -276,20 +285,73 @@ let tests =
                 // Between the binding and each use the body runs no assignment to `m`, and a
                 // closure capturing `m` would have promoted it to a cell before the freeze.
                 let pool, decls = opened "let g () =\n    let mutable m = 1\n    m + m\n"
-                let expansion = InlineExpand.expand pool decls
+                let expansion = InlineExpand.expand noTotalIntrinsic pool decls
                 Expect.equal (countKind ExprShape.Let expansion.Decls) 1 "only the source `let mutable`"
             }
 
-            test "a MUTABLE local stays bound where the body writes it" {
-                // `let x = m` snapshots `m`; the write to `m` in the second operand would
-                // otherwise be read through `x`.
+            test "a MUTABLE local read AHEAD of the write it snapshots needs no binding" {
+                // `let x = m` is the first operand, so the read it stands for happens where the
+                // binding put it, ahead of the write in the second operand.
                 let pool, decls = opened "let g () =\n    let mutable m = 1\n    m + (m <- 2; m)\n"
-                let expansion = InlineExpand.expand pool decls
+                let expansion = InlineExpand.expand noTotalIntrinsic pool decls
+                Expect.equal (countKind ExprShape.Let expansion.Decls) 1 "only the source `let mutable`"
+            }
+
+            test "a MUTABLE local stays bound where the body writes it AHEAD of the read" {
+                // `rsub` reads its parameters in the opposite order to the arguments, so the
+                // write in the second argument runs between `let a = m` and the read of `a`.
+                // Collapsing it would read `m` at 2 and answer 8 where the binding answers 9.
+                let pool, decls =
+                    opened
+                        "let inline rsub (a: int) (b: int) = b - a\nlet g () =\n    let mutable m = 1\n    rsub m (m <- 2; 10)\n"
+
+                let expansion = InlineExpand.expand noTotalIntrinsic pool decls
 
                 Expect.equal
                     (countKind ExprShape.Let expansion.Decls)
-                    3
-                    "the source `let mutable`, the compound operand, and the snapshot of `m`"
+                    2
+                    "the source `let mutable` and the snapshot of `m`"
+            }
+
+            test "a parameter collapses past an intrinsic only where the target says the op is total" {
+                // `rsub (1 + 2) (3 + 4)` reads `b` first, so `b` collapses either way and `a`'s
+                // use then follows `3 + 4`. Moving `1 + 2` past that intrinsic is sound only if
+                // the intrinsic always returns, which is the classifier's verdict.
+                let input =
+                    "let inline rsub (a: int) (b: int) = b - a
+let g () = rsub (1 + 2) (3 + 4)
+"
+
+                let pool, decls = opened input
+                let barred = InlineExpand.expand noTotalIntrinsic pool decls
+                Expect.equal (countKind ExprShape.Let barred.Decls) 1 "`a` stays bound ahead of a non-total op"
+
+                let pool, decls = opened input
+                let moved = InlineExpand.expand (fun _ -> true) pool decls
+                Expect.equal (countKind ExprShape.Let moved.Decls) 0 "`a` collapses past a total op"
+            }
+
+            test "a `let` the user wrote keeps its binding where an inline parameter would collapse" {
+                // The same compound value, read once and first: as a parameter it is a minted
+                // binding and collapses; as the user's own `let` it keeps its name and storage.
+                let pool, decls =
+                    opened
+                        "let inline inc (x: int) = x + 1
+let g () = inc (1 + 2)
+"
+
+                let parameter = InlineExpand.expand (fun _ -> true) pool decls
+                Expect.equal (countKind ExprShape.Let parameter.Decls) 0 "the minted parameter binding collapses"
+
+                let pool, decls =
+                    opened
+                        "let g () =
+    let a = 1 + 2
+    a + 1
+"
+
+                let written = InlineExpand.expand (fun _ -> true) pool decls
+                Expect.equal (countKind ExprShape.Let written.Decls) 1 "the user's `let` stays"
             }
 
             test "a MUTABLE local stays bound where a closure in the body captures the parameter" {
@@ -297,7 +359,7 @@ let tests =
                 let pool, decls =
                     opened "let inline delay (x: int) = fun () -> x\nlet g () =\n    let mutable m = 1\n    delay m\n"
 
-                let expansion = InlineExpand.expand pool decls
+                let expansion = InlineExpand.expand noTotalIntrinsic pool decls
 
                 Expect.equal
                     (countKind ExprShape.Let expansion.Decls)
@@ -312,7 +374,7 @@ let tests =
                     opened
                         "let inline beside (x: int) = (fun () -> 0), x + x\nlet g () =\n    let mutable m = 1\n    beside m\n"
 
-                let expansion = InlineExpand.expand pool decls
+                let expansion = InlineExpand.expand noTotalIntrinsic pool decls
                 Expect.equal (countKind ExprShape.Let expansion.Decls) 1 "only the source `let mutable`"
             }
 

@@ -46,8 +46,7 @@ public sealed class <closure>$0 : Fun<int, int>
 
 	public int Invoke(int x)
 	{
-		int k = capture0.k;
-		return x + k;
+		return x + capture0.k;
 	}
 }
 public static class Program

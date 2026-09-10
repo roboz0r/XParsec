@@ -40,7 +40,8 @@ module FilePlan =
         // Inline expansion runs before any node-keyed table is built off the decls, and
         // over the DECLARATIONS rather than the lowered list: lowering drops `type` decls,
         // so an inline call inside a member body would otherwise be invisible.
-        let expansion = InlineExpand.expand pool (TastAccessor.roots pool |> List.ofArray)
+        let expansion =
+            InlineExpand.expand Cil.isTotalMnemonic pool (TastAccessor.roots pool |> List.ofArray)
 
         // A spliced inline body's local is a generalised local of THIS file under the bound
         // variable the splice minted for it, so the scheme table follows the freshening.

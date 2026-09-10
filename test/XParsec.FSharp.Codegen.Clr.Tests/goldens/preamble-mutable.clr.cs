@@ -53,11 +53,7 @@ public sealed class <closure>$0 : Fun<int, ValueTuple>
 
 	public ValueTuple Invoke(int k)
 	{
-		Counter counter = capture0;
-		int count = capture0.count;
-		int step = capture0.step;
-		int num = k * step;
-		counter.count = count + num;
+		capture0.count += k * capture0.step;
 		return default(ValueTuple);
 	}
 }

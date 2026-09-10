@@ -467,8 +467,7 @@ public static class Program
 			int item4 = q4.item1;
 			int item5 = q4.item2;
 			int item6 = q4.item3;
-			int num = item4 + item5;
-			result = num + item6;
+			result = item4 + item5 + item6;
 		}
 		return result;
 	}

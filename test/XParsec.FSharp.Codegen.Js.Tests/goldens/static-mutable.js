@@ -2,7 +2,7 @@ class Counter {
   constructor() {
   }
 }
-const Counter__Add = (_s0) => (k) => (Counter.total = ((_s10) => (((_s10) + (k)) | 0))(Counter.total));
+const Counter__Add = (_s0) => (k) => (Counter.total = (((Counter.total) + (k)) | 0));
 const Counter__Get = (_s0) => Counter.total;
 (Counter.total = 0);
 const a = new Counter();

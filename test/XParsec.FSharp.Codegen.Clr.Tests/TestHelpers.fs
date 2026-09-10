@@ -57,7 +57,7 @@ let testCompiling: CompilingAssembly = { Name = testAsm; Target = Target.Clr }
 /// sits behind an edge rather than in the tree.
 let pooledDecls (frozen: FrozenPools) : TastAccessor.DeclId list =
     let pool = TastPoolBuilder.openOver frozen
-    (InlineExpand.expand pool (TastAccessor.roots pool |> List.ofArray)).Decls
+    (InlineExpand.expand Cil.isTotalMnemonic pool (TastAccessor.roots pool |> List.ofArray)).Decls
 
 /// The lambda a specialization entry binds, read out of the file's own table.
 let specializationValue (tast: TastFile) (spec: SpecializationId) : TExpr =

@@ -26,7 +26,7 @@ export class TruncateEnumerator {
   }
   MoveNext() {
     const _s3 = this;
-    return (((_s82) => ((_s83) => ((_s82) >= (_s83)))(_s3.limit))(_s3.taken) ? false : (_s3.inner.MoveNext() ? ((_s3.taken = ((_s84) => (((_s84) + (1)) | 0))(_s3.taken)), true) : false));
+    return (((_s3.taken) >= (_s3.limit)) ? false : (_s3.inner.MoveNext() ? ((_s3.taken = (((_s3.taken) + (1)) | 0)), true) : false));
   }
   [Symbol.dispose]() {
     const _s3 = this;
@@ -47,20 +47,18 @@ export const reduce = (reduction, source) => ((acc) => ((seen) => ((() => {
 export const truncate = (count, source) => new TruncateSeq(source, count);
 export const toArray = (source) => ((buffer) => ((count) => ((() => {
   for (const x of source) {
-    (((_s93) => ((count) === (_s93)))(buffer.length) ? ((grown) => ((() => {
+    (((count) === (buffer.length)) ? ((grown) => ((() => {
       const _lim125 = (((count) - (1)) | 0);
       for (let i = 0; i <= _lim125; i++) {
-        const _s107 = buffer[i];
-        (grown[i] = _s107);
+        (grown[i] = buffer[i]);
       }
-    })(), (buffer = grown)))($Vesper_Collections_Array_zeroCreate(((_s95) => (Math.imul((_s95), (2))))(buffer.length))) : undefined);
+    })(), (buffer = grown)))($Vesper_Collections_Array_zeroCreate((Math.imul((buffer.length), (2))))) : undefined);
     (buffer[count] = x);
     (count = (((count) + (1)) | 0));
   }
 })(), ((result) => ((() => {
   const _lim126 = (((count) - (1)) | 0);
   for (let i = 0; i <= _lim126; i++) {
-    const _s123 = buffer[i];
-    (result[i] = _s123);
+    (result[i] = buffer[i]);
   }
 })(), result))($Vesper_Collections_Array_zeroCreate(count))))(0))($Vesper_Collections_Array_zeroCreate(4));

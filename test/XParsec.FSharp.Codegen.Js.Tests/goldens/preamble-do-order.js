@@ -2,9 +2,9 @@ class Ordered {
   constructor(n) {
     this.n = n;
     const _s0 = this;
-    (this.a = ((_s15) => (((_s15) + (1)) | 0))(_s0.n));
+    (this.a = (((_s0.n) + (1)) | 0));
     console.log((("") + ("ctor a=") + (_s0.a)));
-    (this.b = ((_s19) => (Math.imul((_s19), (3))))(_s0.a));
+    (this.b = (Math.imul((_s0.a), (3))));
     console.log((("") + ("ctor b=") + (_s0.b)));
   }
 }

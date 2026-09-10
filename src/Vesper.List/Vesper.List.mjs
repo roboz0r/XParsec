@@ -12,7 +12,7 @@ export class BoxedItems {
   }
   Current() {
     const _s0 = this;
-    return ((_s111) => _s111)(_s0.inner.Current());
+    return _s0.inner.Current();
   }
   MoveNext() {
     const _s0 = this;
@@ -40,10 +40,10 @@ export class ListEnumerator {
       }
       if ((_m160.tag === 1)) {
         const t = _m160.Tail;
-        return ((_s31.cursor = t), ((_s151) => (!(_s151)))(List__get_IsEmpty(_s31.cursor)));
+        return ((_s31.cursor = t), (!(List__get_IsEmpty(_s31.cursor))));
       }
       throw new Error("The match cases were incomplete");
-    })(_s31.cursor) : ((_s31.started = true), ((_s152) => (!(_s152)))(List__get_IsEmpty(_s31.cursor))));
+    })(_s31.cursor) : ((_s31.started = true), (!(List__get_IsEmpty(_s31.cursor)))));
   }
   [Symbol.dispose]() {
     const _s31 = this;
@@ -90,7 +90,7 @@ export const List__get_Length = (_s2) => ((_m162) => {
   }
   if ((_m162.tag === 1)) {
     const t = _m162.Tail;
-    return ((_s113) => (((1) + (_s113)) | 0))(List__get_Length(t));
+    return (((1) + (List__get_Length(t))) | 0);
   }
   throw new Error("The match cases were incomplete");
 })(_s2);
@@ -203,7 +203,7 @@ export const List__GetSlice = (_s2) => (startIndex) => (endIndex) => (() => {
     })([startIndex, endIndex]);
   })();
 })();
-export const List__GetReverseIndex = (_s2) => (_rank) => (offset) => ((_s147) => (((_s147) - (1)) | 0))(((_s143) => (((_s143) - (offset)) | 0))(List__get_Length(_s2)));
+export const List__GetReverseIndex = (_s2) => (_rank) => (offset) => ((((((List__get_Length(_s2)) - (offset)) | 0)) - (1)) | 0);
 export const fold = (folder, state, list) => {
   while (true) {
     const _m170 = list;
@@ -239,7 +239,7 @@ export const length = (list) => ((_m172) => {
   }
   if ((_m172.tag === 1)) {
     const t = _m172.Tail;
-    return ((_s154) => (((1) + (_s154)) | 0))(length(t));
+    return (((1) + (length(t))) | 0);
   }
   throw new Error("The match cases were incomplete");
 })(list);

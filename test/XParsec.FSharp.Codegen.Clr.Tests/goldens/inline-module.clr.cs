@@ -35,16 +35,14 @@ public static class Scale
 
 	public static int quadruple(int x)
 	{
-		int num = x * 2;
-		return num * 2;
+		return x * 2 * 2;
 	}
 }
 public static class Program
 {
 	public static int q(int arg0)
 	{
-		int num = arg0 * 2;
-		return num * 2;
+		return arg0 * 2 * 2;
 	}
 
 	public static int Main(string[] args)
@@ -54,8 +52,7 @@ public static class Program
 		formatter.AppendLiteral("\n");
 		formatter.Flush();
 		Formatter formatter2 = new Formatter(0, 1, Console.Out);
-		int num = 10 * 2;
-		formatter2.AppendFormatted(num * 2);
+		formatter2.AppendFormatted(10 * 2 * 2);
 		formatter2.AppendLiteral("\n");
 		formatter2.Flush();
 		Formatter formatter3 = new Formatter(0, 1, Console.Out);

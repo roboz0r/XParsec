@@ -35,14 +35,7 @@ public sealed class Vec : IEquatable<Vec>, IStructuralFormattable
 
 	public int Y => Y@;
 
-	public int Doubled
-	{
-		get
-		{
-			int x = X;
-			return x * 2;
-		}
-	}
+	public int Doubled => X * 2;
 
 	public Vec(int X, int Y)
 	{
@@ -52,17 +45,12 @@ public sealed class Vec : IEquatable<Vec>, IStructuralFormattable
 
 	public int Sum()
 	{
-		int x = X;
-		int y = Y;
-		return x + y;
+		return X + Y;
 	}
 
 	public int AddN(int n)
 	{
-		int x = X;
-		int y = Y;
-		int num = x + y;
-		return num + n;
+		return X + Y + n;
 	}
 
 	public override int GetHashCode()

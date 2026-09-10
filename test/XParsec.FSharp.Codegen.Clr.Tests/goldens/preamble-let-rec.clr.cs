@@ -55,17 +55,7 @@ public sealed class <closure>$0 : Fun<int, int>
 
 	public int Invoke(int k)
 	{
-		int result;
-		if (k <= 1)
-		{
-			result = 1;
-		}
-		else
-		{
-			int num = capture0.fact.Invoke(k - 1);
-			result = k * num;
-		}
-		return result;
+		return (k <= 1) ? 1 : (k * capture0.fact.Invoke(k - 1));
 	}
 }
 public static class Program

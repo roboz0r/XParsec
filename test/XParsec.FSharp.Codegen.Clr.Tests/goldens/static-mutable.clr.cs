@@ -30,8 +30,7 @@ public class Counter
 
 	public void Add(int k)
 	{
-		int num = total;
-		total = num + k;
+		total += k;
 	}
 
 	public int Get()
