@@ -62,24 +62,15 @@ module SyntheticAttribute =
         b.WriteUInt16(0us)
         b
 
-/// Why an argument list has no II.23.3 blob; the caller emits no row.
-[<RequireQualifiedAccess>]
-type AttributeBlobRejection =
-    /// A value outside the encodable constant domain: a pointer-width integral, `decimal`
-    /// (fsc lowers it to `DecimalConstantAttribute`), `unit`, or a string-valued (TS) enum.
-    | UnencodableValue
-    /// A named argument typed by an enum with no full name usable in this assembly's blob:
-    /// II.23.3's enum SerString would need an assembly-qualified name for a
-    /// referenced-assembly enum.
-    | ForeignEnum of enumKey: TypeKey
-
 /// ECMA-335 II.23.3 `CustomAttrib` blob encoding over the frozen constant-folded arguments.
+/// A `tryTypeName` parameter yields a type's SerString: assembly-qualified for a referenced
+/// type, the full name alone for a type of the assembly under emission.
 module internal AttributeBlob =
 
-    /// One value's `FieldOrPropType` byte and its `Elem` write. `ValueNone` ⇒ pointer-width
+    /// One scalar's `FieldOrPropType` byte and its `Elem` write. `ValueNone` ⇒ pointer-width
     /// integrals, `decimal` (fsc lowers it to `DecimalConstantAttribute`) and `unit` have no
     /// `Elem` encoding.
-    let private tryElem (v: TConstValue) : struct (byte * (BlobBuilder -> unit)) voption =
+    let private tryScalarElem (v: TConstValue) : struct (byte * (BlobBuilder -> unit)) voption =
         match v with
         | TConstValue.Bool x -> ValueSome(struct (0x02uy, (fun b -> b.WriteBoolean x)))
         | TConstValue.Char c -> ValueSome(struct (0x03uy, (fun b -> b.WriteUInt16(uint16 c))))
@@ -101,6 +92,21 @@ module internal AttributeBlob =
         | TConstValue.Decimal _
         | TConstValue.Unit -> ValueNone
 
+    /// One result's `FieldOrPropType` byte and its `Elem` write. A `Type` (`0x50`) carries
+    /// the SerString of the type's name. `ValueNone` for `null`, an array-valued argument,
+    /// and a scalar or type with no `Elem` encoding.
+    let private tryElem
+        (tryTypeName: FrozenType -> string voption)
+        (r: TConstResult)
+        : struct (byte * (BlobBuilder -> unit)) voption =
+        match r with
+        | TConstResult.Scalar v -> tryScalarElem v
+        | TConstResult.TypeVal t ->
+            tryTypeName t
+            |> ValueOption.map (fun name -> struct (0x50uy, (fun (b: BlobBuilder) -> b.WriteSerializedString name)))
+        | TConstResult.Null
+        | TConstResult.ArrayVal _ -> ValueNone
+
     /// One argument judged encodable before anything is written: a row is all-or-nothing.
     [<NoEquality; NoComparison>]
     type private EncodableArg =
@@ -114,14 +120,11 @@ module internal AttributeBlob =
         }
 
     /// A POSITIONAL enum-typed argument needs no enum name: the fixed-argument encoding
-    /// follows the ctor's parameter type, so the value's bytes stand alone. Only a named
-    /// argument writes the `0x55` enum form, so only there is `tryEnumFullName` consulted.
-    let private tryClassify
-        (tryEnumFullName: TypeKey -> string voption)
-        (a: TAttributeArg)
-        : Result<EncodableArg, AttributeBlobRejection> =
-        match a.Value |> ValueOption.bind tryElem with
-        | ValueNone -> Error AttributeBlobRejection.UnencodableValue
+    /// follows the ctor's parameter type. `ValueNone` where the value has no `Elem`
+    /// encoding, or a named argument is typed by a string-valued (TS) enum.
+    let private tryClassify (tryTypeName: FrozenType -> string voption) (a: TAttributeArg) : EncodableArg voption =
+        match tryElem tryTypeName (TConstExpr.result a.Expr) with
+        | ValueNone -> ValueNone
         | ValueSome(struct (tyByte, write)) ->
             let arg =
                 {
@@ -133,37 +136,27 @@ module internal AttributeBlob =
 
             match a.Name, a.EnumKey with
             | _, ValueNone
-            | ValueNone, ValueSome _ -> Ok arg
+            | ValueNone, ValueSome _ -> ValueSome arg
             | ValueSome _, ValueSome key ->
                 match a.Value with
                 // An enum value serialises at its underlying integral width; a string-valued
                 // enum (a TS enum) has no CLR encoding.
                 | ValueSome(TConstValue.Integral _) ->
-                    match tryEnumFullName key with
-                    | ValueSome n -> Ok { arg with EnumFullName = ValueSome n }
-                    | ValueNone -> Error(AttributeBlobRejection.ForeignEnum key)
-                | _ -> Error AttributeBlobRejection.UnencodableValue
+                    tryTypeName (FTEnum key)
+                    |> ValueOption.map (fun n -> { arg with EnumFullName = ValueSome n })
+                | _ -> ValueNone
 
     /// The blob: prolog `0x0001`, the positional arguments in written order, the
     /// named-argument count, then each named PROPERTY argument (`0x54`, `FieldOrPropType`,
-    /// SerString name, value). `tryEnumFullName` supplies the II.23.3 enum-type SerString
-    /// for a named enum-typed argument; `ValueNone` there rejects as `ForeignEnum`.
-    let tryEncode
-        (tryEnumFullName: TypeKey -> string voption)
-        (args: Block<TAttributeArg>)
-        : Result<BlobBuilder, AttributeBlobRejection> =
+    /// SerString name, value). `ValueNone` where any argument is unencodable.
+    let tryEncode (tryTypeName: FrozenType -> string voption) (args: Block<TAttributeArg>) : BlobBuilder voption =
         // Classify every argument before writing: a partially-written blob is never returned.
-        let rec classifyAll acc rest =
-            match rest with
-            | [] -> Ok(List.rev acc)
-            | a :: rest ->
-                match tryClassify tryEnumFullName a with
-                | Ok e -> classifyAll (e :: acc) rest
-                | Error r -> Error r
+        let classified = [ for a in args -> tryClassify tryTypeName a ]
 
-        match classifyAll [] (Block.toList args) with
-        | Error r -> Error r
-        | Ok classified ->
+        if List.exists ValueOption.isNone classified then
+            ValueNone
+        else
+            let classified = List.map ValueOption.get classified
             let b = BlobBuilder()
             b.WriteUInt16 1us
 
@@ -193,4 +186,4 @@ module internal AttributeBlob =
                 b.WriteSerializedString name
                 a.WriteValue b
 
-            Ok b
+            ValueSome b

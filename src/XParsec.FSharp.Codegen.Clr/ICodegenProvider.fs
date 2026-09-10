@@ -467,6 +467,15 @@ type ICodegenProvider =
     /// of `isinst` / `castclass` / `box` / `unbox.any`.
     abstract TypeToken: ty: FrozenType -> EntityHandle
 
+    /// `System.Type::GetTypeFromHandle(RuntimeTypeHandle)`.
+    abstract TypeFromHandle: EntityHandle
+
+    /// `System.Type::get_IsGenericType()`, guarding `typedefof<T>`'s definition step.
+    abstract TypeIsGenericType: EntityHandle
+
+    /// `System.Type::GetGenericTypeDefinition()`.
+    abstract TypeGetGenericTypeDefinition: EntityHandle
+
     /// The resolved `System.ValueTuple`n` handles for an N-tuple over `elemTys`.
     abstract ValueTupleRefs: elemTys: FrozenType list -> ValueTupleHandles
 

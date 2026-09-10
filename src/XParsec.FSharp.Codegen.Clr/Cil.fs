@@ -178,6 +178,12 @@ module Cil =
         il.Encoder.Token(t)
         il.Adjust 0
 
+    /// `ldtoken <type>` — pushes `type`'s `RuntimeTypeHandle`.
+    let emitLdtoken (il: Il) (t: EntityHandle) : unit =
+        il.Encoder.OpCode(ILOpCode.Ldtoken)
+        il.Encoder.Token(t)
+        il.Adjust 1
+
     /// `ldlen` — pops the array reference, pushes its length as a native int.
     let emitLdlen (il: Il) : unit =
         il.Encoder.OpCode(ILOpCode.Ldlen)

@@ -76,6 +76,30 @@ module internal ElaborateExpr =
                 (recordedComponents ctx bindings).Retain(fun i -> translated.[i].IsSome)
             )
 
+    /// `typeof<T>` / `typedefof<T>` as the inline-IL node the backends emit; `ValueNone` for
+    /// a type application on any other binding, and, with a `TypeArgArity` report, for a
+    /// reification applied to other than one type.
+    let private tryReification
+        (ctx: PassContext)
+        (inner: Expr<SyntaxToken>)
+        (typeArgs: ImmutableArray<Type<SyntaxToken>>)
+        (ty: SemType)
+        (tok: SyntaxToken)
+        : TExpr voption =
+        match ctx.Resolution.ExternalValue.TryGetValue(CstKeys.ofExpr inner) with
+        | ValueSome key ->
+            match ConstExprCheck.Reified.tryOfBinding key with
+            | ValueSome reified when typeArgs.Length = 1 ->
+                let operand =
+                    Unification.zonk ctx.Store (UnificationTranslate.translateType ctx typeArgs.[0])
+
+                ValueSome(TExpr.ILIntrinsic(reified.OpCode, ValueSome operand, Block.empty, ty, tok))
+            | ValueSome reified ->
+                ctx.Report(tok, Kind.TypeArgArity(reified.SourceName, 1, typeArgs.Length))
+                ValueNone
+            | ValueNone -> ValueNone
+        | ValueNone -> ValueNone
+
     let rec translateExpr (ctx: PassContext) (e: Expr<SyntaxToken>) : TExpr =
         let key = CstKeys.ofExpr e
         let ty = typeOfKey ctx key
@@ -406,7 +430,10 @@ module internal ElaborateExpr =
         // `value<'T>` — explicit type application on a VALUE reference (the
         // `TypeAppStaticMember` class-qualifier forms matched above). The `<'T>` only
         // pinned the instantiation in inference; forward to the inner reference.
-        | Expr.TypeApp(expr = inner) -> translateExpr ctx inner
+        | Expr.TypeApp(expr = inner; types = typeArgs) ->
+            match tryReification ctx inner typeArgs ty tok with
+            | ValueSome reified -> reified
+            | ValueNone -> translateExpr ctx inner
         | _ ->
             // TODO: extend as the subset grows.
             failwithf "Elaborate.translateExpr: TODO %A" e

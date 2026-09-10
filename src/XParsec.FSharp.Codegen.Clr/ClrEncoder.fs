@@ -29,6 +29,7 @@ type internal ClrEncoder(env: ClrEnv) =
 
     /// Single-sourced primitive platform type id, as an active pattern over an `FTConst`
     /// canon key.
+    [<return: Struct>]
     let (|PrimitiveTypeId|_|) (key: TypeKey) = env.TryPrimitiveTypeId key
 
     // `ValueTuple`n` handle bundles, cached by element-type list. Unlike `ctx.TypeRef` (which

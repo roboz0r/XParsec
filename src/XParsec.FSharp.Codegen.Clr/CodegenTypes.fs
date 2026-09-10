@@ -318,11 +318,9 @@ type SkippedAttributeRowReason =
     | GenericAttributeClass
     /// No referenced-assembly ctor with this many positional arguments resolved.
     | NoExternalCtor of positionalArgCount: int
-    /// An argument value is outside the II.23.3 encodable constant domain.
+    /// An argument value is outside the II.23.3 encodable constant domain, or a reified
+    /// type the encoder cannot spell.
     | UnencodableArgument
-    /// A named argument typed by a referenced-assembly enum, whose II.23.3 SerString would
-    /// need an assembly-qualified name.
-    | ForeignEnumArgument of enumKey: TypeKey
 
 /// One skipped row: the attribute, the declaration element it was written on, and why.
 /// Rows are advisory because the `.fsi` contract is the Vesper→Vesper carrier, so a skip

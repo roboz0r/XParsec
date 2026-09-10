@@ -258,7 +258,124 @@ let tests =
                     "the named enum argument carries the enum's SerString"
             }
 
-            // (f) A defective row does not vanish silently: the reason lands on the artifact
+            // (f) A `typeof<T>` / `typedefof<T>` argument encodes as II.23.3's `Type` element
+            // (`0x50`) plus the type's name: assembly-qualified for a referenced type, the
+            // full name alone for a type of the assembly under emission.
+            test "a reified-type argument encodes as the 0x50 Type element" {
+                let source =
+                    String.concat
+                        "\n"
+                        [
+                            "type MarkAttribute(t: Type) ="
+                            "    member _.T = t"
+                            ""
+                            "type Box<'T> = { Item: 'T }"
+                            ""
+                            "[<Mark(typeof<int>)>]"
+                            "type TaggedPrim() ="
+                            "    member _.X = 1"
+                            ""
+                            "[<Mark(typedefof<Box<int>>)>]"
+                            "type TaggedLocal() ="
+                            "    member _.X = 1"
+                        ]
+
+                let artifact = compileSource "AttrTypeElem" source
+                let bytes = Codegen.toBytes artifact
+
+                let markBlob (typeName: string) =
+                    customAttributeRowsOn bytes typeName
+                    |> List.pick (fun (ctorDecl, blob) -> if ctorDecl = "MarkAttribute" then Some blob else None)
+
+                // A packed length below 128 is one byte.
+                let serString (s: string) =
+                    byte s.Length :: (Text.Encoding.UTF8.GetBytes s |> List.ofArray)
+
+                Expect.equal
+                    (List.ofArray (markBlob "TaggedLocal"))
+                    [
+                        yield! [ 1uy; 0uy ] // prolog
+                        yield! serString "Box`1" // the fixed Type argument's name
+                        yield! [ 0uy; 0uy ] // named-argument count
+                    ]
+                    "a locally emitted type is spelled by full name alone"
+
+                // The positional `Type` element writes its SerString bare: the fixed-argument
+                // encoding follows the ctor's parameter type, as an enum does.
+                Expect.stringContains
+                    (Text.Encoding.UTF8.GetString(markBlob "TaggedPrim"))
+                    "System.Int32"
+                    "a BCL primitive operand is spelled by its platform type name"
+
+                let asm = loadAssembly bytes
+
+                let markArg (typeName: string) =
+                    let attr =
+                        (asm.GetType typeName).GetCustomAttributesData()
+                        |> Seq.find (fun a -> a.AttributeType.Name = "MarkAttribute")
+
+                    attr.ConstructorArguments.[0].Value :?> Type
+
+                Expect.equal (markArg "TaggedPrim").FullName "System.Int32" "reflection resolves the reified primitive"
+
+                Expect.equal
+                    (markArg "TaggedLocal").FullName
+                    "Box`1"
+                    "reflection resolves the reified local generic definition"
+            }
+
+            // (g) A module-held enum emits nested in the module's class, so its `0x55`
+            // SerString is the layout's reflection name, which reflection resolves. The
+            // module shares its name with a type, so its class is `KindsModule` rather than
+            // the key's own `Kinds+Targets3` spelling.
+            test "a named argument typed by a module-held enum carries the nested reflection name" {
+                let source =
+                    String.concat
+                        "\n"
+                        [
+                            "type Kinds() ="
+                            "    member _.X = 1"
+                            ""
+                            "module Kinds ="
+                            "    type Targets3 ="
+                            "        | A = 1"
+                            "        | B = 2"
+                            ""
+                            "type MarkAttribute(t0: Kinds.Targets3) ="
+                            "    let mutable t = t0"
+                            "    member _.T with get () = t and set (v: Kinds.Targets3) = t <- v"
+                            ""
+                            "[<Mark(Kinds.Targets3.A, T = Kinds.Targets3.B)>]"
+                            "type Tagged3() ="
+                            "    member _.X = 1"
+                        ]
+
+                let artifact = compileSource "AttrEnumNested" source
+                let bytes = Codegen.toBytes artifact
+
+                let blob =
+                    customAttributeRowsOn bytes "Tagged3"
+                    |> List.pick (fun (ctorDecl, blob) -> if ctorDecl = "MarkAttribute" then Some blob else None)
+
+                Expect.stringContains
+                    (Text.Encoding.UTF8.GetString blob)
+                    "KindsModule+Targets3"
+                    "the enum SerString is the nested reflection name"
+
+                let asm = loadAssembly bytes
+
+                let named =
+                    (asm.GetType "Tagged3").GetCustomAttributesData()
+                    |> Seq.find (fun a -> a.AttributeType.Name = "MarkAttribute")
+                    |> fun a -> a.NamedArguments |> Seq.find (fun n -> n.MemberName = "T")
+
+                Expect.equal
+                    named.TypedValue.ArgumentType.FullName
+                    "KindsModule+Targets3"
+                    "reflection resolves the enum through the module class"
+            }
+
+            // (h) A defective row does not vanish silently: the reason lands on the artifact
             // and the compile still succeeds.
             test "an ambiguous attribute ctor skips the row with a reason on the artifact" {
                 let source =

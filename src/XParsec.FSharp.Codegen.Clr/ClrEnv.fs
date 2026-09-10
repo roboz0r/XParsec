@@ -92,6 +92,27 @@ module internal ClrSinkKeys =
     /// The `System.HashCode` accumulator local of a synthesised `GetHashCode`.
     let hashCode: TypeKey = RuntimeNames.opaqueKey "System.HashCode"
 
+/// A referenced type's placement in its assembly's metadata: the `TypeRef` chain from the
+/// namespace-level root type to the type itself. Each segment is a metadata name, arity
+/// suffix included; a module segment is the module class's compiled name.
+type internal ExternalTypePath =
+    {
+        Home: SymbolHome
+        /// Dotted; the root segment's `TypeRef` namespace column.
+        Namespace: string
+        Root: string
+        /// Outermost first; each is a `TypeRef` scoped by the segment before it.
+        Nested: string list
+    }
+
+    /// The reflection spelling: `Ns.Root+Inner`.
+    member this.FullName: string =
+        let chain = String.concat "+" (this.Root :: this.Nested)
+
+        match this.Namespace with
+        | "" -> chain
+        | ns -> ns + "." + chain
+
 /// Reference identities resolve by SIMPLE NAME: `references` wins; `FSharp.Core` / `System.Runtime`
 /// / `System.Console` fall back to the host-loaded copy; the `Vesper.*` are required. Every ref is
 /// `lazy`, so a PE whose IL never touches an assembly carries no `AssemblyRef` for it.
@@ -290,6 +311,43 @@ type internal ClrEnv
         lazy (toEntity (ctx.TypeRef(vesperRef.Value, "Vesper", "Formatter")))
 
     let eDecimal = lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "Decimal")))
+
+    // `System.Type`, the type of a reified `typeof<T>` / `typedefof<T>` value.
+    let eSystemType = lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "Type")))
+
+    let eRuntimeTypeHandle =
+        lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "RuntimeTypeHandle")))
+
+    let eTypeGetTypeFromHandle =
+        lazy
+            (let s = BlobBuilder()
+
+             BlobEncoder(s)
+                 .MethodSignature(isInstanceMethod = false)
+                 .Parameters(
+                     1,
+                     (fun (ret: ReturnTypeEncoder) -> ret.Type().Type(eSystemType.Value, false)),
+                     (fun (pars: ParametersEncoder) -> pars.AddParameter().Type().Type(eRuntimeTypeHandle.Value, true))
+                 )
+
+             toEntity (ctx.MemberRef(eSystemType.Value, "GetTypeFromHandle", s)))
+
+    /// A parameterless instance member of `System.Type` returning `ret`.
+    let typeInstanceGetter (name: string) (ret: ReturnTypeEncoder -> unit) =
+        lazy
+            (let s = BlobBuilder()
+
+             BlobEncoder(s)
+                 .MethodSignature(isInstanceMethod = true)
+                 .Parameters(0, (fun (r: ReturnTypeEncoder) -> ret r), (fun (_: ParametersEncoder) -> ()))
+
+             toEntity (ctx.MemberRef(eSystemType.Value, name, s)))
+
+    let eTypeIsGenericType =
+        typeInstanceGetter "get_IsGenericType" (fun ret -> ret.Type().Boolean())
+
+    let eTypeGetGenericTypeDefinition =
+        typeInstanceGetter "GetGenericTypeDefinition" (fun ret -> ret.Type().Type(eSystemType.Value, false))
 
     let eException = lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "Exception")))
 
@@ -515,63 +573,95 @@ type internal ClrEnv
 
             toEntity (ctx.AssemblyRef an)
 
-    let lookupClassShape (key: TypeKey) : ExternalClassShape voption =
-        match symbols.TryLookupType key with
-        | ValueSome(ExternalTypeShape.Class info) -> ValueSome info
-        | _ -> ValueNone
+    /// The compiled module class's metadata name at `origin`. Each declaration of a module
+    /// path emits its own class, so `origin` picks among them.
+    let externalModuleMetaName (origin: SymbolOrigin) (m: ModuleKey) : string =
+        match
+            symbols.DeclarationsOf m
+            |> Block.tryFind (fun declaration -> declaration.Home = origin.Home)
+        with
+        | ValueSome declaration -> CompiledName.Emitted(declaration.Facts.CompiledName, m.Name)
+        | ValueNone ->
+            failwithf
+                "ClrProvider: no referenced surface homed in %A declares module '%s', so the class it emits as is unknown."
+                origin.Home
+                m.DeclaredPath
 
-    /// The `TypeRef` for an external module's compiled module class (an F# module compiles to a
-    /// static class): a nested module chains through its parent's `TypeRef` with the bare name +
-    /// empty namespace; only the chain's root carries one. A key never says WHERE, hence `origin`.
-    let rec externalModuleRef (origin: SymbolOrigin) (m: ModuleKey) : EntityHandle =
-        let metaName =
-            // Each declaration of a path emits its own class, so the one homed where the
-            // symbol is decides. Emitting the bare source name would bind to no `TypeDef` and
-            // fault at load time, so a module undeclared at `origin` fails the compile instead.
-            match
-                symbols.DeclarationsOf m
-                |> Block.tryFind (fun declaration -> declaration.Home = origin.Home)
-            with
-            | ValueSome declaration -> CompiledName.Emitted(declaration.Facts.CompiledName, m.Name)
-            | ValueNone ->
-                failwithf
-                    "ClrProvider: no referenced surface homed in %A declares module '%s', so the class it emits as is unknown."
-                    origin.Home
-                    m.DeclaredPath
+    /// The metadata path of module class `m` declared at `origin`, with `nested` beneath it.
+    let rec externalModulePath (origin: SymbolOrigin) (m: ModuleKey) (nested: string list) : ExternalTypePath =
+        let metaName = externalModuleMetaName origin m
 
         match m.Container with
-        | ModuleContainer.InModule parent -> toEntity (ctx.TypeRef(externalModuleRef origin parent, "", metaName))
-        | ModuleContainer.InNamespace ns -> toEntity (ctx.TypeRef(externalAsmRef origin.Home, ns.Dotted, metaName))
+        | ModuleContainer.InModule parent -> externalModulePath origin parent (metaName :: nested)
+        | ModuleContainer.InNamespace ns ->
+            {
+                Home = origin.Home
+                Namespace = ns.Dotted
+                Root = metaName
+                Nested = nested
+            }
 
+    /// The metadata path of type `t` declared at `origin`, with `nested` beneath it. A
+    /// module-held type is nested in the module's class.
+    let rec externalTypePathAt (origin: SymbolOrigin) (t: TypeKey) (nested: string list) : ExternalTypePath =
+        let segment = SymbolKeyOps.typeSegmentName t
+
+        match t.Container with
+        | TypeContainer.InType outer -> externalTypePathAt origin outer (segment :: nested)
+        | TypeContainer.InModule m -> externalModulePath origin m (segment :: nested)
+        | TypeContainer.InNamespace ns ->
+            {
+                Home = origin.Home
+                Namespace = ns.Dotted
+                Root = segment
+                Nested = nested
+            }
+
+    /// The `TypeRef` rows of `path`: the root scoped by the `AssemblyRef` and carrying the
+    /// namespace column, each nested segment scoped by the row before it. A flat
+    /// `Outer+Inner` under the `AssemblyRef` scope throws `TypeLoadException`.
+    let typeRefOfPath (path: ExternalTypePath) : EntityHandle =
+        let root =
+            toEntity (ctx.TypeRef(externalAsmRef path.Home, path.Namespace, path.Root))
+
+        path.Nested
+        |> List.fold (fun scope segment -> toEntity (ctx.TypeRef(scope, "", segment))) root
+
+    /// The `TypeRef` for an external module's compiled module class (an F# module compiles
+    /// to a static class). A key never says WHERE, hence `origin`.
+    let externalModuleRef (origin: SymbolOrigin) (m: ModuleKey) : EntityHandle =
+        typeRefOfPath (externalModulePath origin m [])
+
+    /// The declaration site of a referenced nominal; `ValueNone` for a shape carrying no
+    /// `SymbolOrigin` (an intrinsic, an abbreviation, a measure) and for an undeclared key.
+    let externalOrigin (key: TypeKey) : SymbolOrigin voption =
+        match symbols.TryLookupType key with
+        | ValueSome(ExternalTypeShape.Class info) -> ValueSome info.Origin
+        | ValueSome(ExternalTypeShape.Record r) -> ValueSome r.Origin
+        | ValueSome(ExternalTypeShape.Union u) -> ValueSome u.Origin
+        | ValueSome(ExternalTypeShape.Enum e) -> ValueSome e.Origin
+        | ValueSome(ExternalTypeShape.IntrinsicInterface s) -> ValueSome s.Origin
+        | _ -> ValueNone
+
+    /// The metadata path of a referenced nominal. A canonically-authored capability
+    /// interface (`interface disposable`) has no emitted type of its own and resolves
+    /// through its platform interface (`System.IDisposable`).
+    let rec externalTypePath (key: TypeKey) : ExternalTypePath voption =
+        match symbols.TryLookupType key with
+        | ValueSome(ExternalTypeShape.IntrinsicInterface { Platform = platform }) ->
+            externalTypePath (SymbolKeyOps.qualifiedTypeKeyOf platform.Value 0)
+        | _ ->
+            externalOrigin key
+            |> ValueOption.map (fun origin -> externalTypePathAt origin key [])
+
+    /// The `TypeRef` of a referenced class, through its platform interface for a capability
+    /// interface. `ValueNone` for a record, union or enum key.
     let rec externalClassRef (key: TypeKey) : EntityHandle voption =
         match symbols.TryLookupType key with
         | ValueSome(ExternalTypeShape.IntrinsicInterface { Platform = platform }) ->
-            // A canonically-authored capability interface (`interface disposable`) has no emitted
-            // type of its own, so re-resolve through its platform interface and the `InterfaceImpl`
-            // binds the real BCL one (`System.IDisposable`). That shape is a plain `Class`: one hop.
             externalClassRef (SymbolKeyOps.qualifiedTypeKeyOf platform.Value 0)
-        | _ ->
-
-            match lookupClassShape key with
-            | ValueSome info ->
-                let asm = externalAsmRef info.Origin.Home
-
-                // A nested type (`List`1+Enumerator`) chains through the enclosing type's `TypeRef`
-                // as ResolutionScope, with its OWN bare name + `` `N `` and no namespace. A flat
-                // `Outer+Inner` under the `AssemblyRef` scope throws `TypeLoadException`.
-                let rec typeRefOf (t: TypeKey) : EntityHandle =
-                    match t.Container with
-                    | TypeContainer.InType outer ->
-                        toEntity (ctx.TypeRef(typeRefOf outer, "", SymbolKeyOps.typeSegmentName t))
-                    | TypeContainer.InNamespace ns ->
-                        toEntity (ctx.TypeRef(asm, ns.Dotted, SymbolKeyOps.typeSegmentName t))
-                    | TypeContainer.InModule m ->
-                        // A module-held type compiles NESTED in the module's class, so a
-                        // bare namespace-scoped ref would drop `m` and fail to bind.
-                        toEntity (ctx.TypeRef(externalModuleRef info.Origin m, "", SymbolKeyOps.typeSegmentName t))
-
-                ValueSome(typeRefOf key)
-            | _ -> ValueNone
+        | ValueSome(ExternalTypeShape.Class info) -> ValueSome(typeRefOfPath (externalTypePathAt info.Origin key []))
+        | _ -> ValueNone
 
     /// A self-host `Vesper.Collections.List` and a referenced one share a key, so `userTypes`
     /// membership is what separates `Local` from `Foreign`.
@@ -592,12 +682,7 @@ type internal ClrEnv
 
     let externalRecordRef (key: TypeKey) (arity: int) : (EntityHandle * Block<ExternalFieldShape>) voption =
         match externalRecordShape key arity with
-        | ValueSome(fields, origin) ->
-            // A record is never a CLR nested type, so the namespace + `` `n ``-suffixed name come
-            // straight off the key's own containment chain.
-            let simple = SymbolKeyOps.typeSegmentName key
-
-            ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Home, key.Namespace.Dotted, simple)), fields)
+        | ValueSome(fields, origin) -> ValueSome(typeRefOfPath (externalTypePathAt origin key []), fields)
         | ValueNone -> ValueNone
 
     /// Referenced-assembly union shape by key + arity, for cross-package case
@@ -610,10 +695,7 @@ type internal ClrEnv
 
     let externalUnionRef (key: TypeKey) (arity: int) : (EntityHandle * ExternalUnionShape) voption =
         match externalUnionShape key arity with
-        | ValueSome u ->
-            let simple = SymbolKeyOps.typeSegmentName key
-
-            ValueSome(toEntity (ctx.TypeRef(externalAsmRef u.Origin.Home, key.Namespace.Dotted, simple)), u)
+        | ValueSome u -> ValueSome(typeRefOfPath (externalTypePathAt u.Origin key []), u)
         | ValueNone -> ValueNone
 
     // The ambient slot resolution, `Declared` until a synthesised owner's emission sets it.
@@ -633,13 +715,10 @@ type internal ClrEnv
     /// A Vesper primitive's canon `SymbolKey` → its platform type id, single-sourced
     /// from the `.fs` `(# … #)`: this file's OWN intrinsics first, then the dependency
     /// closure's. Keyed by the canon KEY, never by short name.
-    member _.TryPrimitiveTypeId(key: TypeKey) : PlatformTypeId option =
+    member _.TryPrimitiveTypeId(key: TypeKey) : PlatformTypeId voption =
         match bindings.TryGetValue key with
-        | true, typeId -> Some typeId
-        | _ ->
-            match symbols.TryPlatformTypeId key with
-            | ValueSome typeId -> Some typeId
-            | ValueNone -> None
+        | true, typeId -> ValueSome typeId
+        | _ -> symbols.TryPlatformTypeId key
 
     member _.CoreRef = coreRef
     member _.VesperRef = vesperRef
@@ -679,6 +758,18 @@ type internal ClrEnv
     member _.ENotSupportedExceptionCtor = eNotSupportedExceptionCtor
     member _.EDecimalCtor = eDecimalCtor
     member _.EHashCodeToHashCode = eHashCodeToHashCode
+
+    /// The metadata path of a referenced nominal; `ValueNone` for a type this compilation
+    /// emits and for an undeclared key.
+    member _.TryExternalTypePath(key: TypeKey) : ExternalTypePath voption =
+        if userTypes.ContainsKey key then
+            ValueNone
+        else
+            externalTypePath key
+
+    member _.ETypeGetTypeFromHandle = eTypeGetTypeFromHandle
+    member _.ETypeIsGenericType = eTypeIsGenericType
+    member _.ETypeGetGenericTypeDefinition = eTypeGetGenericTypeDefinition
 
     member _.UserTypes = userTypes
     member _.LocalModuleFns = localModuleFns

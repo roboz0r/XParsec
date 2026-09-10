@@ -61,26 +61,15 @@ module internal AttributeRowPrep =
                 | ValueSome handle -> AttributeCtorResolution.Ctor handle
                 | ValueNone -> AttributeCtorResolution.Skipped(SkippedAttributeRowReason.NoExternalCtor positionalCount)
 
-    /// The rows and skips for every attribute-bearing position of `partitions`. `enums` is
-    /// the assembly's own enum emissions: a named enum-typed argument's II.23.3 SerString is
-    /// the BCL spelling for a `ClrAttributeNames`-mapped key, the Vesper full name for a
-    /// local enum; a referenced-assembly enum is skipped (`ForeignEnumArgument`).
+    /// The rows and skips for every attribute-bearing position of `layouts`.
     let prepare
         (provider: ClrProvider)
         (classes: Dictionary<TypeKey, Emit.EmittedClass>)
-        (enums: Dictionary<TypeKey, Emit.EmittedEnum>)
         (layoutHandles: LayoutHandles)
         (fieldDefHandles: Dictionary<FieldKey, FieldDefinitionHandle>)
-        (partitions: PartitionedTypeDecls list)
+        (layouts: FileLayout list)
         : Prepared =
-        let tryEnumFullName (key: TypeKey) : string voption =
-            match ClrAttributeNames.tryBclEnumFullName key with
-            | ValueSome n -> ValueSome n
-            | ValueNone ->
-                if enums.ContainsKey key then
-                    ValueSome(SymbolKeyOps.typeMetaName key)
-                else
-                    ValueNone
+        let namer = ClrTypeNamer(provider, ClrTypeNames.localNames layouts)
 
         let rows = ResizeArray<Row>()
         let skipped = ResizeArray<SkippedAttributeRow>()
@@ -99,12 +88,9 @@ module internal AttributeRowPrep =
                 | AttributeCtorResolution.Deduped -> ()
                 | AttributeCtorResolution.Skipped reason -> skip attr reason
                 | AttributeCtorResolution.Ctor ctor ->
-                    match AttributeBlob.tryEncode tryEnumFullName attr.Args with
-                    | Error AttributeBlobRejection.UnencodableValue ->
-                        skip attr SkippedAttributeRowReason.UnencodableArgument
-                    | Error(AttributeBlobRejection.ForeignEnum enumKey) ->
-                        skip attr (SkippedAttributeRowReason.ForeignEnumArgument enumKey)
-                    | Ok blob -> rows.Add(struct (parentHandle, ctor, blob))
+                    match AttributeBlob.tryEncode namer.TryTypeName attr.Args with
+                    | ValueNone -> skip attr SkippedAttributeRowReason.UnencodableArgument
+                    | ValueSome blob -> rows.Add(struct (parentHandle, ctor, blob))
 
         let typeName (td: TastAccessor.TypeDecl) : string = SymbolKeyOps.typeMetaName td.TypeKey
 
@@ -123,7 +109,9 @@ module internal AttributeRowPrep =
                     m.Attributes
             )
 
-        for p in partitions do
+        for layout in layouts do
+            let p = layout.Partitioned
+
             for (td, _) in p.Interfaces do
                 addAttributeRows (typeName td) (typeParent td) td.Attributes
 

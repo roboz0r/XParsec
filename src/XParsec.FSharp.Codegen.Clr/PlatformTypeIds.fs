@@ -14,37 +14,58 @@ module PlatformTypeIds =
         | Scalar
         | Reference
 
+    type private ElementType =
+        {
+            Kind: ElementKind
+            ReflectionName: string
+            Write: SignatureTypeEncoder -> unit
+        }
+
+    let private elementType (kind: ElementKind) (reflectionName: string) (write: SignatureTypeEncoder -> unit) =
+        {
+            Kind = kind
+            ReflectionName = reflectionName
+            Write = write
+        }
+
     /// A key is the type id the `.fs` declares verbatim, usually a BCL name, but the
     /// pointer-width pair is IL signature syntax (`type nativeint = (# "native int" #)`)
     /// because `native int` / `unsigned native int` ARE ECMA-335 element types.
-    let private elementTypes: Map<string, ElementKind * (SignatureTypeEncoder -> unit)> =
+    let private elementTypes: Map<string, ElementType> =
         Map
             [
-                "System.Int32", (ElementKind.Scalar, (fun te -> te.Int32()))
-                "System.UInt32", (ElementKind.Scalar, (fun te -> te.UInt32()))
-                "System.Int64", (ElementKind.Scalar, (fun te -> te.Int64()))
-                "System.UInt64", (ElementKind.Scalar, (fun te -> te.UInt64()))
-                "System.SByte", (ElementKind.Scalar, (fun te -> te.SByte()))
-                "System.Byte", (ElementKind.Scalar, (fun te -> te.Byte()))
-                "System.Int16", (ElementKind.Scalar, (fun te -> te.Int16()))
-                "System.UInt16", (ElementKind.Scalar, (fun te -> te.UInt16()))
-                "System.Double", (ElementKind.Scalar, (fun te -> te.Double()))
-                "System.Single", (ElementKind.Scalar, (fun te -> te.Single()))
-                "System.Boolean", (ElementKind.Scalar, (fun te -> te.Boolean()))
-                "System.Char", (ElementKind.Scalar, (fun te -> te.Char()))
-                "System.String", (ElementKind.Reference, (fun te -> te.String()))
-                "native int", (ElementKind.Scalar, (fun te -> te.IntPtr()))
-                "unsigned native int", (ElementKind.Scalar, (fun te -> te.UIntPtr()))
+                "System.Int32", elementType ElementKind.Scalar "System.Int32" (fun te -> te.Int32())
+                "System.UInt32", elementType ElementKind.Scalar "System.UInt32" (fun te -> te.UInt32())
+                "System.Int64", elementType ElementKind.Scalar "System.Int64" (fun te -> te.Int64())
+                "System.UInt64", elementType ElementKind.Scalar "System.UInt64" (fun te -> te.UInt64())
+                "System.SByte", elementType ElementKind.Scalar "System.SByte" (fun te -> te.SByte())
+                "System.Byte", elementType ElementKind.Scalar "System.Byte" (fun te -> te.Byte())
+                "System.Int16", elementType ElementKind.Scalar "System.Int16" (fun te -> te.Int16())
+                "System.UInt16", elementType ElementKind.Scalar "System.UInt16" (fun te -> te.UInt16())
+                "System.Double", elementType ElementKind.Scalar "System.Double" (fun te -> te.Double())
+                "System.Single", elementType ElementKind.Scalar "System.Single" (fun te -> te.Single())
+                "System.Boolean", elementType ElementKind.Scalar "System.Boolean" (fun te -> te.Boolean())
+                "System.Char", elementType ElementKind.Scalar "System.Char" (fun te -> te.Char())
+                "System.String", elementType ElementKind.Reference "System.String" (fun te -> te.String())
+                "native int", elementType ElementKind.Scalar "System.IntPtr" (fun te -> te.IntPtr())
+                "unsigned native int", elementType ElementKind.Scalar "System.UIntPtr" (fun te -> te.UIntPtr())
             ]
 
     /// Encode a primitive value type directly onto `te`. Returns `false` for type ids that
     /// need a `TypeRef` (`System.Decimal`, `System.ValueTuple`) and for unknown ids.
     let tryEncodeValueType (te: SignatureTypeEncoder) (typeId: PlatformTypeId) : bool =
         match Map.tryFind typeId.Value elementTypes with
-        | Some(_, write) ->
-            write te
+        | Some e ->
+            e.Write te
             true
         | None -> false
+
+    /// A primitive element type's reflection name (`native int` → `System.IntPtr`);
+    /// `ValueNone` for a type id written through a `TypeRef`.
+    let tryReflectionName (typeId: PlatformTypeId) : string voption =
+        match Map.tryFind typeId.Value elementTypes with
+        | Some e -> ValueSome e.ReflectionName
+        | None -> ValueNone
 
     /// True iff `typeId` is a primitive value type the IL encoder writes DIRECTLY. The
     /// encoder-free form, callable without a `SignatureTypeEncoder`.
@@ -61,8 +82,8 @@ module PlatformTypeIds =
     /// (`voidptr`) and `!0*` (`ilsigptr<'T>`), from `prim-types-nativeint.clr.fs`.
     let isUnmanagedScalar (typeId: PlatformTypeId) : bool =
         match Map.tryFind typeId.Value elementTypes with
-        | Some(ElementKind.Scalar, _) -> true
-        | Some(ElementKind.Reference, _) -> false
+        | Some { Kind = ElementKind.Scalar } -> true
+        | Some { Kind = ElementKind.Reference } -> false
         | None -> typeRefScalars.Contains typeId.Value || typeId.Value.EndsWith "*"
 
     /// True iff `typeId` is IL array syntax: `!0[]` (`'T[]`, `prim-types-array.fs`) or

@@ -582,13 +582,7 @@ type internal Assembler
     /// attribute has no metadata parent row of its own and emits no row.
     member _.PrepareCustomAttributeRows() =
         attributeRows <-
-            AttributeRowPrep.prepare
-                provider
-                classes
-                enums
-                layoutHandles
-                fieldDefHandles
-                [ for f in files -> f.Layout.Partitioned ]
+            AttributeRowPrep.prepare provider classes layoutHandles fieldDefHandles [ for f in files -> f.Layout ]
 
     member this.PrepareInterfaces(f: FileEmit) =
         for (td, methods) in f.Layout.Partitioned.Interfaces do

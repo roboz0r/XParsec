@@ -58,6 +58,7 @@
     <Compile Include="Materialise.fs" />
     <Compile Include="AssemblerScaffold.fs" />
     <Compile Include="ClosureVerdictRewrite.fs" />
+    <Compile Include="ClrTypeNames.fs" />
     <Compile Include="AttributeRowPrep.fs" />
     <Compile Include="NominalRegistration.fs" />
     <Compile Include="Assembler.fs" />

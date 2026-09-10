@@ -18,6 +18,14 @@ module EmitIntrinsic =
         let operand = TastAccessor.exprILIntrinsicTypeOperand e
         let args = TastAccessor.exprChildren e
 
+        /// `ldtoken <T>; call GetTypeFromHandle`: the `System.Type` of the type operand.
+        let emitTypeOf (operand: FrozenType voption) =
+            match operand with
+            | ValueSome t -> b.Add(ILInstr.Ldtoken(env.Provider.TypeToken t))
+            | ValueNone -> failwith "Emit: 'ldtoken' without a type operand"
+
+            b.Add(ILInstr.Call(env.Provider.TypeFromHandle, 1, 1))
+
         match TastAccessor.exprILIntrinsicOpCode e with
         | "newarr" ->
             // `Array.zeroCreate count` — push the count, then `newarr <elem>` (the
@@ -90,6 +98,19 @@ module EmitIntrinsic =
             b.Add(ILInstr.Ldloca slot)
             b.Add(ILInstr.Initobj(env.Provider.TypeToken ty))
             b.Add(ILInstr.Ldloc slot)
+        | "ldtoken" ->
+            // `typeof<T>`.
+            emitTypeOf operand
+        | "ldtokendef" ->
+            // `typedefof<T>` — `typedefof<int>` is `int`: `GetGenericTypeDefinition` throws on
+            // anything but a constructed generic type, hence the `IsGenericType` guard.
+            emitTypeOf operand
+            let notGeneric = b.Label()
+            b.Add ILInstr.Dup
+            b.Add(ILInstr.Callvirt(env.Provider.TypeIsGenericType, 1, 1))
+            b.Add(ILInstr.Brfalse notGeneric)
+            b.Add(ILInstr.Callvirt(env.Provider.TypeGetGenericTypeDefinition, 1, 1))
+            b.Add(ILInstr.Mark notGeneric)
         | "ldlen" ->
             // `arr.Length` — push the array, `ldlen` (native int), then `conv.i4`
             // to narrow to the int32 F# `.Length` returns.

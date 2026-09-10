@@ -65,6 +65,9 @@ type ILInstr =
     /// The deref behind a by-ref return: `span.[i]` is `call get_Item` (yields `T&`)
     /// then `ldobj T`.
     | Ldobj of EntityHandle
+    /// `ldtoken <type>` — pushes the `RuntimeTypeHandle` of `type` (net +1). Paired with
+    /// `call System.Type::GetTypeFromHandle` to yield a `System.Type`.
+    | Ldtoken of EntityHandle
     | Newobj of EntityHandle * argc: int
     | Call of EntityHandle * argc: int * pushes: int
     | Callvirt of EntityHandle * argc: int * pushes: int
@@ -145,7 +148,8 @@ module private InstrDelta =
         | ILInstr.Ldlen
         | ILInstr.Un _ -> 0
         | ILInstr.Ldsfld _
-        | ILInstr.Ldsflda _ -> 1
+        | ILInstr.Ldsflda _
+        | ILInstr.Ldtoken _ -> 1
         | ILInstr.Stsfld _ -> -1
         | ILInstr.Stfld _ -> -2
         | ILInstr.Initobj _ -> -1
@@ -243,7 +247,8 @@ module IlIr =
         | ILInstr.Ldobj _
         | ILInstr.Un _ -> 0
         | ILInstr.Ldsfld _
-        | ILInstr.Ldsflda _ -> 1
+        | ILInstr.Ldsflda _
+        | ILInstr.Ldtoken _ -> 1
         | ILInstr.Stsfld _ -> -1
         | ILInstr.Stfld _ -> -2
         | ILInstr.Initobj _ -> -1
@@ -451,6 +456,7 @@ module IlIr =
             | ILInstr.Ldelem t -> Cil.emitLdelem il t
             | ILInstr.Stelem t -> Cil.emitStelem il t
             | ILInstr.Ldobj t -> Cil.emitLdobj il t
+            | ILInstr.Ldtoken t -> Cil.emitLdtoken il t
             | ILInstr.Ldlen -> Cil.emitLdlen il
             | ILInstr.Newobj(c, argc) -> Cil.emitNewobj il c argc
             | ILInstr.Call(m, argc, pushes) -> Cil.emitCall il m argc pushes

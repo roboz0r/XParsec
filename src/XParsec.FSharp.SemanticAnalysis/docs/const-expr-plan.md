@@ -371,24 +371,58 @@ refusals, the tuple and function identities and the no-platform-facts refusal, a
 `AttributeFoldTests` round-tripping `[<Mark(typeof<int>)>]` and `[<Mark(typedefof<Box<_>>)>]`
 through `FrozenCodec`.
 
-#### 6a-clr. The `Type` element
+#### 6a-clr. The `Type` element — LANDED
 
 `AttributeBlob` writes `Type` (`0x50`) followed by the SerString of the type's
 assembly-qualified name for a referenced type, or its full name alone for a type of the
 assembly under emission. `tryClassify` reads `TConstResult` rather than
-`TAttributeArg.Value`, which is `ValueNone` for a `TypeVal` and rejects the whole row today.
+`TAttributeArg.Value`, which is `ValueNone` for a `TypeVal` and rejected the whole row.
 A type the encoder cannot spell is `AttributeBlobRejection.UnencodableValue` until stage 7
 moves the verdict upstream. A `typedefof` operand arrives as a nominal whatever was written,
 so only `typeof` reaches the encoder carrying `FTTuple` / `FTFun`, where the assembly-qualified
 name is the target's own (`System.ValueTuple`2[[…]]`, `Vesper.Fun`2[[…]]`) and the `TRest`
 nesting past arity 7 is the encoder's.
 
-`EmitIntrinsic` gains `ldtoken` (`ldtoken <T>; call System.Type::GetTypeFromHandle`) and
-`ldtokendef` (that, then `GetGenericTypeDefinition()`), which is what makes `typeof<T>` usable
-in ordinary expression position.
+`ClrTypeNamer` (`ClrTypeNames.fs`) renders the name, for the `Type` element and for the enum
+SerString of a named enum-typed argument alike. A LOCAL type is spelled off the layout tree
+(`ClrTypeNames.localNames` over `FileLayout.Roots`), so a module-held type carries the module
+CLASS's name, which `SymbolKeyOps.typeMetaName` writes with the module's source name. An
+external type is spelled from `ClrEnv.ExternalTypePath`, the one derivation of where a
+referenced type sits in metadata (assembly, namespace, root segment, nested segments), which
+also builds the `TypeRef` chain for `externalClassRef` / `externalRecordRef` /
+`externalUnionRef` / `externalModuleRef`; a module-held external type spells the module
+class's compiled name exactly as its `TypeRef` does. A primitive is spelled by
+`PlatformTypeIds.tryReflectionName`, the table column beside its IL element write (`native
+int` → `System.IntPtr`); a platform id that is a BCL type (`System.Exception`) takes the path
+route. A referenced enum is assembly-qualified like any other referenced type, so the
+`ForeignEnum` rejection is gone; `AttributeBlob.tryEncode` takes the one `tryTypeName`
+function and answers `BlobBuilder voption`.
 
-Done when: `AttributeRowTests` reads the `Type` element back from an emitted assembly, and a
-`typeof<T>` in expression position emits.
+`EmitIntrinsic` gains `ldtoken` (`ldtoken <T>; call System.Type::GetTypeFromHandle`) and
+`ldtokendef` (that, then `GetGenericTypeDefinition()` under an `IsGenericType` guard, since
+`typedefof<int>` is `int`). `ILInstr.Ldtoken` and `Cil.emitLdtoken` are new.
+
+One departure from the shape written above: **the reification is recognised at the USE SITE,
+not spliced from the template body.** `typeof<'T> : Type` pins `'T` in no type it exposes, so
+`Inline.deriveInlineTypeArgs`, which derives an inline call's type arguments by matching the
+template's declared type against the actual, derives nothing, and `InlineExpansion`'s
+nullary-intrinsic arm grounds the operand as the reference's own type — `Vesper.Type` itself.
+The operand travels only in the written type application. `ElaborateExpr.tryReification`
+therefore reads `Expr.TypeApp` whose applied name stamped a key
+`ConstExprCheck.Reified.tryOfBinding` recognises, the same recogniser the constant check
+uses, and emits the `TExpr.ILIntrinsic` under `Reified.OpCode` directly, which is the same
+shape stage 10 plans for `nameof`. A reification applied to any number of types but one is
+`Kind.TypeArgArity`. The `type ('T)` clause of the `reflect.clr.fs` bodies stays decorative,
+as `ilzero`'s already is. `ldtokendef` is FSharp.Core's `typedefof` body lowered in the
+backend, and moves into `reflect.clr.fs` as a transliteration once stage 3 lets an inline
+template's `'T` be pinned from the explicit type application.
+
+The general defect behind that — an explicit type application on an external symbol pins
+nothing — is stage 3's open gap and is untouched here.
+
+Regressions: `AttributeRowTests` pins the `Type` element's blob bytes for a local generic
+definition and a BCL primitive and reads both back through reflection; `ReifiedTypeTests` runs
+`typeof<T>` and `typedefof<T>` in expression position.
 
 #### 6b. Non-empty array literals
 

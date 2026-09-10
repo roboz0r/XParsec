@@ -205,21 +205,42 @@ module ConstExprCheck =
 
     /// Which type a reification denotes.
     [<RequireQualifiedAccess>]
-    type private Reified =
+    type Reified =
         /// `typeof<T>`: the type as written.
         | AsWritten
         /// `typedefof<T>`: the generic definition of the written type constructor, its type
         /// arguments discarded.
         | Definition
 
+        member this.SourceName: string =
+            match this with
+            | Reified.AsWritten -> "typeof"
+            | Reified.Definition -> "typedefof"
+
+        /// The inline-IL opcode the backends lower the reification through. Both carry the
+        /// WRITTEN type as operand: `ldtokendef` takes the generic definition at run time.
+        member this.OpCode: string =
+            match this with
+            | Reified.AsWritten -> "ldtoken"
+            | Reified.Definition -> "ldtokendef"
+
+    module Reified =
+
+        /// The reification `key` denotes; `ValueNone` for any other binding.
+        let tryOfBinding (key: BindingKey) : Reified voption =
+            if key = RuntimeNames.typeofBindingKey then
+                ValueSome Reified.AsWritten
+            elif key = RuntimeNames.typedefofBindingKey then
+                ValueSome Reified.Definition
+            else
+                ValueNone
+
     /// The reification `applied` resolves to at `useSite`; `ValueNone` for any other expression.
     let private tryReified (ctx: PassContext) (useSite: UseSite) (applied: Expr<SyntaxToken>) : Reified voption =
         match applied with
         | CstKeys.IdentPath idents ->
-            match tryBinding ctx useSite (segmentsOf ctx idents) with
-            | ValueSome key when key = RuntimeNames.typeofBindingKey -> ValueSome Reified.AsWritten
-            | ValueSome key when key = RuntimeNames.typedefofBindingKey -> ValueSome Reified.Definition
-            | _ -> ValueNone
+            tryBinding ctx useSite (segmentsOf ctx idents)
+            |> ValueOption.bind Reified.tryOfBinding
         | _ -> ValueNone
 
     /// The first type parameter (`'T` / `^T`) written anywhere inside `written`. A type

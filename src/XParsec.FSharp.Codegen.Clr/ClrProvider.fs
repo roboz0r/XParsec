@@ -52,6 +52,13 @@ type ClrProvider
     /// Member ref to `System.Object::.ctor()` for a union's base-ctor chain.
     member _.ObjectCtorRef: EntityHandle = env.EObjectCtor.Value
 
+    /// A Vesper canon's platform type id on this target: `int` → `System.Int32`.
+    member _.TryPrimitiveTypeId(key: TypeKey) : PlatformTypeId voption = env.TryPrimitiveTypeId key
+
+    /// The metadata path of a referenced nominal; `ValueNone` for a type this compilation
+    /// emits.
+    member internal _.TryExternalTypePath(key: TypeKey) : ExternalTypePath voption = env.TryExternalTypePath key
+
     /// Register a user type emitted into this assembly so `encodeType` can reference it (by its
     /// predicted `TypeDefinition` handle) before its row is added.
     member _.RegisterUserType(key: TypeKey, handle: EntityHandle) : unit = env.UserTypes.[key] <- handle
@@ -308,6 +315,9 @@ type ClrProvider
         member _.ClassOrigin(key) = ext.ClassOrigin(key)
         member _.IntrinsicClassBase(canon) = ext.IntrinsicClassBase(canon)
         member _.TypeToken(ty) = recipes.TypeToken(ty)
+        member _.TypeFromHandle = env.ETypeGetTypeFromHandle.Value
+        member _.TypeIsGenericType = env.ETypeIsGenericType.Value
+        member _.TypeGetGenericTypeDefinition = env.ETypeGetGenericTypeDefinition.Value
         member _.ValueTupleRefs(elemTys) = enc.ValueTupleRefs elemTys
         member _.ExternalLayout(key) = env.ExternalLayout key
         member _.Platform = env.Symbols.Platform
