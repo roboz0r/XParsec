@@ -231,6 +231,39 @@ let targetTests =
                         "SealedAttribute's contract mask is Class"
                 | other -> failtestf "expected exactly the [<Sealed>] error, got %A" other
             }
+
+            ptest "GAP: a derived attribute class does not take its base's AttributeUsage mask" {
+                // `AttributeUsageAttribute` is `Inherited = true` in the BCL, so CLR
+                // reflection reports the base's mask on the derived class and C# enforces it
+                // there. `Inherited` is decoded nowhere here, and `Vesper`'s own
+                // `AttributeUsageAttribute` declaration carries no `[<AttributeUsage>]` to
+                // read it from, so a class declaring none defaults to `All`. fsc also
+                // reports nothing for this source.
+                let pools =
+                    freezeFor (
+                        src
+                            [
+                                "[<AttributeUsage(AttributeTargets.Class)>]"
+                                "type BaseMarkAttribute() ="
+                                "    member this.M() = 1"
+                                ""
+                                "type DerivedMarkAttribute() ="
+                                "    inherit BaseMarkAttribute()"
+                                ""
+                                "type Bad() ="
+                                "    [<DerivedMark>]"
+                                "    member this.Y() = 1"
+                            ]
+                    )
+
+                match errorMessages (FrozenPools.blockingErrors pools) with
+                | [ msg ] ->
+                    Expect.equal
+                        msg
+                        "This attribute cannot be applied to method, return value. Valid targets are: class"
+                        "the inherited mask is enforced on the derived class"
+                | other -> failtestf "expected the inherited-mask error, got %A" other
+            }
         ]
 
 let private position (usedOn: AttrTarget) : AttributePosition =

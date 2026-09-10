@@ -445,4 +445,45 @@ let tests =
                         "the property keeps the argument's own type under obj; the field is typed as declared"
                 | other -> failtestf "expected one attribute on A, got %d" (List.length other)
             }
+
+            ptest "GAP: a referenced class's constructor parameter cannot be filled by name" {
+                // fsc accepts `validOn = ...`, reading the parameter name from metadata.
+                // `ExternalMember` carries no parameter names, so the name resolves against
+                // the class's members alone and reports FS0495.
+                let pools =
+                    freezeFor (
+                        src
+                            [
+                                "[<AttributeUsage(validOn = AttributeTargets.Class)>]"
+                                "type MyAttribute() ="
+                                "    member this.X = 1"
+                            ]
+                    )
+
+                Expect.isEmpty
+                    (FrozenPools.blockingErrors pools)
+                    "a referenced constructor's parameter is filled by its written name"
+            }
+
+            ptest "GAP: a getter-only property is settable by name" {
+                // fsc reports FS0495 for `N = 2`: `N` has no setter. Settability is recorded
+                // on neither `TypeMemberInfo` nor `ExternalMember`, so any property or field
+                // of the class matching the name is accepted.
+                let pools =
+                    freezeFor (
+                        src
+                            [
+                                "type MarkAttribute() ="
+                                "    member this.N = 1"
+                                ""
+                                "[<Mark(N = 2)>]"
+                                "type A = { X: int }"
+                            ]
+                    )
+
+                match FrozenPools.blockingErrors pools |> List.map (fun d -> d.Message) with
+                | [ msg ] ->
+                    Expect.stringContains msg "no argument or settable return property 'N'" "FS0495 at the name"
+                | other -> failtestf "expected exactly one error, got %A" other
+            }
         ]

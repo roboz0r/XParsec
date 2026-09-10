@@ -22,7 +22,9 @@ type TConstValue =
 /// What a call supplies for a trailing optional parameter it omitted.
 [<RequireQualifiedAccess>]
 type OptionalDefault =
-    /// The declaration states a constant default.
+    /// The declaration states a scalar constant default. A declaration reader that meets a
+    /// default of another shape, such as a reference-typed `null`, ends the omittable suffix
+    /// at that parameter.
     | Const of TConstValue
     /// The declaration states no default, so the slot is filled with the target's
     /// missing-argument value.
