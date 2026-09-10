@@ -228,7 +228,8 @@ let tests =
                             "    | B = 2"
                             ""
                             "type MarkAttribute() ="
-                            "    member _.N = 1"
+                            "    let mutable t = Targets2.A"
+                            "    member _.T with get () = t and set (v: Targets2) = t <- v"
                             ""
                             "[<Mark(T = Targets2.B)>]"
                             "type Tagged2() ="
@@ -460,9 +461,9 @@ let tests =
                 Expect.equal (items named.TypedValue) [ 3; 4 ] "reflection reads the named int[] arg"
             }
 
-            // (h) A defective row does not vanish silently: the reason lands on the artifact
-            // and the compile still succeeds.
-            test "an ambiguous attribute ctor skips the row with a reason on the artifact" {
+            // (h) The row targets the constructor the front end selected among the class's
+            // overloads, by the argument's own type.
+            test "an overloaded attribute class's row targets the selected constructor" {
                 let source =
                     String.concat
                         "\n"
@@ -476,28 +477,161 @@ let tests =
                             "    member _.X = 1"
                         ]
 
-                let artifact = compileSource "AttrAmbiguous" source
+                let artifact = compileSource "AttrOverloaded" source
+                let bytes = Codegen.toBytes artifact
 
                 let ambRows =
-                    customAttributeRowsOn (Codegen.toBytes artifact) "Tagged3"
+                    customAttributeRowsOn bytes "Tagged3"
                     |> List.filter (fun (ctorDecl, _) -> ctorDecl = "AmbAttribute")
 
-                Expect.isEmpty ambRows "no row for the unresolvable ctor"
+                Expect.equal (List.length ambRows) 1 "one row, against the constructor the front end selected"
+                Expect.isEmpty artifact.SkippedAttributeRows "nothing is skipped"
 
-                match artifact.SkippedAttributeRows with
-                | [ skip ] ->
-                    Expect.equal
-                        (SymbolKeyOps.typeMetaName skip.AttributeKey)
-                        "AmbAttribute"
-                        "the skip names the attribute"
+                let amb =
+                    ((loadAssembly bytes).GetType "Tagged3").GetCustomAttributesData()
+                    |> Seq.find (fun a -> a.AttributeType.Name = "AmbAttribute")
 
-                    Expect.stringContains skip.Parent "Tagged3" "the skip names the parent element"
+                Expect.equal (amb.ConstructorArguments.[0].Value :?> int) 3 "the int overload carries the argument"
+            }
 
-                    Expect.equal
-                        skip.Reason
-                        (SkippedAttributeRowReason.AmbiguousCtor 1)
-                        "the skip states the ambiguity and the arity"
-                | other -> failtestf "expected exactly one skip, got %A" other
+            // (j) An `obj` position boxes: a fixed `obj` argument writes the value's own
+            // `FieldOrPropType` before its `Elem`, a named `obj` property writes `0x51` then
+            // the tagged value, and `null` at a `string` position is `0xFF`.
+            test "obj positions box and null encodes by its position's type" {
+                let source =
+                    String.concat
+                        "\n"
+                        [
+                            "type MarkAttribute(o: obj, s: string, xs: int[]) ="
+                            "    let mutable p: obj = null"
+                            "    member _.O = o"
+                            "    member _.S = s"
+                            "    member _.Xs = xs"
+                            "    member _.P with get () = p and set (v: obj) = p <- v"
+                            ""
+                            "[<Mark(1, null, [||], P = \"s\")>]"
+                            "type Boxed() ="
+                            "    member _.X = 1"
+                            ""
+                            "[<Mark(typeof<int>, \"t\", null, P = null)>]"
+                            "type Reified() ="
+                            "    member _.X = 1"
+                        ]
+
+                let artifact = compileSource "AttrObjArgs" source
+                let bytes = Codegen.toBytes artifact
+
+                let markBlob (typeName: string) =
+                    customAttributeRowsOn bytes typeName
+                    |> List.pick (fun (ctorDecl, blob) -> if ctorDecl = "MarkAttribute" then Some blob else None)
+
+                let serString (s: string) =
+                    byte s.Length :: (Text.Encoding.UTF8.GetBytes s |> List.ofArray)
+
+                let int32Bytes (n: int) = List.ofArray (BitConverter.GetBytes n)
+
+                Expect.equal
+                    (List.ofArray (markBlob "Boxed"))
+                    [
+                        yield! [ 1uy; 0uy ] // prolog
+                        yield 0x08uy // o: the boxed int's FieldOrPropType
+                        yield! int32Bytes 1
+                        yield 0xFFuy // s: null string
+                        yield! int32Bytes 0 // xs: the empty array's count
+                        yield! [ 1uy; 0uy ] // named-argument count
+                        yield 0x54uy // PROPERTY
+                        yield 0x51uy // FieldOrPropType: boxed object
+                        yield! serString "P"
+                        yield 0x0Euy // the boxed string's FieldOrPropType
+                        yield! serString "s"
+                    ]
+                    "a boxed fixed argument, a null string, an empty array and a boxed named property"
+
+                // The boxed `Type`'s SerString is the runtime's own assembly-qualified name, so
+                // the blob is checked around it.
+                let reifiedBlob = List.ofArray (markBlob "Reified")
+
+                Expect.equal
+                    (List.truncate 3 reifiedBlob)
+                    [ 1uy; 0uy; 0x50uy ] // prolog, then o: the boxed Type's FieldOrPropType
+                    "a boxed reified type leads with 0x50"
+
+                Expect.stringContains
+                    (Text.Encoding.UTF8.GetString(markBlob "Reified"))
+                    "System.Int32"
+                    "the boxed Type is spelled by its platform name"
+
+                let namedNullSegment =
+                    [
+                        yield! serString "t"
+                        yield! [ 0xFFuy; 0xFFuy; 0xFFuy; 0xFFuy ] // xs: null array
+                        yield! [ 1uy; 0uy ] // named-argument count
+                        yield 0x54uy // PROPERTY
+                        yield 0x51uy // FieldOrPropType: boxed object
+                        yield! serString "P"
+                        yield 0x0Euy // a null object is the boxed null string
+                        yield 0xFFuy
+                    ]
+
+                Expect.equal
+                    (List.skip (reifiedBlob.Length - namedNullSegment.Length) reifiedBlob)
+                    namedNullSegment
+                    "a null array and a null boxed property"
+
+                let asm = loadAssembly bytes
+
+                let mark (typeName: string) =
+                    (asm.GetType typeName).GetCustomAttributesData()
+                    |> Seq.find (fun a -> a.AttributeType.Name = "MarkAttribute")
+
+                let boxed = mark "Boxed"
+                Expect.equal (boxed.ConstructorArguments.[0].Value :?> int) 1 "reflection unboxes the int"
+                Expect.isNull boxed.ConstructorArguments.[1].Value "reflection reads the null string"
+
+                Expect.equal
+                    (boxed.ConstructorArguments.[2].Value
+                    :?> Collections.ObjectModel.ReadOnlyCollection<CustomAttributeTypedArgument>)
+                        .Count
+                    0
+                    "reflection reads the empty array"
+
+                let named = boxed.NamedArguments |> Seq.find (fun n -> n.MemberName = "P")
+                Expect.equal (named.TypedValue.Value :?> string) "s" "reflection reads the boxed named string"
+
+                let reified = mark "Reified"
+
+                Expect.equal
+                    (reified.ConstructorArguments.[0].Value :?> Type)
+                    typeof<int>
+                    "reflection reads the boxed Type"
+
+                Expect.isNull reified.ConstructorArguments.[2].Value "reflection reads the null array"
+
+                let namedNull = reified.NamedArguments |> Seq.find (fun n -> n.MemberName = "P")
+                Expect.isNull namedNull.TypedValue.Value "reflection reads the null boxed property"
+            }
+
+            // (k) A constructor selection the front end refuses reaches no row: the attribute
+            // is diagnosed and dropped ahead of emission.
+            test "an ambiguous attribute ctor is a front-end error" {
+                let source =
+                    String.concat
+                        "\n"
+                        [
+                            "type AmbAttribute(s: string) ="
+                            "    member _.S = s"
+                            "    new(t: Type) = AmbAttribute(\"\")"
+                            ""
+                            "[<Amb(null)>]"
+                            "type Tagged4() ="
+                            "    member _.X = 1"
+                        ]
+
+                let errors = diagnoseSourceErrors "AttrAmbiguousCtor" source
+
+                match diagnosticMessages errors with
+                | [ msg ] -> Expect.stringContains msg "A unique overload" "FS0041 at the attribute"
+                | other -> failtestf "expected exactly one error, got %A" other
             }
 
             ptest "GAP: union-case and enum-case attribute rows are unemitted" {

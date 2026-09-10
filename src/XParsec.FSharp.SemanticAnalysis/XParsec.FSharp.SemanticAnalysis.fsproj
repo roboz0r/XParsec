@@ -45,6 +45,7 @@
     <Compile Include="Conformance.fs" />
     <Compile Include="PrintfSpec.fs" />
     <Compile Include="PrintfHoleForm.fs" />
+    <Compile Include="DiagnosticFacts.fs" />
     <Compile Include="Diagnostics.fs" />
     <Compile Include="ParseChain.fs" />
     <Compile Include="SideTypes.fs" />
@@ -136,6 +137,7 @@
     <Compile Include="ModuleDeclarations.fs" />
     <Compile Include="ResolvedItem.fs" />
     <Compile Include="AttributeSites.fs" />
+    <Compile Include="AttributeClasses.fs" />
     <Compile Include="PassContext.fs" />
     <Compile Include="BaseEligibility.fs" />
     <Compile Include="LocalScope.fs" />

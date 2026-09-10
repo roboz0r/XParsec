@@ -760,7 +760,8 @@ module NameResolutionTypeRegistration =
     let private registerLiteralBinding (ctx: PassContext) (b: Binding<SyntaxToken>) : unit =
         if (ctx.ResolveAttributes b.attributes).Has RuntimeNames.literalAttributeKey then
             match
-                BoundVarKey.ofCstPat b.pattern, ConstExprCheck.check ctx (ctx.UseSiteAt(CstKeys.ofBinding b)) b.expr
+                BoundVarKey.ofCstPat b.pattern,
+                ConstExprCheck.check ctx (ctx.UseSiteAt(CstKeys.ofBinding b)) ValueNone b.expr
             with
             | ValueSome boundVar, ValueSome rhs -> ctx.Resolution.LiteralValues.Set(boundVar, TConstExpr.denotation rhs)
             | _ -> ()

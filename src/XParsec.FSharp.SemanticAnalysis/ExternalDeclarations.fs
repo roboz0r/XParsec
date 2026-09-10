@@ -436,9 +436,7 @@ type ExternalMember =
         (origin: SymbolOrigin)
         (optionalDefaults: OptionalDefault list)
         : ExternalMember =
-        { ExternalMember.OfKey(
-              SymbolKeyOps.memberKeyOf declKey ".ctor" argSig signature.MethodTyparArity MemberKind.Method
-          ) with
+        { ExternalMember.OfKey(SymbolKeyOps.ctorKeyOf declKey argSig signature.MethodTyparArity) with
             Signature = signature
             Origin = origin
             OptionalDefaults = optionalDefaults

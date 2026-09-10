@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis.Passes
 
+open Vesper
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
@@ -75,6 +76,93 @@ module Attributes =
         : unit =
         ctx.DeclareAttributes(AttributeSite.ofToken declTok, attrTargetOfKind kind, attrs)
         validateTypeDefnAttributes ctx kind declTok attrs.Keys
+
+    /// The classes this file declares, read off the registry after inference has settled
+    /// their member types: a constructor's parameters at their declared annotations, a
+    /// property at its inferred type, a `val` field at its declared type.
+    let private localClasses (ctx: PassContext) : IAttributeClassSource =
+        let freeze (ty: SemType) : FrozenType =
+            FrozenTypeBridge.freezeWith ctx.Store (fun _ -> FTUnknown UnknownReason.UnresolvedTypar) ty
+
+        let ctorOf (classKey: TypeKey) (ps: ClassCtorParamInfo[]) : AttributeCtor =
+            let parameters =
+                Block.ofArray (
+                    ps
+                    |> Array.map (fun p ->
+                        {
+                            Name = ValueSome p.Name
+                            Declared = p.Declared |> ValueOption.map freeze
+                        }
+                    )
+                )
+
+            let identity =
+                match ps |> Array.tryFind (fun p -> p.Declared.IsNone) with
+                | Some p -> AttributeCtorIdentity.Unannotated p.Name
+                | None ->
+                    AttributeCtorIdentity.Key(
+                        SymbolKeyOps.ctorKeyOf classKey (parameters |> Block.map (fun p -> p.Declared.Value)) 0
+                    )
+
+            {
+                Identity = identity
+                Params = parameters
+            }
+
+        /// The type of the property `m` accesses: a parameterless getter's own, a `with get ()`
+        /// accessor's result, a setter's argument.
+        let propertyType (m: TypeMemberInfo) : SemType voption =
+            match m.Kind, UnionFind.zonk ctx.Store m.Type with
+            | TMemberKind.Property, ty -> ValueSome ty
+            | TMemberKind.Accessor(_, TAccessorRole.Getter), TyFun(_, result) -> ValueSome result
+            | TMemberKind.Accessor(_, TAccessorRole.Setter), TyFun(arg, _) -> ValueSome arg
+            | _ -> ValueNone
+
+        { new IAttributeClassSource with
+            member _.Ctors attrKey =
+                match TypeRegistry.tryClassByKey ctx.Types attrKey with
+                | ValueSome info ->
+                    Block.ofList
+                        [
+                            if info.HasPrimaryCtor then
+                                yield ctorOf attrKey info.CtorParams
+
+                            for secondary in info.Body.SecondaryCtors do
+                                yield ctorOf attrKey secondary.Params
+                        ]
+                | ValueNone -> Block.empty
+
+            member _.TrySettable(attrKey, name) =
+                match TypeRegistry.tryClassByKey ctx.Types attrKey with
+                | ValueSome info ->
+                    let property =
+                        info.Body.Members
+                        |> Array.tryPick (fun m ->
+                            match TMemberKind.propertyOf m.Name m.Kind, propertyType m with
+                            | ValueSome(prop, _), ValueSome ty when prop = name ->
+                                Some(TAttributeMember.Property(name, freeze ty))
+                            | _ -> None
+                        )
+
+                    let field =
+                        info.Body.InstanceFields
+                        |> Array.tryFind (fun f -> f.Name = name)
+                        |> Option.map (fun f -> TAttributeMember.Field(name, freeze f.Type))
+
+                    match property, field with
+                    | Some target, _
+                    | None, Some target -> ValueSome target
+                    | None, None -> ValueNone
+                | ValueNone -> ValueNone
+        }
+
+    /// Check every attribute position filed during name resolution, against the classes this
+    /// file declares and those its references publish, and check each later position at its
+    /// declaration. Runs after inference, which settles a local class's member types.
+    let openChecks (ctx: PassContext) : unit =
+        ctx.OpenAttributeChecks(
+            AttributeClasses.firstDeclaring (localClasses ctx) (AttributeClasses.ofStore ctx.Provider)
+        )
 
     /// Enforce every declared position's `[<AttributeUsage>]` target, in SOURCE order. Seals
     /// the position table, so every declaration must precede this pass.

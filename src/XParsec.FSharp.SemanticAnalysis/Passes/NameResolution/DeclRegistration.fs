@@ -114,13 +114,7 @@ module NameResolutionDeclRegistration =
                     for EnumTypeCase(attributes = caseAttrs; ident = cid; constValue = v) in cases ->
                         let caseSite = AttributeSite.ofToken cid
                         ctx.DeclareAttributes(caseSite, AttrTarget.EnumCase, caseAttrs)
-
-                        EnumCaseValues.resolveCase
-                            ctx.NameOf
-                            (fun t kind -> ctx.Report(t, kind))
-                            (ctx.AttributesAt caseSite)
-                            cid
-                            v
+                        EnumCaseValues.resolveCase ctx.NameOf (fun t kind -> ctx.Report(t, kind)) caseSite cid v
                 }
             )
 

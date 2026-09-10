@@ -9,11 +9,12 @@ type TEnumVariant =
     | String
     | Mixed
 
-/// Pure derivations over a frozen enum's case→literal table: the variant and the
-/// underlying integral width, computed on demand rather than baked onto the enum node.
+/// Pure derivations over an enum's case→literal table, the registry's and the frozen
+/// tree's alike: the variant and the underlying integral width, computed on demand rather
+/// than baked onto the enum node.
 module TEnumCases =
     /// `ValueNone` when no case resolved to a legal literal (every case errored).
-    let classify (cases: Block<TEnumCaseG<'tok>>) : TEnumVariant voption =
+    let classify (cases: Block<#IEnumCase<'tok>>) : TEnumVariant voption =
         let mutable anyInt = false
         let mutable anyStr = false
 
@@ -48,7 +49,7 @@ module TEnumCases =
 
     /// The underlying primitive TYPE of a numeric enum: the first explicit kind if any,
     /// else `int`.
-    let numericUnderlyingTypeKey (cases: Block<TEnumCaseG<'tok>>) : TypeKey =
+    let numericUnderlyingTypeKey (cases: Block<#IEnumCase<'tok>>) : TypeKey =
         let mutable explicit = ValueNone
 
         for c in cases do
@@ -64,7 +65,7 @@ module TEnumCases =
 
     /// The underlying primitive TYPE: all-numeric → the first explicit kind if any,
     /// else `int`; all-string → `string`; mixed → `obj`; no resolved case → `ValueNone`.
-    let underlyingTypeKey (cases: Block<TEnumCaseG<'tok>>) : TypeKey voption =
+    let underlyingTypeKey (cases: Block<#IEnumCase<'tok>>) : TypeKey voption =
         match classify cases with
         | ValueNone -> ValueNone
         | ValueSome TEnumVariant.String -> ValueSome RuntimeNames.stringKey
@@ -90,7 +91,7 @@ module TEnumCases =
         }
 
     /// A `System.Enum` has exactly ONE underlying type, so `| A = 1uy | B = 2L` is illegal.
-    let firstKindConflict (cases: Block<TEnumCaseG<'tok>>) : KindConflict<'tok> voption =
+    let firstKindConflict (cases: Block<#IEnumCase<'tok>>) : KindConflict<'tok> voption =
         let mutable seen = ValueNone
         let mutable result = ValueNone
 

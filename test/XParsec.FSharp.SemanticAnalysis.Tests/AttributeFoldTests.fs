@@ -13,20 +13,18 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 let private src (lines: string list) = String.concat "\n" lines
 
-/// The frozen `TTypeDecl` named `name`, off the unpooled tree.
-let private typeDecl (pools: FrozenPools) (name: string) =
-    (TastUnpool.ofPools pools).Decls
-    |> Block.toList
-    |> List.tryPick (fun d ->
-        match d with
-        | TDeclG.Type td when td.Name = name -> Some td
-        | _ -> None
-    )
-    |> Option.defaultWith (fun () -> failtestf "no frozen type decl named %s" name)
+let private typeDecl = frozenTypeDecl
 
-/// One argument by its name and what it denotes. The stored expression carries its own
-/// source site, so two spellings of one value have unequal trees.
-let private argView (a: TAttributeArg) : string voption * TConstDenotation = a.Name, TConstExpr.denotation a.Expr
+/// One argument by the member it sets (`ValueNone` for a constructor parameter) and what it
+/// denotes. The stored expression carries its own source site, so two spellings of one value
+/// have unequal trees.
+let private argView (a: TAttributeArg) : string voption * TConstDenotation =
+    let name =
+        match a.Target with
+        | TAttributeArgTarget.Parameter _ -> ValueNone
+        | TAttributeArgTarget.Member m -> ValueSome m.Name
+
+    name, TConstExpr.denotation a.Expr
 
 /// The one `Mark` attribute in `attrs`, as its folded argument list.
 let private markArgs (attrs: TAttributes) : (string voption * TConstDenotation) list =
@@ -63,16 +61,17 @@ let private namedEnum (n: string) (enumKey: TypeKey) (v: TConstValue) = ValueSom
 let private int32 (v: int) : TConstValue = TConstValue.Integral(IntValue.Int32 v)
 
 /// Every position marked: `Mark` is an ordinary project-local class, `Targets` a
-/// project-local enum for the enum-valued argument.
+/// project-local enum for the enum-valued argument, which the settable `Extra` takes.
 let private markedSource =
     src
         [
-            "type MarkAttribute(n: int, s: string) ="
-            "    member this.N = n"
-            ""
             "type Targets ="
             "    | A = 1"
             "    | B = 2"
+            ""
+            "type MarkAttribute(n: int, s: string) ="
+            "    member this.N = n"
+            "    member val Extra = Targets.A with get, set"
             ""
             // `=` and `|||` share F#'s comparison tier, so the named value is parenthesised,
             // exactly as fsc requires.

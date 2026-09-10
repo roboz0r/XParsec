@@ -122,21 +122,50 @@ type SealedAttributePositions
     member this.CheckedAt(site: NodeKey) : TAttributes =
         AttributePosition.checkedAt site (this.TryGet site)
 
+/// A position filed before the file's attribute classes are readable: the attributes as
+/// resolved, and the environment their arguments resolve names in.
+[<NoEquality; NoComparison>]
+type PendingAttributePosition =
+    {
+        UsedOn: AttrTarget
+        Attributes: ResolvedAttributes
+        Scope: AmbientScope
+    }
+
 /// The attribute positions of a file, filed as each declaration walk reaches them. A position
-/// declared after `Seal` would never reach the `[<AttributeUsage>]` check, so `Declare` fails
-/// there rather than dropping it.
+/// filed before the attribute classes are readable is PENDING until `TakePending` hands it to
+/// the check.
 [<Sealed>]
 type AttributePositionTable() =
+    let pending = Dictionary<NodeKey, PendingAttributePosition>(HashIdentity.Structural)
     let bySite = Dictionary<NodeKey, AttributePosition>(HashIdentity.Structural)
     let mutable isSealed = false
 
-    member _.Declare(site: NodeKey, position: AttributePosition) : unit =
+    let requireOpen (site: NodeKey) =
         if isSealed then
             failwithf "AttributePositionTable: position %O declared after the table was sealed" site
 
-        if bySite.ContainsKey site then
+        if bySite.ContainsKey site || pending.ContainsKey site then
             failwithf "AttributePositionTable: position %O declared twice" site
 
+    /// File `position` for the check that runs once the attribute classes are readable.
+    member _.Defer(site: NodeKey, position: PendingAttributePosition) : unit =
+        requireOpen site
+        pending[site] <- position
+
+    /// Every pending position in source order, each removed from the pending set.
+    member _.TakePending() : (NodeKey * PendingAttributePosition)[] =
+        let taken =
+            pending
+            |> Seq.sortBy (fun kv -> (SourcePos.ofNodeKey kv.Key).Offset)
+            |> Seq.map (fun kv -> kv.Key, kv.Value)
+            |> Array.ofSeq
+
+        pending.Clear()
+        taken
+
+    member _.Declare(site: NodeKey, position: AttributePosition) : unit =
+        requireOpen site
         bySite[site] <- position
 
     member _.TryGet(site: NodeKey) : AttributePosition voption =
@@ -144,8 +173,12 @@ type AttributePositionTable() =
         | true, position -> ValueSome position
         | false, _ -> ValueNone
 
-    /// Close the table to further declarations and take its positions in source order.
+    /// Close the table to further declarations and take its positions in source order. Fails
+    /// while a pending position remains unchecked.
     member _.Seal() : SealedAttributePositions =
+        if pending.Count > 0 then
+            failwithf "AttributePositionTable: %d positions were never checked" pending.Count
+
         isSealed <- true
 
         let inSourceOrder =

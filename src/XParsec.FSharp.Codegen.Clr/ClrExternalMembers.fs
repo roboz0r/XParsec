@@ -456,12 +456,13 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                         ArgCount = List.length paramTys
                     }
 
-    /// Mint the `MemberRef` for a referenced-assembly attribute class's `.ctor`, chosen by
-    /// positional-argument count. An attribute class is non-generic, so the parent is the bare
-    /// `TypeRef`. `ValueNone` ⇒ the type or an arity-matching ctor did not resolve; the caller
-    /// emits no `CustomAttribute` row.
-    let externalAttributeCtor (key: TypeKey) (argCount: int) : EntityHandle voption =
-        match symbols.TryLookupCtor(key, ValueNone, argCount) with
+    /// Mint the `MemberRef` for a referenced-assembly attribute class's constructor `ctor`, the
+    /// one the front end selected. An attribute class is non-generic, so the parent is the bare
+    /// `TypeRef`. `ValueNone` where the type or the constructor is absent from the reference set.
+    let externalAttributeCtor (ctor: MemberKey) : EntityHandle voption =
+        let key = ctor.Decl
+
+        match symbols.TryLookupCtor(key, ValueSome(SymbolKey.Member ctor), ctor.ArgSig.Length) with
         | ValueNone -> ValueNone
         | ValueSome chosenCtor ->
             match env.ClassOrigin key with
@@ -586,7 +587,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
     member _.ExternalCtor(key, chosen, tyArgs, argTypes) = externalCtor key chosen tyArgs argTypes
 
-    member _.ExternalAttributeCtor(key, argCount) = externalAttributeCtor key argCount
+    member _.ExternalAttributeCtor ctor = externalAttributeCtor ctor
 
     member _.ExternalRecordField(key, args, fieldName, role) =
         externalRecordField key args fieldName role

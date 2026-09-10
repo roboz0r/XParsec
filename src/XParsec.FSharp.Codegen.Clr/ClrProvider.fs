@@ -44,10 +44,8 @@ type ClrProvider
     /// a `[<AttributeUsage>]` row is written against.
     member _.AttributeUsageAttrCtor: EntityHandle = env.EAttributeUsageAttrCtor.Value
 
-    /// A referenced-assembly attribute class's `.ctor` `MemberRef`, chosen by
-    /// positional-argument count.
-    member _.TryExternalAttributeCtor(key: TypeKey, argCount: int) : EntityHandle voption =
-        ext.ExternalAttributeCtor(key, argCount)
+    /// The `MemberRef` of the attribute constructor the front end selected.
+    member _.TryExternalAttributeCtor(ctor: MemberKey) : EntityHandle voption = ext.ExternalAttributeCtor ctor
 
     /// Member ref to `System.Object::.ctor()` for a union's base-ctor chain.
     member _.ObjectCtorRef: EntityHandle = env.EObjectCtor.Value

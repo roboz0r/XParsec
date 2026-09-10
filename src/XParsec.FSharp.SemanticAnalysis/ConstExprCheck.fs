@@ -9,7 +9,7 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 
 /// The attribute-argument constant domain: literals, named constants (enum cases and
 /// `[<Literal>]` values), `|||`/`&&&`/`^^^` and unary-minus folds, enum conversions,
-/// `typeof<T>` / `typedefof<T>`, non-empty array literals, and grouping parens.
+/// `typeof<T>` / `typedefof<T>`, array literals, `null` and grouping parens.
 module ConstExprCheck =
 
     /// What a rejected expression reports, beside `Kind.NotConstantExpression` for a form
@@ -57,26 +57,43 @@ module ConstExprCheck =
         let structuralDefinition =
             Kind.Message "'typedefof' takes a type with a generic definition on the target"
 
-        /// `[| 1; 2L |]` (FS0267 at `2L`): every item of a constant array has the first
-        /// item's type.
+        /// `[| 1; 2L |]` (FS0267 at `2L`): every item of a constant array has the array's
+        /// element type, which the position declares, else the first item supplies.
         let arrayItemType =
-            Kind.Message "Every item of a constant array literal has the type of its first item"
+            Kind.Message "Every item of a constant array literal has the array's element type"
 
         /// `[| [| 1 |] |]` (FS0267 at the inner `[|`): a constant array holds scalars, types
         /// and strings, never an array.
         let nestedArray =
             Kind.Message "A constant array literal does not nest; an item cannot itself be an array"
 
-        /// `[||]`: the check does not yet receive the parameter type an empty array would take.
-        let emptyArray =
-            Kind.NotYetSupported
-                "an empty array literal in a constant position, which takes its type from the parameter"
-
     /// Reports `kind` at `e`'s first token. Arms propagate `ValueNone` without reporting again,
     /// so one rejected expression yields one diagnostic.
     let private reject (ctx: PassContext) (e: Expr<SyntaxToken>) (kind: Kind) : TConstExpr voption =
         ctx.Report(CstKeys.firstTokenOfExpr e, kind)
         ValueNone
+
+    /// True where `null` inhabits `t`: `string`, `obj`, `Type`, an array, and a class
+    /// declared `[<AllowNullLiteral>]`.
+    let private admitsNull (ctx: PassContext) (t: FrozenType) : bool =
+        match t with
+        | FTArray _ -> true
+        | FTConst(key, args) when args.IsEmpty ->
+            key = RuntimeNames.stringKey
+            || key = RuntimeNames.objKey
+            || key = RuntimeNames.runtimeTypeKey
+        | FTClass(key, _) ->
+            match NominalDecl.tryOfKey ctx key with
+            | ValueSome decl -> NominalDecl.allowsNullLiteral decl
+            | ValueNone -> false
+        | _ -> false
+
+    /// True where a constant of type `actual` fills a position declared `expected`: the
+    /// types are equal, or the position is `obj`, which boxes any constant.
+    let private conforms (expected: FrozenType) (actual: FrozenType) : bool =
+        match expected with
+        | FTObj -> true
+        | _ -> expected = actual
 
     let private typeOfValue (ctx: PassContext) (v: TConstValue) : FrozenType =
         LiteralTypes.frozenOfConstValue ctx.Intrinsics v
@@ -404,17 +421,33 @@ module ConstExprCheck =
             | ValueNone -> Error Rejection.kindMismatch
         | _ -> Error Rejection.kindMismatch
 
-    /// The checked constant `e` denotes at `useSite`; `ValueNone` after reporting the rejection.
-    let rec check (ctx: PassContext) (useSite: UseSite) (e: Expr<SyntaxToken>) : TConstExpr voption =
+    /// The constant `e` denotes at `useSite`, before the position's type is enforced. `null` and
+    /// `[||]` take the declared `expected` as their own type and are refused without it, and an
+    /// array literal checks its items against it; every other form is typed by its own spelling.
+    let rec private checkForm
+        (ctx: PassContext)
+        (useSite: UseSite)
+        (expected: FrozenType voption)
+        (e: Expr<SyntaxToken>)
+        : TConstExpr voption =
         let literal (v: TConstValue) : TConstExpr voption =
             ValueSome(TConstExpr.Literal(v, typeOfValue ctx v, Anchor.ofToken (CstKeys.firstTokenOfExpr e)))
 
         match e with
         | Expr.EnclosedBlock(lParen = (ParenKind.Paren _ | ParenKind.BeginEnd _); expr = inner) ->
-            check ctx useSite inner
+            checkForm ctx useSite expected inner
         | Expr.EnclosedBlock(lParen = ParenKind.Array _; expr = inner) ->
-            checkArray ctx useSite e (CstKeys.listLiteralItems inner)
-        | Expr.EmptyBlock(lParen = ParenKind.Array _) -> reject ctx e Rejection.emptyArray
+            checkArray ctx useSite expected e (CstKeys.listLiteralItems inner)
+        | Expr.EmptyBlock(lParen = ParenKind.Array _) ->
+            match expected with
+            | ValueSome(FTArray _ as arrayTy) ->
+                ValueSome(TConstExpr.ArrayLit(Block.empty, arrayTy, Anchor.ofToken (CstKeys.firstTokenOfExpr e)))
+            | _ -> reject ctx e Kind.NotConstantExpression
+        | Expr.Null tok ->
+            match expected with
+            | ValueSome ty when admitsNull ctx ty -> ValueSome(TConstExpr.Null(ty, Anchor.ofToken tok))
+            | ValueSome ty -> reject ctx e (Kind.NullNotProperValue(Conformance.describeType ty))
+            | ValueNone -> reject ctx e Kind.NotConstantExpression
         | Expr.EmptyBlock(lParen = (ParenKind.Paren _ | ParenKind.BeginEnd _)) -> literal TConstValue.Unit
         | Expr.Const c ->
             match ConstLiteral.tryValue ctx.NameOf c with
@@ -435,7 +468,7 @@ module ConstExprCheck =
         // `enum<E> 12`, and the `LanguagePrimitives.EnumOfValue<int, E> 12` spelling the
         // runtime's own attribute masks are written under.
         | EnumConversion ctx useSite (struct (conv, operandExpr)) ->
-            check ctx useSite operandExpr
+            checkForm ctx useSite ValueNone operandExpr
             |> ValueOption.bind (fun operand ->
                 match TConstExpr.tryScalar operand with
                 | ValueSome(TConstValue.Integral _ as v) ->
@@ -459,7 +492,7 @@ module ConstExprCheck =
         // left operand, so `-1` arrives above as one literal. This arm takes the spaced `- 1`
         // and `-(1)`.
         | Expr.PrefixApp(op, operand) when isIntrinsicNegation ctx useSite op ->
-            check ctx useSite operand
+            checkForm ctx useSite ValueNone operand
             |> ValueOption.bind (fun inner ->
                 match negateScalar (TConstExpr.tryScalar inner) with
                 | Error k -> reject ctx e k
@@ -478,8 +511,11 @@ module ConstExprCheck =
             match tryIntrinsicBitwise ctx useSite op with
             | ValueNone -> reject ctx e Kind.NotConstantExpression
             | ValueSome bitOp ->
-                check ctx useSite left
-                |> ValueOption.bind (fun l -> check ctx useSite right |> ValueOption.map (fun r -> struct (l, r)))
+                checkForm ctx useSite ValueNone left
+                |> ValueOption.bind (fun l ->
+                    checkForm ctx useSite ValueNone right
+                    |> ValueOption.map (fun r -> struct (l, r))
+                )
                 |> ValueOption.bind (fun (struct (l, r)) ->
                     match combine bitOp l r with
                     | Error k -> reject ctx e k
@@ -497,32 +533,43 @@ module ConstExprCheck =
                 )
         | _ -> reject ctx e Kind.NotConstantExpression
 
-    /// `[| e1; …; en |]` with at least one item: every item at the first item's type, the
-    /// node typed as that type's array. Each rejected item is reported at the item.
+    /// `[| e1; …; en |]` with at least one item: every item at the element type, which an
+    /// expected array type declares and the first item supplies otherwise; the node is typed
+    /// as that type's array. Each rejected item is reported at the item.
     and private checkArray
         (ctx: PassContext)
         (useSite: UseSite)
+        (expected: FrozenType voption)
         (e: Expr<SyntaxToken>)
         (items: Expr<SyntaxToken> list)
         : TConstExpr voption =
+        let declaredElemTy =
+            match expected with
+            | ValueSome(FTArray elemTy) -> ValueSome elemTy
+            | _ -> ValueNone
+
         /// An item written as an array, however grouped, is rejected before it is checked.
         let checkItem (item: Expr<SyntaxToken>) : TConstExpr voption =
             match CstKeys.ungroup item with
             | Expr.EnclosedBlock(lParen = ParenKind.Array _)
             | Expr.EmptyBlock(lParen = ParenKind.Array _) -> reject ctx item Rejection.nestedArray
-            | _ -> check ctx useSite item
+            | _ -> checkForm ctx useSite declaredElemTy item
 
         // Every item is checked, so each rejected item reports once.
         let checkedItems = items |> List.map (fun item -> struct (item, checkItem item))
 
-        match checkedItems with
-        | struct (_, ValueSome first) :: _ ->
-            let elemTy = TConstExpr.ty first
+        let elemTy =
+            match declaredElemTy, checkedItems with
+            | ValueSome t, _ -> ValueSome t
+            | ValueNone, struct (_, ValueSome first) :: _ -> ValueSome(TConstExpr.ty first)
+            | ValueNone, _ -> ValueNone
 
+        match elemTy with
+        | ValueSome elemTy ->
             /// The node at `elemTy`; `ValueNone` after reporting a node of another type.
             let atElemTy (struct (item: Expr<SyntaxToken>, node: TConstExpr voption)) : TConstExpr voption =
                 match node with
-                | ValueSome n when TConstExpr.ty n = elemTy -> node
+                | ValueSome n when conforms elemTy (TConstExpr.ty n) -> node
                 | ValueSome _ -> reject ctx item Rejection.arrayItemType
                 | ValueNone -> ValueNone
 
@@ -532,4 +579,24 @@ module ConstExprCheck =
             |> ValueOption.map (fun nodes ->
                 TConstExpr.ArrayLit(nodes, ftArray elemTy, Anchor.ofToken (CstKeys.firstTokenOfExpr e))
             )
-        | _ -> ValueNone
+        | ValueNone -> ValueNone
+
+    /// The checked constant `e` denotes at `useSite`; `ValueNone` after reporting the
+    /// rejection. A constant of another type than `expected` declares is FS0001 at `e`,
+    /// except at an `obj` position, which boxes any constant.
+    let check
+        (ctx: PassContext)
+        (useSite: UseSite)
+        (expected: FrozenType voption)
+        (e: Expr<SyntaxToken>)
+        : TConstExpr voption =
+        match checkForm ctx useSite expected e, expected with
+        | ValueSome node, ValueSome expected when not (conforms expected (TConstExpr.ty node)) ->
+            reject
+                ctx
+                e
+                (Kind.ConstantTypeMismatch(
+                    Conformance.describeType expected,
+                    Conformance.describeType (TConstExpr.ty node)
+                ))
+        | node, _ -> node

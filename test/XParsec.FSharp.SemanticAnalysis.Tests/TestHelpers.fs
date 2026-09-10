@@ -404,3 +404,15 @@ let expectPayloadOf (actual: ExprPayload) (expected: PayloadOfNode<Anchor, 'id>)
         Expect.equal (g.Members |> Array.map (fun m -> m.Tok)) memberToks "LetGroup member anchors"
         Expect.equal g.Components components "LetGroup components"
     | expected, actual -> failtestf "payload %A is not the walk's view %A" actual expected
+
+/// The frozen `TTypeDecl` named `name`, off the unpooled tree. Fails where the tree declares
+/// no type of that name.
+let frozenTypeDecl (pools: FrozenPools) (name: string) : Pooled.TTypeDecl =
+    (TastUnpool.ofPools pools).Decls
+    |> Block.toList
+    |> List.tryPick (fun d ->
+        match d with
+        | TDeclG.Type td when td.Name = name -> Some td
+        | _ -> None
+    )
+    |> Option.defaultWith (fun () -> failtestf "no frozen type decl named %s" name)

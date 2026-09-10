@@ -326,6 +326,10 @@ type PassContextResolution =
         LiteralValues: BoundVarTable<TConstDenotation>
         /// Keyed by an attributed declaration's site (`AttributeSite`).
         AttributePositions: AttributePositionTable
+        /// The attribute classes an argument checks against. `ValueNone` until
+        /// `PassContext.OpenAttributeChecks` supplies them; a position declared before then
+        /// is filed pending.
+        mutable AttributeClasses: IAttributeClassSource voption
     }
 
 module PassContextResolution =
@@ -361,6 +365,7 @@ module PassContextResolution =
             LocalModuleMembers = Dictionary<_, _>()
             LiteralValues = BoundVarTable<_>()
             AttributePositions = AttributePositionTable()
+            AttributeClasses = ValueNone
         }
 
 /// An `x?name` site whose result var (`Root`) may escape `dynamic` through context; for

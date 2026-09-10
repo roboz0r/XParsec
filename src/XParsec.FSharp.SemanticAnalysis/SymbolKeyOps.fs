@@ -272,6 +272,10 @@ module SymbolKeyOps =
             Kind = kind
         }
 
+    /// The key of a constructor of `decl`: `.ctor` as a `MemberKind.Method` over `argSig`.
+    let ctorKeyOf (decl: TypeKey) (argSig: Block<FrozenType>) (methodTyparArity: int) : MemberKey =
+        memberKeyOf decl ".ctor" argSig methodTyparArity MemberKind.Method
+
     /// `memberKeyOf` widened to `SymbolKey`, for the IR positions that carry the wide key.
     let memberKey
         (decl: TypeKey)

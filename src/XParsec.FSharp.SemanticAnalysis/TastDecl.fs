@@ -97,17 +97,30 @@ type TEnumLiteral =
     /// A string enum-case value: the stitched literal text, escapes decoded.
     | String of value: string
 
+/// The literal columns of a `| C = v` case: what every derivation over an enum's case table
+/// reads, off the registry's case and the frozen tree's alike.
+type IEnumCase<'tok> =
+    abstract Name: string
+    /// `ValueNone` when the source value is not a legal literal (a non-literal expression,
+    /// an interpolated string, a non-int-non-string constant), for which a hard error was
+    /// reported; the case is kept so its siblings live.
+    abstract Value: TEnumLiteral voption
+    abstract Tok: 'tok
+
 type TEnumCaseG<'tok> =
     {
         /// Case identifier (`C` in `| C = v`).
         Name: string
-        /// `ValueNone` when the source value is not a legal literal (a non-literal
-        /// expression, an interpolated string, a non-int-non-string constant), for which a
-        /// hard error was reported; the case is kept so its siblings live.
+        /// `ValueNone` when the source value is not a legal literal, as `IEnumCase.Value`.
         Value: TEnumLiteral voption
         Tok: 'tok
         Attributes: TAttributes
     }
+
+    interface IEnumCase<'tok> with
+        member this.Name = this.Name
+        member this.Value = this.Value
+        member this.Tok = this.Tok
 
 /// One field of a `TTypeKind.Record`. `Type` carries the field's declared type, which for a generic
 /// record uses the declaring type's typar markers (`TyTypar(Type _, i)`). `IsMutable` is the

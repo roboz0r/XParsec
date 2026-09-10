@@ -112,10 +112,12 @@ let private lastBinding (file: ImplementationFile<SyntaxToken>) : Binding<Syntax
     )
     |> Seq.last
 
-/// Check `exprSrc` as the RHS of a `let` written below `preamble`, against `provider`.
-/// `Error` carries every diagnostic the check itself reported, in order.
-let private checkAgainst
+/// Check `exprSrc` as the RHS of a `let` written below `preamble`, against `provider`, at a
+/// position declaring `expected`. `Error` carries every diagnostic the check itself
+/// reported, in order.
+let private checkExpectingAgainst
     (provider: IExternalSymbolProvider)
+    (expected: FrozenType voption)
     (preamble: string list)
     (exprSrc: string)
     : Result<TConstDenotation, Kind list> =
@@ -125,14 +127,21 @@ let private checkAgainst
     let b = lastBinding file
     let before = Seq.length ctx.Diagnostics
 
-    match ConstExprCheck.check ctx (ctx.UseSiteAt(CstKeys.ofBinding b)) b.expr with
+    match ConstExprCheck.check ctx (ctx.UseSiteAt(CstKeys.ofBinding b)) expected b.expr with
     | ValueSome node -> Ok(TConstExpr.denotation node)
     | ValueNone -> Error [ for d in Seq.skip before ctx.Diagnostics -> d.Kind ]
+
+let private checkAgainst (provider: IExternalSymbolProvider) (preamble: string list) (exprSrc: string) =
+    checkExpectingAgainst provider ValueNone preamble exprSrc
 
 let private checkWith (preamble: string list) (exprSrc: string) =
     checkAgainst provider.Value preamble exprSrc
 
 let private check (exprSrc: string) = checkWith [] exprSrc
+
+/// `check` at a position declaring `expected`.
+let private checkExpecting (expected: FrozenType) (exprSrc: string) =
+    checkExpectingAgainst provider.Value (ValueSome expected) [] exprSrc
 
 let private notConstant = Error [ Kind.NotConstantExpression ]
 
@@ -565,7 +574,7 @@ let tests =
                             let b = lastBinding file
 
                             Expect.isTrue
-                                (ConstExprCheck.check ctx (ctx.UseSiteAt(CstKeys.ofBinding b)) b.expr).IsNone
+                                (ConstExprCheck.check ctx (ctx.UseSiteAt(CstKeys.ofBinding b)) ValueNone b.expr).IsNone
                                 (src + " is not a constant expression")
 
                             Expect.equal
@@ -581,7 +590,7 @@ let tests =
                         let b = lastBinding file
 
                         Expect.isTrue
-                            (ConstExprCheck.check ctx (ctx.UseSiteAt(CstKeys.ofBinding b)) b.expr).IsNone
+                            (ConstExprCheck.check ctx (ctx.UseSiteAt(CstKeys.ofBinding b)) ValueNone b.expr).IsNone
                             "typeof<Nope> is not a constant expression"
 
                         Expect.equal
@@ -706,13 +715,104 @@ let tests =
                         Expect.equal (check "[| 1; id 2 |]") notConstant "[| 1; id 2 |]"
                     }
 
-                    test "an empty array waits for the parameter's type" {
-                        Expect.equal (check "[||]") (Error [ ConstExprCheck.Rejection.emptyArray ]) "[||]"
+                    test "an empty array takes the position's array type and is refused without one" {
+                        Expect.equal (check "[||]") notConstant "[||] with no expected type is FS0267"
+
+                        Expect.equal
+                            (checkExpecting (ftArray (ftPrim RuntimeNames.intKey)) "[||]")
+                            (Ok(arrayC (ftPrim RuntimeNames.intKey) []))
+                            "[||] against int[] is the empty int[]"
+
+                        Expect.equal
+                            (checkExpecting (ftPrim RuntimeNames.objKey) "[||]")
+                            notConstant
+                            "[||] against obj has no element type to take"
+                    }
+
+                    test "an expected element type governs the items" {
+                        Expect.equal
+                            (checkExpecting (ftArray (ftPrim RuntimeNames.int64Key)) "[| 1L; 2L |]")
+                            (Ok(
+                                arrayC
+                                    (ftPrim RuntimeNames.int64Key)
+                                    [
+                                        scalarR (TConstValue.Integral(IntValue.Int64 1L))
+                                        scalarR (TConstValue.Integral(IntValue.Int64 2L))
+                                    ]
+                            ))
+                            "[| 1L; 2L |] against int64[]"
+
+                        Expect.equal
+                            (checkExpecting (ftArray (ftPrim RuntimeNames.int64Key)) "[| 1; 2 |]")
+                            (Error
+                                [
+                                    ConstExprCheck.Rejection.arrayItemType
+                                    ConstExprCheck.Rejection.arrayItemType
+                                ])
+                            "[| 1; 2 |] against int64[] is FS0267 at each item: a literal keeps its own type"
+                    }
+
+                    test "an obj element type admits any constant and null" {
+                        Expect.equal
+                            (checkExpecting (ftArray (ftPrim RuntimeNames.objKey)) "[| 1; \"a\"; null; typeof<int> |]")
+                            (Ok(
+                                arrayC
+                                    (ftPrim RuntimeNames.objKey)
+                                    [
+                                        scalarR (int32 1)
+                                        scalarR (TConstValue.String "a")
+                                        TConstResult.Null
+                                        TConstResult.TypeVal(ftPrim RuntimeNames.intKey)
+                                    ]
+                            ))
+                            "[| 1; \"a\"; null; typeof<int> |] against obj[]"
                     }
 
                     test "a list literal is not a constant expression" {
                         Expect.equal (check "[1]") notConstant "[1] is not the constant 1"
                         Expect.equal (check "[1; 2]") notConstant "[1; 2]"
+                    }
+                ]
+
+            testList
+                "null"
+                [
+                    test "null takes the position's type" {
+                        Expect.equal
+                            (checkExpecting (ftPrim RuntimeNames.stringKey) "null")
+                            (Ok
+                                {
+                                    Result = TConstResult.Null
+                                    Ty = ftPrim RuntimeNames.stringKey
+                                })
+                            "null against string"
+
+                        Expect.equal
+                            (checkExpecting (ftArray (ftPrim RuntimeNames.intKey)) "(null)")
+                            (Ok
+                                {
+                                    Result = TConstResult.Null
+                                    Ty = ftArray (ftPrim RuntimeNames.intKey)
+                                })
+                            "null against int[], through grouping parens"
+
+                        Expect.equal
+                            (checkExpecting (ftPrim RuntimeNames.objKey) "null")
+                            (Ok
+                                {
+                                    Result = TConstResult.Null
+                                    Ty = ftPrim RuntimeNames.objKey
+                                })
+                            "null against obj"
+                    }
+
+                    test "null is refused without a position and against a type with no null value" {
+                        Expect.equal (check "null") notConstant "null with no expected type is FS0267"
+
+                        Expect.equal
+                            (checkExpecting (ftPrim RuntimeNames.intKey) "null")
+                            (Error [ Kind.NullNotProperValue "int" ])
+                            "null against int is FS0043"
                     }
                 ]
 

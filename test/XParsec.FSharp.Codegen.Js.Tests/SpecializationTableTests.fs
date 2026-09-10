@@ -35,6 +35,7 @@ let private expandedWith (provider: IExternalSymbolProvider) (input: string) : A
 
     NameResolution.run ctx file
     Unification.run ctx file
+    Attributes.openChecks ctx
     Validation.run ctx file
 
     match ctx.Diagnostics |> List.ofSeq |> Diagnostic.errors with

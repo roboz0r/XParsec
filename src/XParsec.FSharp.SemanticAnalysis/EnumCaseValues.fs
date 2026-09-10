@@ -21,6 +21,31 @@ type internal EnumCaseRejection =
     /// `| A = 1 + 1`, `| A = B`: not a literal at all.
     | NotConstant
 
+/// One `| C = v` case as registered: its literal, and the site its attributes are filed
+/// under, whose checked form `ToCase` takes.
+type EnumCaseInfo =
+    {
+        Name: string
+        /// `ValueNone` for a rejected value, reported at registration.
+        Value: TEnumLiteral voption
+        Tok: SyntaxToken
+        AttributeSite: NodeKey
+    }
+
+    interface IEnumCase<SyntaxToken> with
+        member this.Name = this.Name
+        member this.Value = this.Value
+        member this.Tok = this.Tok
+
+    /// The frozen-tree case, with the checked attributes filed at `AttributeSite`.
+    member this.ToCase(attributes: TAttributes) : TEnumCaseG<SyntaxToken> =
+        {
+            Name = this.Name
+            Value = this.Value
+            Tok = this.Tok
+            Attributes = attributes
+        }
+
 // `| C = v` → the case's compile-time literal. Read once, at type registration; every later
 // pass reads the registered `EnumTypeInfo.Cases`.
 
@@ -94,15 +119,15 @@ module internal EnumCaseValues =
             Kind.Message "A negative enum case value has no unsigned representation; use a signed integer width"
         | EnumCaseRejection.NotConstant -> Kind.EnumCaseNotConstant
 
-    /// `| C = v` as a `TEnumCase`. A rejected value is `ValueNone`, reported at the case
-    /// identifier through `report`; a string-escape verdict is reported at its token.
+    /// `| C = v` as the registry's case. A rejected value is `ValueNone`, reported at the
+    /// case identifier through `report`; a string-escape verdict is reported at its token.
     let resolveCase
         (nameOf: SyntaxToken -> string)
         (report: SyntaxToken -> Kind -> unit)
-        (attributes: TAttributes)
+        (attributeSite: NodeKey)
         (ident: SyntaxToken)
         (v: Expr<SyntaxToken>)
-        : TEnumCase =
+        : EnumCaseInfo =
         let value =
             match tryResolve nameOf report v with
             | Ok lit -> ValueSome lit
@@ -114,5 +139,5 @@ module internal EnumCaseValues =
             Name = nameOf ident
             Value = value
             Tok = ident
-            Attributes = attributes
+            AttributeSite = attributeSite
         }

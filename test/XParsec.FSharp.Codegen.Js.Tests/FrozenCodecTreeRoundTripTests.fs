@@ -21,10 +21,16 @@ let private frozenFiles: (string * FrozenPools) list =
 let private survivesRoundTrip (f: FrozenPools) : bool =
     TastUnpool.ofPools f = TastUnpool.ofPools (FrozenCodec.thaw (FrozenCodec.flatten f))
 
-/// One attribute argument by its name and what it denotes, for the value assertions on a
-/// decoded tree. The argument EXPRESSIONS are covered by `survivesRoundTrip`, which compares
-/// them whole.
-let private argView (a: TAttributeArg) : string voption * TConstDenotation = a.Name, TConstExpr.denotation a.Expr
+/// One attribute argument by the member it sets (`ValueNone` for a constructor parameter)
+/// and what it denotes, for the value assertions on a decoded tree. The argument
+/// EXPRESSIONS are covered by `survivesRoundTrip`, which compares them whole.
+let private argView (a: TAttributeArg) : string voption * TConstDenotation =
+    let name =
+        match a.Target with
+        | TAttributeArgTarget.Parameter _ -> ValueNone
+        | TAttributeArgTarget.Member m -> ValueSome m.Name
+
+    name, TConstExpr.denotation a.Expr
 
 let private scalar (v: TConstValue) : TConstDenotation =
     {
@@ -267,12 +273,13 @@ let tests =
                         String.concat
                             "\n"
                             [
-                                "type MarkAttribute(n: int, s: string) ="
-                                "    member this.N = n"
-                                ""
                                 "type Targets ="
                                 "    | A = 1"
                                 "    | B = 2"
+                                ""
+                                "type MarkAttribute(n: int, s: string) ="
+                                "    member this.N = n"
+                                "    member val Extra = Targets.A with get, set"
                                 ""
                                 "[<Mark(-3, \"hi\", Extra = (Targets.A ||| Targets.B))>]"
                                 "type Point = { [<Mark(1, \"f\")>] X: int }"

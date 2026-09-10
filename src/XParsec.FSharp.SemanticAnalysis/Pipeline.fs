@@ -20,6 +20,9 @@ module Pipeline =
         let ctx = PassContext(provider, file, assembly)
         NameResolution.run ctx impl
         Unification.run ctx impl
+        // The positions filed during name resolution need every attribute class's constructor
+        // and member types settled.
+        Attributes.openChecks ctx
         Validation.run ctx impl
         // Elaboration lowers the CST to a typar-quantified TAST with every inline call site
         // already expanded, so escape analysis below sees the closures codegen emits.

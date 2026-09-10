@@ -1605,7 +1605,7 @@ let literalTests =
                 let ctx, file = analyseNameRes (libProvider ()) "open Lib\n\nlet x = Mask ||| 4"
                 let b = firstBinding file
 
-                match ConstExprCheck.check ctx (ctx.UseSiteAt(CstKeys.ofBinding b)) b.expr with
+                match ConstExprCheck.check ctx (ctx.UseSiteAt(CstKeys.ofBinding b)) ValueNone b.expr with
                 | ValueSome node -> Expect.equal (TConstExpr.denotation node) (intC 7) "Mask ||| 4"
                 | ValueNone -> failtestf "rejected: %A" [ for d in ctx.Diagnostics -> d.Message ]
             }

@@ -28,17 +28,14 @@ module internal AttributeRowPrep =
             Skipped: SkippedAttributeRow list
         }
 
-    /// Resolve one frozen attribute to its `.ctor` handle: the BCL spelling for a key the
-    /// `ClrAttributeNames` table maps, the local `TypeDef`'s ctor for an attribute class this
-    /// assembly emits, a contract-resolved `MemberRef` otherwise.
+    /// The `.ctor` handle for `attr`'s recorded constructor: the local `TypeDef`'s ctor of the
+    /// recorded parameter types for a class this assembly emits, a referenced assembly's
+    /// `MemberRef` otherwise. `[<IsByRefLike>]` is `Deduped`, its row written by the type slot.
     let private resolveAttributeCtor
         (provider: ClrProvider)
         (classes: Dictionary<TypeKey, Emit.EmittedClass>)
         (attr: TAttribute)
         : AttributeCtorResolution =
-        let positionalCount =
-            attr.Args |> Block.fold (fun n a -> if a.Name.IsNone then n + 1 else n) 0
-
         if attr.Key = RuntimeNames.isByRefLikeAttributeKey then
             // The `TypeSlotKind.Class RefStruct` write emits this row; a second one here
             // would duplicate it.
@@ -48,18 +45,20 @@ module internal AttributeRowPrep =
         else
             match classes.TryGetValue attr.Key with
             | true, c when c.Typars.IsEmpty ->
-                match
-                    EmitResolve.localCtors c
-                    |> List.filter (fun (ps, _, _) -> List.length ps = positionalCount)
-                with
-                | [ (_, _, handle) ] -> AttributeCtorResolution.Ctor handle
-                | [] -> AttributeCtorResolution.Skipped(SkippedAttributeRowReason.NoMatchingCtor positionalCount)
-                | _ -> AttributeCtorResolution.Skipped(SkippedAttributeRowReason.AmbiguousCtor positionalCount)
+                let paramTys = Block.toList attr.Ctor.ArgSig
+
+                match EmitResolve.localCtors c |> List.tryFind (fun (ps, _, _) -> ps = paramTys) with
+                | Some(_, _, handle) -> AttributeCtorResolution.Ctor handle
+                | None ->
+                    failwithf
+                        "Emit: attribute class '%s' emits no constructor of parameter types %A, which the front end selected"
+                        c.Name
+                        paramTys
             | true, _ -> AttributeCtorResolution.Skipped SkippedAttributeRowReason.GenericAttributeClass
             | false, _ ->
-                match provider.TryExternalAttributeCtor(attr.Key, positionalCount) with
+                match provider.TryExternalAttributeCtor attr.Ctor with
                 | ValueSome handle -> AttributeCtorResolution.Ctor handle
-                | ValueNone -> AttributeCtorResolution.Skipped(SkippedAttributeRowReason.NoExternalCtor positionalCount)
+                | ValueNone -> AttributeCtorResolution.Skipped SkippedAttributeRowReason.CtorUnresolved
 
     /// The rows and skips for every attribute-bearing position of `layouts`.
     let prepare
@@ -88,7 +87,7 @@ module internal AttributeRowPrep =
                 | AttributeCtorResolution.Deduped -> ()
                 | AttributeCtorResolution.Skipped reason -> skip attr reason
                 | AttributeCtorResolution.Ctor ctor ->
-                    match AttributeBlob.tryEncode namer.TryTypeName attr.Args with
+                    match AttributeBlob.tryEncode namer.TryTypeName attr.Ctor.ArgSig attr.Args with
                     | ValueNone -> skip attr SkippedAttributeRowReason.UnencodableArgument
                     | ValueSome blob -> rows.Add(struct (parentHandle, ctor, blob))
 

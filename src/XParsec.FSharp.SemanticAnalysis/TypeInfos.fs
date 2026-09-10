@@ -333,11 +333,11 @@ type IntrinsicAbbrevInfo
 /// closed named set of cases.
 [<Sealed>]
 type EnumTypeInfo
-    (name: string, cases: Block<TEnumCase>, declSite: NodeSite, key: TypeKey, attributes: ResolvedAttributes) =
+    (name: string, cases: Block<EnumCaseInfo>, declSite: NodeSite, key: TypeKey, attributes: ResolvedAttributes) =
     member val Name = name
     /// The cases in declaration order, each with its resolved literal (`ValueNone` for a
     /// rejected value, reported at registration).
-    member val Cases: Block<TEnumCase> = cases
+    member val Cases: Block<EnumCaseInfo> = cases
 
     /// The case VALUES when every case is a string literal (`| Auto = "auto"`, `| A =
     /// ("auto")`), in declaration order; `ValueNone` for numeric / mixed / computed.
@@ -419,11 +419,13 @@ type MeasureInfo(name: string, declSite: NodeSite, key: TypeKey, rhsCst: Measure
     member val RhsCst = rhsCst
 
 /// A primary- or secondary-constructor parameter. `Type` is always a `TyVar`, the
-/// parameter's binding-site inference cell, even when the parameter is annotated.
+/// parameter's binding-site inference cell, even when the parameter is annotated; `Declared`
+/// is the annotation as translated, `ValueNone` for an unannotated parameter.
 [<Sealed>]
-type ClassCtorParamInfo(name: string, ty: SemType, declSite: BoundVarSite) =
+type ClassCtorParamInfo(name: string, ty: SemType, declared: SemType voption, declSite: BoundVarSite) =
     member val Name = name
     member val Type = ty
+    member val Declared: SemType voption = declared
     member val DeclSite = declSite
 
 /// An explicit instance field declared with `val [mutable] x: T`. A `val` field is always

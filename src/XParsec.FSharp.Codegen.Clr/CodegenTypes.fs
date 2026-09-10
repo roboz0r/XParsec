@@ -309,15 +309,10 @@ module internal StructuralMembers =
 /// Why a frozen attribute emitted no `CustomAttribute` row.
 [<RequireQualifiedAccess>]
 type SkippedAttributeRowReason =
-    /// The local attribute class declares no ctor taking this many positional arguments.
-    | NoMatchingCtor of positionalArgCount: int
-    /// Two or more local ctors take this many positional arguments; overload resolution is
-    /// not performed at row emission.
-    | AmbiguousCtor of positionalArgCount: int
     /// A generic attribute class has no encodable ctor parent.
     | GenericAttributeClass
-    /// No referenced-assembly ctor with this many positional arguments resolved.
-    | NoExternalCtor of positionalArgCount: int
+    /// The constructor the front end selected did not resolve in the reference set.
+    | CtorUnresolved
     /// An argument value is outside the II.23.3 encodable constant domain, or a reified
     /// type the encoder cannot spell.
     | UnencodableArgument

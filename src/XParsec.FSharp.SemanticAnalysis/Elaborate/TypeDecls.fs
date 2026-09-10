@@ -303,7 +303,7 @@ module internal ElaborateTypeDecls =
                     info.TypeKey
                     TyparList.empty
                     (ctx.AttributesAt(AttributeSite.ofSite info.DeclSite))
-                    (TTypeKind.Enum tcases),
+                    (TTypeKind.Enum(tcases |> Block.map (fun c -> c.ToCase(ctx.AttributesAt c.AttributeSite)))),
                 []
             )
 

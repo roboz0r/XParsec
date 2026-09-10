@@ -174,6 +174,23 @@ module Containment =
             this.Resolution.Scopes <- this.ScopeStackOf(chain, env.Opens)
             this.Resolution.Env <- env
 
+        /// The environment `EnterElement` set for the element being analysed.
+        member this.AmbientScope: AmbientScope =
+            {
+                OpenScope = this.Resolution.OpenScope
+                Env = this.Resolution.Env
+                EnclosingContainer = this.Resolution.EnclosingContainer
+                Scopes = this.Resolution.Scopes
+            }
+
+        /// Re-enter the environment `scope` captured, so a by-name read resolves as it would
+        /// have inside the element it was captured in.
+        member this.RestoreScope(scope: AmbientScope) : unit =
+            this.Resolution.OpenScope <- scope.OpenScope
+            this.Resolution.Env <- scope.Env
+            this.Resolution.EnclosingContainer <- scope.EnclosingContainer
+            this.Resolution.Scopes <- scope.Scopes
+
         /// Report `import`, written at `containment`, when it opens a
         /// `[<RequireQualifiedAccess>]` module: FS0892 naming the TARGET's full path, so an
         /// `open` written through a module abbreviation names what it reached. Reads the

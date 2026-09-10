@@ -471,11 +471,70 @@ mask, reified type and byte items; the mismatch, nested, empty and list-literal 
 `AttributeRowTests` pinning the positional and named blob bytes and reading both arrays
 back through reflection.
 
-#### 6c. Constructor selection, `null`, `[||]` and `obj` positions
+#### 6c. Constructor selection, `null`, `[||]` and `obj` positions — LANDED
 
-The front end selects the constructor and records it on `TAttribute`, so the backend reads
-a handle rather than choosing by arity: `AttributeCtorResolution`'s `NoMatchingCtor`,
-`AmbiguousCtor` and `NoExternalCtor` skips become front-end diagnostics at the attribute.
+The front end selects the constructor and records it on `TAttribute.Ctor` as a `MemberKey`,
+and each `TAttributeArg` records what it fills (`TAttributeArgTarget`: a parameter index, or
+a property or field with its declared type), so the backend reads a handle rather than
+choosing by arity. `AttributeCtorResolution`'s `NoMatchingCtor`, `AmbiguousCtor` and
+`NoExternalCtor` skips are gone; `CtorUnresolved` remains for a referenced assembly whose
+metadata does not carry the selected constructor, and a local class missing the selected
+constructor is an emitter failure.
+
+Departures from the shape written below, each deliberate:
+
+- **Checks open after `Unification.run`, not in `Passes.Attributes.run`.** A named argument
+  against a local class needs the property's type, which for `member val Extra = Targets.A`
+  is inferred, so the check waits for inference; `Elaborate` reads checked attributes, so
+  it cannot wait for the enforcement pass. `PassContext.OpenAttributeChecks` installs the
+  `IAttributeClassSource` and checks every pending position in source order, each under the
+  `AmbientScope` captured at its declaration (the `open`s and module chain the type-ref
+  stamping of a `typeof<T>` operand resolves against); a position declared afterwards
+  (`Elaborate`'s module bindings) is checked at declaration. `EnumTypeInfo.Cases` therefore
+  holds `EnumCaseInfo`, the literal plus the case's `AttributeSite`, and `Elaborate` builds
+  the `TEnumCase`s; `TEnumCases` and `ExternalEnumShape.ofCases` read both case shapes
+  through `IEnumCase<'tok>`.
+- **The `.fsi` leg checks per `type … and …` group.** `[<AbstractClass>] type Attribute …
+  and AbstractClassAttribute` in `prim-types-attr.fsi` names a class the group declares
+  below it, so the leg never opens checks up front: `registerSigGroup` files each claim's
+  position pending, calls `CheckPendingAttributes` once the group's constructors are on the
+  surface, then publishes the checked attributes; a `val` flushes the same way at its own
+  declaration. The leg's class source reads the surface under construction ahead of the
+  provider.
+- **Parameter names are known for local classes only.** `ExternalMember` carries no
+  parameter names, so a named argument fills a parameter of a local constructor, and
+  resolves against a property or field of a referenced class. Settability is recorded
+  nowhere the compiler models, so a named argument resolves against any property or field
+  of the class by name.
+- **Selection among overloads runs each candidate's checks under `PassContext.Collecting`**
+  and reports the chosen candidate's diagnostics alone; several candidates none of which
+  admits every argument is FS0041 at the attribute, and a named argument that is a
+  parameter of one overload and a property under another is FS0041, as `fsi` reports.
+- **fsc's codes, as probed:** one constructor given too many is FS0501, too few FS0496,
+  several constructors and none of the written count FS0505; an unknown named argument is
+  FS0495; a single-candidate type mismatch is FS0001 under `Kind.ConstantTypeMismatch`,
+  which the `.fsi` literal check shares (`SignatureLiteralTypeMismatch` is renamed); `null`
+  against a type with no null value is FS0043.
+
+`AttributeBlob.tryEncode` takes the constructor's `ArgSig` and writes each fixed argument
+at its parameter's type in parameter order: an `obj` position writes the value's own
+`FieldOrPropType` before its `Elem` (`0x0E 0xFF` for `null`), a named `obj` member writes
+`0x51` then the tagged value, a field writes `0x53`, `null` is `0xFF` at a string or `Type`
+and the `0xFFFFFFFF` count at an array.
+
+Regressions: `AttributeFoldTests` (overload selection by the literal's type, the `obj`
+preference, FS0041 for `null` between `string` and `Type` and for the parameter-or-property
+name, named parameters at their index, the three count codes, FS0495, FS0001, FS0043, the
+unannotated parameter, `null` / `[||]` / `obj` / `obj[]` positions through the codec, and a
+property and a field named argument), `ConstExprCheckTests` (`null` and `[||]` with and
+without an expectation, an expected element type, an `obj[]` element type), and
+`AttributeRowTests` (the overloaded class's row, the boxed and null forms read back through
+reflection, and the front-end FS0041).
+
+The shape as planned: the front end selects the constructor and records it on `TAttribute`,
+so the backend reads a handle rather than choosing by arity: `AttributeCtorResolution`'s
+`NoMatchingCtor`, `AmbiguousCtor` and `NoExternalCtor` skips become front-end diagnostics
+at the attribute.
 
 **Candidates.** An external class's constructors come from
 `IExternalSymbolProvider.TryLookupMembers(key, ".ctor")` with ground `ExternalSignature`s. A
@@ -510,9 +569,9 @@ A positional count matching no candidate is FS0505.
 
 **Named arguments.** After the constructor is chosen, `Name` resolves against its parameter
 names first, then the class's settable properties and fields, each supplying the expected
-type. An `obj` named argument boxes as a positional one does. `TAttributeArg` records which
-kind the name resolved to, since the blob writes a named parameter positionally and a
-property under `0x54`. fsc's FS3172 on an `obj`-typed property named argument is an fsc
+type. An `obj` named argument boxes as a positional one does. `TAttributeArg.Target` records
+what the argument fills, since the blob writes a named parameter positionally and a
+property under `0x54`; the written spelling (`Name = v` or positional) is not recorded. fsc's FS3172 on an `obj`-typed property named argument is an fsc
 defect and is not mirrored.
 
 **Element expectations.** Once `expected` exists, an `ArrayLit` against `T[]` checks each
@@ -573,6 +632,14 @@ there and let the constant checker recognise the same node.
 - `OptionalDefault.Const` (`TastExpr.fs:25-30`) holds a `TConstValue`; decide whether it widens to
   `TConstResult` once `[<DefaultParameterValue>]` is checked rather than read from metadata.
   Today `OptionalDefault` is populated only by the external declaration readers.
+- `ExternalMember` carries no parameter names, so `[<AttributeUsage(validOn = …)>]` against a
+  referenced class cannot fill the parameter by name (6c). Carrying names on
+  `ExternalSignature` would land them on every producer: the `.fsi` leg, the frozen
+  signature, the manifest and the metadata reader.
+- Settability is recorded nowhere: `TypeMemberInfo` files an auto-property's `with get, set`
+  as a `Property`, and `ExternalMember.Storage` is `Property` for a getter-only member too.
+  A named attribute argument therefore resolves against any property or field of the class
+  by name (6c); fsc's FS0495 for a getter-only property waits on a setter column.
 
 ## Out of scope
 

@@ -38,11 +38,13 @@ module NameResolutionTypeBodyExtraction =
                 let tv = ctx.NewTypeVar()
                 ctx.Store.SetLevel(UnionFind.find ctx.Store tv, 0)
 
-                match annotation with
-                | ValueSome t -> ctx.Store.SetLink(UnionFind.find ctx.Store tv, ValueSome(translateType ctx t))
+                let declared = annotation |> ValueOption.map (translateType ctx)
+
+                match declared with
+                | ValueSome t -> ctx.Store.SetLink(UnionFind.find ctx.Store tv, ValueSome t)
                 | ValueNone -> ()
 
-                results.Add(ClassCtorParamInfo(ctx.NameOf site.Tok, TyVar tv, site))
+                results.Add(ClassCtorParamInfo(ctx.NameOf site.Tok, TyVar tv, declared, site))
 
         let rec walk (p: Pat<SyntaxToken>) =
             match p with

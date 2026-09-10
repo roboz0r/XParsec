@@ -69,7 +69,8 @@ module SyntheticAttribute =
 module internal AttributeBlob =
 
     /// The single `FieldOrPropType` byte `key` spells: `bool`, `char`, a fixed-width integral,
-    /// `float32`, `float`, `string`, and `0x50` for `Vesper.Type`. `ValueNone` for every other key.
+    /// `float32`, `float`, `string`, `0x50` for `Vesper.Type` and `0x51` for the boxed `obj`.
+    /// `ValueNone` for every other key.
     let private tryFieldOrPropTypeByte (key: TypeKey) : byte voption =
         match RuntimeNames.intKindOfKey key with
         | ValueSome IntKind.SByte -> ValueSome 0x04uy
@@ -89,6 +90,7 @@ module internal AttributeBlob =
             elif key = RuntimeNames.floatKey then ValueSome 0x0Duy
             elif key = RuntimeNames.stringKey then ValueSome 0x0Euy
             elif key = RuntimeNames.runtimeTypeKey then ValueSome 0x50uy
+            elif key = RuntimeNames.objKey then ValueSome 0x51uy
             else ValueNone
 
     /// The bytes `write` puts into a fresh blob.
@@ -149,10 +151,10 @@ module internal AttributeBlob =
         | TConstValue.Decimal _
         | TConstValue.Unit -> ValueNone
 
-    /// One value's `Elem` at its type `ty`: a `Type` is the SerString of the type's name, an
-    /// array its `uint32` count then each item's `Elem`. `ValueNone` for `null`, a
-    /// string-valued (TS) enum, and a scalar or type outside the `Elem` encoding.
-    let rec private tryElem
+    /// One scalar or type value's `Elem` at its type `ty`: a `Type` is the SerString of the
+    /// type's name. `ValueNone` for a string-valued (TS) enum, and a scalar or type outside
+    /// the `Elem` encoding.
+    let private tryValueElem
         (tryTypeName: FrozenType -> string voption)
         (ty: FrozenType)
         (r: TConstResult)
@@ -164,8 +166,41 @@ module internal AttributeBlob =
         | _, TConstResult.TypeVal t ->
             tryTypeName t
             |> ValueOption.map (fun name -> bytes (fun b -> b.WriteSerializedString name))
-        | FTArray elemTy, TConstResult.ArrayVal items ->
-            Block.tryMap (tryElem tryTypeName elemTy) items
+        | _, TConstResult.Null
+        | _, TConstResult.ArrayVal _ -> ValueNone
+
+    /// The `Elem` of `e` at the position's declared type. An `obj` position boxes: the value's
+    /// own `FieldOrPropType` precedes its `Elem`. `ValueNone` for a value outside the `Elem`
+    /// encoding.
+    let rec private tryElemAt
+        (tryTypeName: FrozenType -> string voption)
+        (declared: FrozenType)
+        (e: TConstExpr)
+        : ImmutableArray<byte> voption =
+        match declared, e with
+        | FTObj, TConstExpr.Null _ ->
+            ValueSome(
+                bytes (fun b ->
+                    b.WriteByte 0x0Euy
+                    b.WriteByte 0xFFuy
+                )
+            )
+        | FTObj, _ ->
+            let ty = TConstExpr.ty e
+
+            match tryFieldOrPropType tryTypeName ty, tryElemAt tryTypeName ty e with
+            | ValueSome fieldOrPropType, ValueSome value ->
+                ValueSome(
+                    bytes (fun b ->
+                        b.WriteBytes fieldOrPropType
+                        b.WriteBytes value
+                    )
+                )
+            | _ -> ValueNone
+        | FTArray _, TConstExpr.Null _ -> ValueSome(bytes (fun b -> b.WriteUInt32 0xFFFFFFFFu))
+        | _, TConstExpr.Null _ -> ValueSome(bytes (fun b -> b.WriteByte 0xFFuy))
+        | FTArray elemTy, TConstExpr.ArrayLit(items = items) ->
+            Block.tryMap (tryElemAt tryTypeName elemTy) items
             |> ValueOption.map (fun elems ->
                 bytes (fun b ->
                     b.WriteUInt32(uint32 elems.Length)
@@ -174,71 +209,66 @@ module internal AttributeBlob =
                         b.WriteBytes elem
                 )
             )
-        | _, TConstResult.Null
-        | _, TConstResult.ArrayVal _ -> ValueNone
+        | _, TConstExpr.ArrayLit _ -> ValueNone
+        | _ -> tryValueElem tryTypeName declared (TConstExpr.result e)
 
-    [<RequireQualifiedAccess>]
-    type private ArgKind =
-        | Positional
-        | Named
+    /// A named argument's segment: `0x54` for a property or `0x53` for a field, the member's
+    /// `FieldOrPropType`, its SerString name, then the `Elem` at the member's type.
+    let private tryNamedSegment
+        (tryTypeName: FrozenType -> string voption)
+        (m: TAttributeMember, e: TConstExpr)
+        : ImmutableArray<byte> voption =
+        let kind =
+            match m with
+            | TAttributeMember.Property _ -> 0x54uy
+            | TAttributeMember.Field _ -> 0x53uy
 
-    /// One argument's finished bytes: a positional argument's `Elem`; a named PROPERTY
-    /// argument's `0x54`, `FieldOrPropType`, SerString name, then `Elem`.
-    type private EncodedArg =
-        {
-            Kind: ArgKind
-            Bytes: ImmutableArray<byte>
-        }
-
-    /// `ValueNone` where the value has no `Elem` encoding, or a named argument's type has no
-    /// `FieldOrPropType` spelling (a string-valued TS enum). A positional argument's type is
-    /// the ctor's parameter type and is unwritten.
-    let private tryEncodeArg (tryTypeName: FrozenType -> string voption) (a: TAttributeArg) : EncodedArg voption =
-        let ty = TConstExpr.ty a.Expr
-
-        tryElem tryTypeName ty (TConstExpr.result a.Expr)
-        |> ValueOption.bind (fun value ->
-            match a.Name with
-            | ValueNone ->
-                ValueSome
-                    {
-                        Kind = ArgKind.Positional
-                        Bytes = value
-                    }
-            | ValueSome name ->
-                tryFieldOrPropType tryTypeName ty
-                |> ValueOption.map (fun fieldOrPropType ->
-                    {
-                        Kind = ArgKind.Named
-                        Bytes =
-                            bytes (fun b ->
-                                b.WriteByte 0x54uy
-                                b.WriteBytes fieldOrPropType
-                                b.WriteSerializedString name
-                                b.WriteBytes value
-                            )
-                    }
+        match tryFieldOrPropType tryTypeName m.Ty, tryElemAt tryTypeName m.Ty e with
+        | ValueSome fieldOrPropType, ValueSome value ->
+            ValueSome(
+                bytes (fun b ->
+                    b.WriteByte kind
+                    b.WriteBytes fieldOrPropType
+                    b.WriteSerializedString m.Name
+                    b.WriteBytes value
                 )
-        )
+            )
+        | _ -> ValueNone
 
-    /// The blob: prolog `0x0001`, the positional arguments in written order, the
-    /// named-argument count, then the named arguments in written order. `ValueNone` where
-    /// any argument is unencodable.
-    let tryEncode (tryTypeName: FrozenType -> string voption) (args: Block<TAttributeArg>) : BlobBuilder voption =
-        Block.tryMap (tryEncodeArg tryTypeName) args
-        |> ValueOption.map (fun encoded ->
-            let named = encoded |> Block.filter (fun a -> a.Kind = ArgKind.Named)
+    /// The blob: prolog `0x0001`, the fixed arguments in the constructor's parameter order,
+    /// each at its parameter's type, the named-argument count, then the named arguments in
+    /// written order. `ValueNone` where any argument is unencodable.
+    let tryEncode
+        (tryTypeName: FrozenType -> string voption)
+        (ctorParams: Block<FrozenType>)
+        (args: Block<TAttributeArg>)
+        : BlobBuilder voption =
+        let fixedArg (i: int) (paramTy: FrozenType) : ImmutableArray<byte> voption =
+            args
+            |> Block.tryFind (fun a -> a.Target = TAttributeArgTarget.Parameter i)
+            |> ValueOption.bind (fun a -> tryElemAt tryTypeName paramTy a.Expr)
+
+        let named =
+            Block.ofList
+                [
+                    for a in args do
+                        match a.Target with
+                        | TAttributeArgTarget.Member m -> yield m, a.Expr
+                        | TAttributeArgTarget.Parameter _ -> ()
+                ]
+
+        match Block.tryMap id (Block.mapi fixedArg ctorParams), Block.tryMap (tryNamedSegment tryTypeName) named with
+        | ValueSome fixedSegments, ValueSome namedSegments ->
             let b = BlobBuilder()
             b.WriteUInt16 1us
 
-            for a in encoded do
-                if a.Kind = ArgKind.Positional then
-                    b.WriteBytes a.Bytes
+            for segment in fixedSegments do
+                b.WriteBytes segment
 
-            b.WriteUInt16(uint16 named.Length)
+            b.WriteUInt16(uint16 namedSegments.Length)
 
-            for a in named do
-                b.WriteBytes a.Bytes
+            for segment in namedSegments do
+                b.WriteBytes segment
 
-            b
-        )
+            ValueSome b
+        | _ -> ValueNone

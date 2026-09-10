@@ -56,30 +56,18 @@ module ConformanceSurface =
         | TConstResult.TypeVal t -> sprintf "typeof<%s>" (Conformance.describeType t)
         | TConstResult.ArrayVal items -> sprintf "[| %s |]" (items |> Seq.map describeConst |> String.concat "; ")
 
-    let private comparable (a: TAttributeArg) : string voption * TConstDenotation = a.Name, TConstExpr.denotation a.Expr
+    /// One occurrence's arguments in comparison form: each argument by what it fills and what it
+    /// denotes, ordered by the fill. `[<Foo(1, Y = 2, X = 3)>]` and `[<Foo(1, X = 3, Y = 2)>]`
+    /// compare equal, as do `[<Foo(1, 2)>]` and `[<Foo(y = 2, x = 1)>]`.
+    let private comparableArgs (args: Block<TAttributeArg>) : (TAttributeArgTarget * TConstDenotation) list =
+        let rank (t: TAttributeArgTarget) : int * int * string =
+            match t with
+            | TAttributeArgTarget.Parameter i -> 0, i, ""
+            | TAttributeArgTarget.Member(TAttributeMember.Property(name, _)) -> 1, 0, name
+            | TAttributeArgTarget.Member(TAttributeMember.Field(name, _)) -> 2, 0, name
 
-    /// One occurrence's arguments in comparison form: the positional arguments in written
-    /// order, then the named arguments by name. `[<Foo(1, Y = 2, X = 3)>]` and
-    /// `[<Foo(1, X = 3, Y = 2)>]` carry one attribute value, so they compare equal.
-    let private comparableArgs
-        (args: Block<TAttributeArg>)
-        : (string voption * TConstDenotation) list * (string voption * TConstDenotation) list =
-        let positional =
-            [
-                for a in args do
-                    if a.Name.IsNone then
-                        yield comparable a
-            ]
-
-        let named =
-            [
-                for a in args do
-                    if a.Name.IsSome then
-                        yield comparable a
-            ]
-            |> List.sortBy fst
-
-        positional, named
+        [ for a in args -> a.Target, TConstExpr.denotation a.Expr ]
+        |> List.sortBy (fun (target, _) -> rank target)
 
     /// Each occurrence of attribute `key`, argument-comparable, in written order. An
     /// `AllowMultiple` attribute contributes one entry per occurrence.

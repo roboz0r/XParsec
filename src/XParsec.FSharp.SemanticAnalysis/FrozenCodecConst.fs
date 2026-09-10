@@ -215,22 +215,54 @@ module FrozenCodecConst =
         let result = readTConstResult r
         { Result = result; Ty = readTypeRef r }
 
+    let private writeTAttributeArgTarget (w: FrozenWriter) (t: TAttributeArgTarget) =
+        match t with
+        | TAttributeArgTarget.Parameter index ->
+            w.Write 0uy
+            w.Write index
+        | TAttributeArgTarget.Member(TAttributeMember.Property(name, ty)) ->
+            w.Write 1uy
+            w.Write name
+            writeTypeRef w ty
+        | TAttributeArgTarget.Member(TAttributeMember.Field(name, ty)) ->
+            w.Write 2uy
+            w.Write name
+            writeTypeRef w ty
+
+    let private readTAttributeArgTarget (r: FrozenReader) : TAttributeArgTarget =
+        match r.ReadByte() with
+        | 0uy -> TAttributeArgTarget.Parameter(r.ReadInt32())
+        | 1uy ->
+            let name = r.ReadString()
+            TAttributeArgTarget.Member(TAttributeMember.Property(name, readTypeRef r))
+        | 2uy ->
+            let name = r.ReadString()
+            TAttributeArgTarget.Member(TAttributeMember.Field(name, readTypeRef r))
+        | b -> failwithf "FrozenCodec: unknown TAttributeArgTarget tag %d" b
+
     let private writeTAttributeArg (w: FrozenWriter) (a: TAttributeArg) =
-        writeStringVOption w a.Name
+        writeTAttributeArgTarget w a.Target
         writeTConstExpr w a.Expr
 
     let private readTAttributeArg (r: FrozenReader) : TAttributeArg =
-        let name = readStringVOption r
-        { Name = name; Expr = readTConstExpr r }
+        let target = readTAttributeArgTarget r
+
+        {
+            Target = target
+            Expr = readTConstExpr r
+        }
 
     let private writeTAttribute (w: FrozenWriter) (a: TAttribute) =
         writeTypeKeyRef w a.Key
+        writeMemberKeyRef w a.Ctor
         writeBlockWith w writeTAttributeArg a.Args
 
     let private readTAttribute (r: FrozenReader) : TAttribute =
         let key = readTypeKeyRef r
+        let ctor = readMemberKeyRef r
         let args = Block.ofArray (readArrayWith r readTAttributeArg)
-        { Key = key; Args = args }
+
+        { Key = key; Ctor = ctor; Args = args }
 
     let writeTAttributes (w: FrozenWriter) (attrs: TAttributes) = writeBlockWith w writeTAttribute attrs
 

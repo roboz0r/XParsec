@@ -730,10 +730,34 @@ module FrozenCodecDiagnostics =
         | Kind.TypeExpectedNotMeasure -> w.Write 63uy
         | Kind.SignatureLiteralWithoutValue -> w.Write 69uy
         | Kind.SignatureValueWithoutLiteral -> w.Write 70uy
-        | Kind.SignatureLiteralTypeMismatch(expected, actual) ->
+        | Kind.ConstantTypeMismatch(expected, actual) ->
             w.Write 71uy
             w.Write expected
             w.Write actual
+        | Kind.NullNotProperValue ty ->
+            w.Write 72uy
+            w.Write ty
+        | Kind.AttributeCtorArgCount(className, given, declared) ->
+            w.Write 73uy
+            w.Write className
+            w.Write given
+            writeBlockWith w (fun (w: FrozenWriter) (n: int) -> w.Write n) declared
+        | Kind.AttributeCtorNoOverload(className, candidates) ->
+            w.Write 74uy
+            w.Write className
+            writeStringArray w candidates
+        | Kind.AttributeCtorAmbiguous(className, candidates) ->
+            w.Write 75uy
+            w.Write className
+            writeStringArray w candidates
+        | Kind.AttributeNamedArgUnknown(className, name) ->
+            w.Write 76uy
+            w.Write className
+            w.Write name
+        | Kind.AttributeCtorParamUnannotated(className, param) ->
+            w.Write 77uy
+            w.Write className
+            w.Write param
 
     let private readKind (r: FrozenReader) : Kind =
         match r.ReadByte() with
@@ -891,7 +915,24 @@ module FrozenCodecDiagnostics =
         | 70uy -> Kind.SignatureValueWithoutLiteral
         | 71uy ->
             let expected = r.ReadString()
-            Kind.SignatureLiteralTypeMismatch(expected, r.ReadString())
+            Kind.ConstantTypeMismatch(expected, r.ReadString())
+        | 72uy -> Kind.NullNotProperValue(r.ReadString())
+        | 73uy ->
+            let className = r.ReadString()
+            let given = r.ReadInt32()
+            Kind.AttributeCtorArgCount(className, given, readBlockWith r (fun r -> r.ReadInt32()))
+        | 74uy ->
+            let className = r.ReadString()
+            Kind.AttributeCtorNoOverload(className, readStringArray r)
+        | 75uy ->
+            let className = r.ReadString()
+            Kind.AttributeCtorAmbiguous(className, readStringArray r)
+        | 76uy ->
+            let className = r.ReadString()
+            Kind.AttributeNamedArgUnknown(className, r.ReadString())
+        | 77uy ->
+            let className = r.ReadString()
+            Kind.AttributeCtorParamUnannotated(className, r.ReadString())
         | b -> failwithf "FrozenCodec: unknown Kind tag %d" b
 
     let writeDiagnostic (w: FrozenWriter) (d: XParsec.FSharp.SemanticAnalysis.Diagnostic) =

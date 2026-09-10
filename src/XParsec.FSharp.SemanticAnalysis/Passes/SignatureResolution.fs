@@ -101,8 +101,6 @@ module SignatureResolution =
                         RequiresQualifiedAccess = info.IsRequireQualifiedAccess
                     })
 
-            publishAttributes sctx key (ctx.AttributesAt(AttributeSite.ofSite info.DeclSite))
-
             match extensions with
             | ValueSome(TypeExtensionElementsSignature(elements = elems)) ->
                 publishMembers sctx key (resolveBodyMembers sctx key info.TypeParams elems)
@@ -159,14 +157,10 @@ module SignatureResolution =
                     })
                 members
 
-            publishAttributes sctx key (ctx.AttributesAt(AttributeSite.ofSite info.DeclSite))
-
     let private publishEnum (sctx: SigCtx) (id: TypeIdentity) : unit =
         match TypeRegistry.tryEnumByKey sctx.Pass.Types id.Key with
         | ValueNone -> ()
-        | ValueSome info ->
-            publishShape sctx id.Key (ExternalEnumShape.ofCases info.Cases SymbolOrigin.Empty)
-            publishAttributes sctx id.Key (sctx.Pass.AttributesAt(AttributeSite.ofSite info.DeclSite))
+        | ValueSome info -> publishShape sctx id.Key (ExternalEnumShape.ofCases info.Cases SymbolOrigin.Empty)
 
     // --- abbreviations --------------------------------------------------------------------
 
@@ -189,8 +183,6 @@ module SignatureResolution =
                     Typars = TyparList.unconstrained info.TypeParams
                     Body = body
                 })
-
-        publishAttributes sctx id.Key (ctx.AttributesAt(AttributeSite.ofSite info.DeclSite))
 
     /// A broken measure publishes nothing; its declaration already reported.
     let private publishMeasure (sctx: SigCtx) (id: TypeIdentity) : unit =
@@ -484,7 +476,6 @@ module SignatureResolution =
             | SigClassForm.Interface -> surface.Shape
 
         publishShapeWith sctx id.Key (ExternalTypeShape.Class shape) surface.Members
-        publishAttributes sctx id.Key surface.Attributes
 
     /// An opaque abstract type (`type T`) has no body shape. It resolves as a non-interface
     /// class, so codegen can mint a ref off the origin, and commits its name to no family.
@@ -552,6 +543,29 @@ module SignatureResolution =
 
     // --- groups and vals ---------------------------------------------------------------
 
+    /// The classes this signature publishes above the element being resolved, read off the
+    /// surface under construction, and the classes its references publish. A signature's
+    /// walk is sequential, so a class is readable from the element after its own.
+    let private attributeClasses (sctx: SigCtx) : IAttributeClassSource =
+        let published =
+            { new IAttributeClassSource with
+                member _.Ctors attrKey =
+                    match sctx.Surface.MembersByKey.TryGetValue attrKey with
+                    | true, members -> AttributeClasses.ctorsOfMembers (Block.ofResizeArray members)
+                    | false, _ -> Block.empty
+
+                member _.TrySettable(attrKey, name) =
+                    match sctx.Surface.MembersByKey.TryGetValue attrKey with
+                    | true, members ->
+                        members
+                        |> Seq.filter (fun m -> m.Name = name)
+                        |> Block.ofSeq
+                        |> AttributeClasses.settableOfMembers name
+                    | false, _ -> ValueNone
+            }
+
+        AttributeClasses.firstDeclaring published (AttributeClasses.ofStore sctx.Pass.Provider)
+
     let private registerSigGroup
         (sctx: SigCtx)
         (containment: DeclContainment<SyntaxToken>)
@@ -618,6 +632,16 @@ module SignatureResolution =
         for struct (id, decl) in claims do
             publishType sctx id decl
 
+        // A group member's attribute may refer to a class the group declares below it
+        // (`[<AbstractClass>] type Attribute … and AbstractClassAttribute`), so the group's
+        // positions are checked once every member's constructors are published.
+        ctx.CheckPendingAttributes(attributeClasses sctx)
+
+        for struct (id, _) in claims do
+            match ctx.TryAttributesAt(AttributeSite.ofSite id.DeclSite) with
+            | ValueSome attributes -> publishAttributes sctx id.Key attributes
+            | ValueNone -> ()
+
     /// Internal-or-better, matching what a frozen implementation file publishes: a `.fsi`
     /// makes a declaration inaccessible OUTSIDE its file by not declaring it, and the
     /// cross-assembly public-only cut belongs to the consumer, not to publication.
@@ -647,19 +671,8 @@ module SignatureResolution =
             ctx.Report(eq, Kind.SignatureValueWithoutLiteral)
             ValueNone
         | true, ValueSome(_, e) ->
-            match
-                ConstExprCheck.check ctx (ctx.UseSiteAt(CstKeys.ofExpr e)) e
-                |> ValueOption.map TConstExpr.denotation
-            with
-            | ValueSome d when d.Ty = template -> ValueSome d
-            | ValueSome d ->
-                ctx.Report(
-                    CstKeys.firstTokenOfExpr e,
-                    Kind.SignatureLiteralTypeMismatch(Conformance.describeType template, Conformance.describeType d.Ty)
-                )
-
-                ValueNone
-            | ValueNone -> ValueNone
+            ConstExprCheck.check ctx (ctx.UseSiteAt(CstKeys.ofExpr e)) (ValueSome template) e
+            |> ValueOption.map TConstExpr.denotation
 
     let private registerValSig
         (sctx: SigCtx)
@@ -742,6 +755,7 @@ module SignatureResolution =
 
                 let attributeSite = AttributeSite.ofToken (CstKeys.firstTokenOfIdentOrOp ident)
                 ctx.DeclareAttributes(attributeSite, attrElement, resolvedAttrs)
+                ctx.CheckPendingAttributes(attributeClasses sctx)
 
                 PublishedSurfaceBuilder.addAttributes
                     sctx.Surface

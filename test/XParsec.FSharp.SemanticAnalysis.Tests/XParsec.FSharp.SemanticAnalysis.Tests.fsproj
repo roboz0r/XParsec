@@ -25,6 +25,7 @@
     <Compile Include="NameResolutionTests.fs" />
     <Compile Include="AttributeIdentityTests.fs" />
     <Compile Include="AttributeFoldTests.fs" />
+    <Compile Include="AttributeCtorSelectionTests.fs" />
     <Compile Include="AttributeTargetTests.fs" />
     <Compile Include="UnificationTestHelpers.fs" />
     <Compile Include="UnificationBasicsTests.fs" />

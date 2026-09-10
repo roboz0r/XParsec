@@ -306,8 +306,6 @@ module SignatureResolutionMembers =
         {
             Shape: ExternalClassShape
             Members: ExternalMember list
-            /// The declaration's attributes, resolved and constant-folded.
-            Attributes: TAttributes
         }
 
     /// The class surface a bodied signature declares: its members, its `new` constructors, its
@@ -344,9 +342,8 @@ module SignatureResolutionMembers =
 
         let kind = TypeDefnKind.ofClassOrInterface isInterface decoded.IsValueType
 
-        let attributeSite = AttributeSite.ofSite id.DeclSite
-        ctx.DeclareAttributes(attributeSite, Attributes.attrTargetOfKind kind, resolvedAttrs)
-        let foldedAttrs = ctx.AttributesAt attributeSite
+        // Checked once the group is published.
+        ctx.DeclareAttributes(AttributeSite.ofSite id.DeclSite, Attributes.attrTargetOfKind kind, resolvedAttrs)
 
         let shape =
             underTypars
@@ -387,8 +384,4 @@ module SignatureResolutionMembers =
                     }
                 )
 
-        {
-            Shape = shape
-            Members = members
-            Attributes = foldedAttrs
-        }
+        { Shape = shape; Members = members }

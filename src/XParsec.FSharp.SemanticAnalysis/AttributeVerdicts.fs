@@ -6,24 +6,48 @@ open Vesper
 // the frozen `TTypeDeclG`'s equality / comparison / qualified-access members are views over
 // its stored `TAttributes`, computed here.
 
-/// One checked attribute argument, as the author wrote it. `Name` is the property a named
-/// setter assigns (`AllowMultiple = true`); `ValueNone` for a positional constructor
-/// argument.
+/// A member of the attribute class a `Name = v` argument sets after construction. `ty` is
+/// the member's declared type, which an `obj` member boxes the argument to.
+[<RequireQualifiedAccess>]
+type TAttributeMember =
+    | Property of name: string * ty: FrozenType
+    | Field of name: string * ty: FrozenType
+
+    member this.Name: string =
+        match this with
+        | Property(name, _)
+        | Field(name, _) -> name
+
+    member this.Ty: FrozenType =
+        match this with
+        | Property(_, ty)
+        | Field(_, ty) -> ty
+
+/// What an attribute argument fills: a parameter of the chosen constructor, or a member of
+/// the attribute class.
+[<RequireQualifiedAccess>]
+type TAttributeArgTarget =
+    /// The constructor parameter at `index`, filled positionally or by name.
+    | Parameter of index: int
+    | Member of TAttributeMember
+
+/// One checked attribute argument, in written order.
 type TAttributeArg =
     {
-        Name: string voption
+        Target: TAttributeArgTarget
         Expr: TConstExpr
     }
 
     /// The scalar the argument denotes; `ValueNone` for `null`, a `typeof<T>` and an array.
     member this.Value: TConstValue voption = TConstExpr.tryScalar this.Expr
 
-/// One written attribute: the declaration's `TypeKey` and its checked arguments, in written
-/// order. An attribute with an argument outside the constant domain was diagnosed and is
-/// absent from its position's `TAttributes`.
+/// One written attribute, with the constructor its arguments selected and its checked
+/// arguments in written order. An attribute with an argument outside the constant domain was
+/// diagnosed and is absent from its position's `TAttributes`.
 type TAttribute =
     {
         Key: TypeKey
+        Ctor: MemberKey
         Args: Block<TAttributeArg>
     }
 

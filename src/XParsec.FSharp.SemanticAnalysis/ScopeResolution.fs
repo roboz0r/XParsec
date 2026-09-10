@@ -228,3 +228,14 @@ module ScopeResolution =
                 | AbbrevTarget.Unresolved -> ()
 
         env
+
+/// The by-name environment of one module element: the `open`s written above it, those
+/// `open`s resolved, the enclosing module chain, and every scope in force, best rank first.
+[<NoEquality; NoComparison>]
+type AmbientScope =
+    {
+        OpenScope: OpenScope
+        Env: ScopeResolution.ScopeEnv
+        EnclosingContainer: ModuleContainer voption
+        Scopes: ScopeEntry list
+    }
