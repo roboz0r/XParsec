@@ -321,9 +321,9 @@ module internal ElaborateExpr =
         | Expr.LetOrUse(keyword = kw; isRec = isRec; bindings = bindings; body = body) ->
             translateLet ctx kw isRec.IsSome bindings body
         | Expr.EnclosedBlock(lParen = ParenKind.List _; expr = inner) ->
-            translateListLiteral ctx ty (listLiteralItems inner) tok
+            translateListLiteral ctx ty (CstKeys.listLiteralItems inner) tok
         | Expr.EnclosedBlock(lParen = ParenKind.Array _; expr = inner) ->
-            translateArrayLiteral ctx ty (listLiteralItems inner) tok
+            translateArrayLiteral ctx ty (CstKeys.listLiteralItems inner) tok
         | Expr.EnclosedBlock(expr = inner) -> translateExpr ctx inner
         | Expr.IfThenElse(condition = cond; thenExpr = thenE; elifBranches = elifs; elseBranch = elseB) ->
             translateIfThenElse ctx cond thenE elifs elseB ty tok

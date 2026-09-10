@@ -238,6 +238,37 @@ let moduleFunctions =
                 Expect.equal (Block.toArray xs) [| 3; 1; 2 |] "input untouched"
             }
 
+            test "tryOfSeq is all-or-nothing and stops at the first ValueNone" {
+                Expect.equal (Block.tryOfSeq [ ValueSome 1; ValueSome 2 ]) (ValueSome(Block.ofArray [| 1; 2 |])) "all"
+                Expect.equal (Block.tryOfSeq ([]: int voption list)) (ValueSome Block.empty) "empty"
+
+                let visited = ResizeArray<int>()
+
+                let items =
+                    seq {
+                        for i in 1..4 do
+                            visited.Add i
+                            if i = 2 then ValueNone else ValueSome i
+                    }
+
+                Expect.equal (Block.tryOfSeq items) ValueNone "one ValueNone fails the whole"
+                Expect.equal (List.ofSeq visited) [ 1; 2 ] "the elements after the ValueNone are unvisited"
+            }
+
+            test "tryMap is all-or-nothing" {
+                let xs: Block<int> = Block.ofArray [| 1; 2; 3 |]
+
+                let even n =
+                    if n % 2 = 0 then ValueSome(n / 2) else ValueNone
+
+                Expect.equal
+                    (Block.tryMap (fun n -> ValueSome(n * 10)) xs)
+                    (ValueSome(Block.ofArray [| 10; 20; 30 |]))
+                    "all"
+
+                Expect.equal (Block.tryMap even xs) ValueNone "one ValueNone fails the whole"
+            }
+
             test "last and tryLast" {
                 Expect.equal (Block.last abc) "c" "last"
                 Expect.equal (Block.tryLast abc) (ValueSome "c") "tryLast"

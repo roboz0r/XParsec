@@ -92,6 +92,15 @@ let private typeC (operand: FrozenType) : TConstDenotation =
 
 let private ftPrim (key: TypeKey) : FrozenType = FTConst(key, Block.empty)
 
+/// A `[| … |]` outcome: the items' results at the array of `elemTy`.
+let private arrayC (elemTy: FrozenType) (items: TConstResult list) : TConstDenotation =
+    {
+        Result = TConstResult.ArrayVal(Block.ofList items)
+        Ty = ftArray elemTy
+    }
+
+let private scalarR (v: TConstValue) : TConstResult = TConstResult.Scalar v
+
 /// The file's last top-level `let` binding.
 let private lastBinding (file: ImplementationFile<SyntaxToken>) : Binding<SyntaxToken> =
     CstModuleTree.implFileElems file
@@ -363,7 +372,7 @@ let tests =
                     test "typeof of an array" {
                         Expect.equal
                             (check "typeof<int[]>")
-                            (Ok(typeC (FTConst(RuntimeNames.arrayKey 1, Block.singleton (ftPrim RuntimeNames.intKey)))))
+                            (Ok(typeC (ftArray (ftPrim RuntimeNames.intKey))))
                             "typeof<int[]>"
                     }
 
@@ -432,7 +441,7 @@ let tests =
                     test "typedefof of an array keeps its element type" {
                         Expect.equal
                             (check "typedefof<int[]>")
-                            (Ok(typeC (FTConst(RuntimeNames.arrayKey 1, Block.singleton (ftPrim RuntimeNames.intKey)))))
+                            (Ok(typeC (ftArray (ftPrim RuntimeNames.intKey))))
                             "typedefof<int[]>"
                     }
 
@@ -590,6 +599,120 @@ let tests =
 
                     test "a reification with two type arguments is not a constant expression" {
                         Expect.equal (check "typeof<int, string>") notConstant "typeof<int, string>"
+                    }
+                ]
+
+            testList
+                "array literals"
+                [
+                    test "two ints" {
+                        Expect.equal
+                            (check "[| 1; 2 |]")
+                            (Ok(arrayC (ftPrim RuntimeNames.intKey) [ scalarR (int32 1); scalarR (int32 2) ]))
+                            "[| 1; 2 |]"
+                    }
+
+                    test "one string" {
+                        Expect.equal
+                            (check "[| \"a\" |]")
+                            (Ok(arrayC (ftPrim RuntimeNames.stringKey) [ scalarR (TConstValue.String "a") ]))
+                            "[| \"a\" |]"
+                    }
+
+                    test "enum cases and a mask keep the enum's key" {
+                        Expect.equal
+                            (checkWith localEnums "[| E.A; E.A ||| E.B |]")
+                            (Ok(arrayC (FTEnum eKey) [ scalarR (int32 1); scalarR (int32 5) ]))
+                            "[| E.A; E.A ||| E.B |]"
+                    }
+
+                    test "reified types" {
+                        Expect.equal
+                            (check "[| typeof<int>; typeof<string> |]")
+                            (Ok(
+                                arrayC
+                                    (ftPrim RuntimeNames.runtimeTypeKey)
+                                    [
+                                        TConstResult.TypeVal(ftPrim RuntimeNames.intKey)
+                                        TConstResult.TypeVal(ftPrim RuntimeNames.stringKey)
+                                    ]
+                            ))
+                            "[| typeof<int>; typeof<string> |]"
+                    }
+
+                    test "byte items are accepted where fsc refuses byte[]" {
+                        Expect.equal
+                            (check "[| 1uy; 2uy |]")
+                            (Ok(
+                                arrayC
+                                    (ftPrim RuntimeNames.byteKey)
+                                    [
+                                        scalarR (TConstValue.Integral(IntValue.Byte 1uy))
+                                        scalarR (TConstValue.Integral(IntValue.Byte 2uy))
+                                    ]
+                            ))
+                            "a byte[] literal is a target-neutral value; the FS0267 fsc reports is a CLR-blob gate"
+                    }
+
+                    test "a differing item is rejected at the item" {
+                        Expect.equal
+                            (check "[| 1; 2L |]")
+                            (Error [ ConstExprCheck.Rejection.arrayItemType ])
+                            "[| 1; 2L |] is FS0267 at 2L"
+                    }
+
+                    test "every differing item reports" {
+                        Expect.equal
+                            (check "[| 1; 2L; 3L |]")
+                            (Error
+                                [
+                                    ConstExprCheck.Rejection.arrayItemType
+                                    ConstExprCheck.Rejection.arrayItemType
+                                ])
+                            "[| 1; 2L; 3L |]"
+                    }
+
+                    test "a nested array is rejected at the inner array" {
+                        Expect.equal
+                            (check "[| [| 1 |] |]")
+                            (Error [ ConstExprCheck.Rejection.nestedArray ])
+                            "[| [| 1 |] |] is FS0267 at the inner [|"
+                    }
+
+                    test "a parenthesised nested array is rejected" {
+                        Expect.equal
+                            (check "[| ([| 1 |]) |]")
+                            (Error [ ConstExprCheck.Rejection.nestedArray ])
+                            "[| ([| 1 |]) |]"
+                    }
+
+                    test "a nested empty array is rejected as nested" {
+                        Expect.equal (check "[| [||] |]") (Error [ ConstExprCheck.Rejection.nestedArray ]) "[| [||] |]"
+
+                        Expect.equal
+                            (check "[| ([||]) |]")
+                            (Error [ ConstExprCheck.Rejection.nestedArray ])
+                            "grouping parens do not turn the nested [||] into the empty-array refusal"
+                    }
+
+                    test "a nested array is rejected as nested before its items are checked" {
+                        Expect.equal
+                            (check "[| [| 1; 2L |] |]")
+                            (Error [ ConstExprCheck.Rejection.nestedArray ])
+                            "the inner mismatch at 2L is unreported: the inner [| is the error"
+                    }
+
+                    test "a rejected item reports once" {
+                        Expect.equal (check "[| 1; id 2 |]") notConstant "[| 1; id 2 |]"
+                    }
+
+                    test "an empty array waits for the parameter's type" {
+                        Expect.equal (check "[||]") (Error [ ConstExprCheck.Rejection.emptyArray ]) "[||]"
+                    }
+
+                    test "a list literal is not a constant expression" {
+                        Expect.equal (check "[1]") notConstant "[1] is not the constant 1"
+                        Expect.equal (check "[1; 2]") notConstant "[1; 2]"
                     }
                 ]
 

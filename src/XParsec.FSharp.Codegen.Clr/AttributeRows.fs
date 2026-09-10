@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.Codegen.Clr
 
+open System.Collections.Immutable
 open System.Reflection.Metadata
 open Vesper
 open XParsec.FSharp.Lexer
@@ -67,123 +68,177 @@ module SyntheticAttribute =
 /// type, the full name alone for a type of the assembly under emission.
 module internal AttributeBlob =
 
-    /// One scalar's `FieldOrPropType` byte and its `Elem` write. `ValueNone` ⇒ pointer-width
-    /// integrals, `decimal` (fsc lowers it to `DecimalConstantAttribute`) and `unit` have no
-    /// `Elem` encoding.
-    let private tryScalarElem (v: TConstValue) : struct (byte * (BlobBuilder -> unit)) voption =
+    /// The single `FieldOrPropType` byte `key` spells: `bool`, `char`, a fixed-width integral,
+    /// `float32`, `float`, `string`, and `0x50` for `Vesper.Type`. `ValueNone` for every other key.
+    let private tryFieldOrPropTypeByte (key: TypeKey) : byte voption =
+        match RuntimeNames.intKindOfKey key with
+        | ValueSome IntKind.SByte -> ValueSome 0x04uy
+        | ValueSome IntKind.Byte -> ValueSome 0x05uy
+        | ValueSome IntKind.Int16 -> ValueSome 0x06uy
+        | ValueSome IntKind.UInt16 -> ValueSome 0x07uy
+        | ValueSome IntKind.Int32 -> ValueSome 0x08uy
+        | ValueSome IntKind.UInt32 -> ValueSome 0x09uy
+        | ValueSome IntKind.Int64 -> ValueSome 0x0Auy
+        | ValueSome IntKind.UInt64 -> ValueSome 0x0Buy
+        | ValueSome IntKind.NativeInt
+        | ValueSome IntKind.UNativeInt -> ValueNone
+        | ValueNone ->
+            if key = RuntimeNames.boolKey then ValueSome 0x02uy
+            elif key = RuntimeNames.charKey then ValueSome 0x03uy
+            elif key = RuntimeNames.float32Key then ValueSome 0x0Cuy
+            elif key = RuntimeNames.floatKey then ValueSome 0x0Duy
+            elif key = RuntimeNames.stringKey then ValueSome 0x0Euy
+            elif key = RuntimeNames.runtimeTypeKey then ValueSome 0x50uy
+            else ValueNone
+
+    /// The bytes `write` puts into a fresh blob.
+    let private bytes (write: BlobBuilder -> unit) : ImmutableArray<byte> =
+        let b = BlobBuilder()
+        write b
+        b.ToImmutableArray()
+
+    /// The `FieldOrPropType` of `ty`: an enum is `0x55` + its SerString, an array `0x1D` +
+    /// its item type. `ValueNone` for a type with no II.23.3 encoding.
+    let rec private tryFieldOrPropType
+        (tryTypeName: FrozenType -> string voption)
+        (ty: FrozenType)
+        : ImmutableArray<byte> voption =
+        match ty with
+        | FTEnum _ ->
+            tryTypeName ty
+            |> ValueOption.map (fun name ->
+                bytes (fun b ->
+                    b.WriteByte 0x55uy
+                    b.WriteSerializedString name
+                )
+            )
+        | FTArray elemTy ->
+            tryFieldOrPropType tryTypeName elemTy
+            |> ValueOption.map (fun elem ->
+                bytes (fun b ->
+                    b.WriteByte 0x1Duy
+                    b.WriteBytes elem
+                )
+            )
+        | FTConst(key, args) when args.IsEmpty ->
+            tryFieldOrPropTypeByte key
+            |> ValueOption.map (fun t -> bytes (fun b -> b.WriteByte t))
+        | _ -> ValueNone
+
+    /// One scalar's `Elem` write. `ValueNone` for pointer-width integrals, `decimal` (fsc
+    /// lowers it to `DecimalConstantAttribute`) and `unit`, which have no `Elem` encoding.
+    let private tryScalarElem (v: TConstValue) : (BlobBuilder -> unit) voption =
         match v with
-        | TConstValue.Bool x -> ValueSome(struct (0x02uy, (fun b -> b.WriteBoolean x)))
-        | TConstValue.Char c -> ValueSome(struct (0x03uy, (fun b -> b.WriteUInt16(uint16 c))))
+        | TConstValue.Bool x -> ValueSome(fun b -> b.WriteBoolean x)
+        | TConstValue.Char c -> ValueSome(fun b -> b.WriteUInt16(uint16 c))
         | TConstValue.Integral v ->
             match v with
-            | IntValue.SByte n -> ValueSome(struct (0x04uy, (fun b -> b.WriteSByte n)))
-            | IntValue.Byte n -> ValueSome(struct (0x05uy, (fun b -> b.WriteByte n)))
-            | IntValue.Int16 n -> ValueSome(struct (0x06uy, (fun b -> b.WriteInt16 n)))
-            | IntValue.UInt16 n -> ValueSome(struct (0x07uy, (fun b -> b.WriteUInt16 n)))
-            | IntValue.Int32 n -> ValueSome(struct (0x08uy, (fun b -> b.WriteInt32 n)))
-            | IntValue.UInt32 n -> ValueSome(struct (0x09uy, (fun b -> b.WriteUInt32 n)))
-            | IntValue.Int64 n -> ValueSome(struct (0x0Auy, (fun b -> b.WriteInt64 n)))
-            | IntValue.UInt64 n -> ValueSome(struct (0x0Buy, (fun b -> b.WriteUInt64 n)))
+            | IntValue.SByte n -> ValueSome(fun b -> b.WriteSByte n)
+            | IntValue.Byte n -> ValueSome(fun b -> b.WriteByte n)
+            | IntValue.Int16 n -> ValueSome(fun b -> b.WriteInt16 n)
+            | IntValue.UInt16 n -> ValueSome(fun b -> b.WriteUInt16 n)
+            | IntValue.Int32 n -> ValueSome(fun b -> b.WriteInt32 n)
+            | IntValue.UInt32 n -> ValueSome(fun b -> b.WriteUInt32 n)
+            | IntValue.Int64 n -> ValueSome(fun b -> b.WriteInt64 n)
+            | IntValue.UInt64 n -> ValueSome(fun b -> b.WriteUInt64 n)
             | IntValue.NativeInt _
             | IntValue.UNativeInt _ -> ValueNone
-        | TConstValue.Float32 f -> ValueSome(struct (0x0Cuy, (fun b -> b.WriteSingle f)))
-        | TConstValue.Float f -> ValueSome(struct (0x0Duy, (fun b -> b.WriteDouble f)))
-        | TConstValue.String s -> ValueSome(struct (0x0Euy, (fun b -> b.WriteSerializedString s)))
+        | TConstValue.Float32 f -> ValueSome(fun b -> b.WriteSingle f)
+        | TConstValue.Float f -> ValueSome(fun b -> b.WriteDouble f)
+        | TConstValue.String s -> ValueSome(fun b -> b.WriteSerializedString s)
         | TConstValue.Decimal _
         | TConstValue.Unit -> ValueNone
 
-    /// One result's `FieldOrPropType` byte and its `Elem` write. A `Type` (`0x50`) carries
-    /// the SerString of the type's name. `ValueNone` for `null`, an array-valued argument,
-    /// and a scalar or type with no `Elem` encoding.
-    let private tryElem
+    /// One value's `Elem` at its type `ty`: a `Type` is the SerString of the type's name, an
+    /// array its `uint32` count then each item's `Elem`. `ValueNone` for `null`, a
+    /// string-valued (TS) enum, and a scalar or type outside the `Elem` encoding.
+    let rec private tryElem
         (tryTypeName: FrozenType -> string voption)
+        (ty: FrozenType)
         (r: TConstResult)
-        : struct (byte * (BlobBuilder -> unit)) voption =
-        match r with
-        | TConstResult.Scalar v -> tryScalarElem v
-        | TConstResult.TypeVal t ->
+        : ImmutableArray<byte> voption =
+        match ty, r with
+        | FTEnum _, TConstResult.Scalar(TConstValue.Integral _ as v) -> tryScalarElem v |> ValueOption.map bytes
+        | FTEnum _, _ -> ValueNone
+        | _, TConstResult.Scalar v -> tryScalarElem v |> ValueOption.map bytes
+        | _, TConstResult.TypeVal t ->
             tryTypeName t
-            |> ValueOption.map (fun name -> struct (0x50uy, (fun (b: BlobBuilder) -> b.WriteSerializedString name)))
-        | TConstResult.Null
-        | TConstResult.ArrayVal _ -> ValueNone
+            |> ValueOption.map (fun name -> bytes (fun b -> b.WriteSerializedString name))
+        | FTArray elemTy, TConstResult.ArrayVal items ->
+            Block.tryMap (tryElem tryTypeName elemTy) items
+            |> ValueOption.map (fun elems ->
+                bytes (fun b ->
+                    b.WriteUInt32(uint32 elems.Length)
 
-    /// One argument judged encodable before anything is written: a row is all-or-nothing.
-    [<NoEquality; NoComparison>]
-    type private EncodableArg =
+                    for elem in elems do
+                        b.WriteBytes elem
+                )
+            )
+        | _, TConstResult.Null
+        | _, TConstResult.ArrayVal _ -> ValueNone
+
+    [<RequireQualifiedAccess>]
+    type private ArgKind =
+        | Positional
+        | Named
+
+    /// One argument's finished bytes: a positional argument's `Elem`; a named PROPERTY
+    /// argument's `0x54`, `FieldOrPropType`, SerString name, then `Elem`.
+    type private EncodedArg =
         {
-            Name: string voption
-            /// `ValueSome` ⇒ the named-argument `FieldOrPropType` is `0x55` + this SerString
-            /// (II.23.3's enum form) instead of `TypeByte`.
-            EnumFullName: string voption
-            TypeByte: byte
-            WriteValue: BlobBuilder -> unit
+            Kind: ArgKind
+            Bytes: ImmutableArray<byte>
         }
 
-    /// A POSITIONAL enum-typed argument needs no enum name: the fixed-argument encoding
-    /// follows the ctor's parameter type. `ValueNone` where the value has no `Elem`
-    /// encoding, or a named argument is typed by a string-valued (TS) enum.
-    let private tryClassify (tryTypeName: FrozenType -> string voption) (a: TAttributeArg) : EncodableArg voption =
-        match tryElem tryTypeName (TConstExpr.result a.Expr) with
-        | ValueNone -> ValueNone
-        | ValueSome(struct (tyByte, write)) ->
-            let arg =
-                {
-                    Name = a.Name
-                    EnumFullName = ValueNone
-                    TypeByte = tyByte
-                    WriteValue = write
-                }
+    /// `ValueNone` where the value has no `Elem` encoding, or a named argument's type has no
+    /// `FieldOrPropType` spelling (a string-valued TS enum). A positional argument's type is
+    /// the ctor's parameter type and is unwritten.
+    let private tryEncodeArg (tryTypeName: FrozenType -> string voption) (a: TAttributeArg) : EncodedArg voption =
+        let ty = TConstExpr.ty a.Expr
 
-            match a.Name, a.EnumKey with
-            | _, ValueNone
-            | ValueNone, ValueSome _ -> ValueSome arg
-            | ValueSome _, ValueSome key ->
-                match a.Value with
-                // An enum value serialises at its underlying integral width; a string-valued
-                // enum (a TS enum) has no CLR encoding.
-                | ValueSome(TConstValue.Integral _) ->
-                    tryTypeName (FTEnum key)
-                    |> ValueOption.map (fun n -> { arg with EnumFullName = ValueSome n })
-                | _ -> ValueNone
+        tryElem tryTypeName ty (TConstExpr.result a.Expr)
+        |> ValueOption.bind (fun value ->
+            match a.Name with
+            | ValueNone ->
+                ValueSome
+                    {
+                        Kind = ArgKind.Positional
+                        Bytes = value
+                    }
+            | ValueSome name ->
+                tryFieldOrPropType tryTypeName ty
+                |> ValueOption.map (fun fieldOrPropType ->
+                    {
+                        Kind = ArgKind.Named
+                        Bytes =
+                            bytes (fun b ->
+                                b.WriteByte 0x54uy
+                                b.WriteBytes fieldOrPropType
+                                b.WriteSerializedString name
+                                b.WriteBytes value
+                            )
+                    }
+                )
+        )
 
     /// The blob: prolog `0x0001`, the positional arguments in written order, the
-    /// named-argument count, then each named PROPERTY argument (`0x54`, `FieldOrPropType`,
-    /// SerString name, value). `ValueNone` where any argument is unencodable.
+    /// named-argument count, then the named arguments in written order. `ValueNone` where
+    /// any argument is unencodable.
     let tryEncode (tryTypeName: FrozenType -> string voption) (args: Block<TAttributeArg>) : BlobBuilder voption =
-        // Classify every argument before writing: a partially-written blob is never returned.
-        let classified = [ for a in args -> tryClassify tryTypeName a ]
-
-        if List.exists ValueOption.isNone classified then
-            ValueNone
-        else
-            let classified = List.map ValueOption.get classified
+        Block.tryMap (tryEncodeArg tryTypeName) args
+        |> ValueOption.map (fun encoded ->
+            let named = encoded |> Block.filter (fun a -> a.Kind = ArgKind.Named)
             let b = BlobBuilder()
             b.WriteUInt16 1us
 
-            let named =
-                classified
-                |> List.choose (fun a ->
-                    match a.Name with
-                    | ValueSome n -> Some(n, a)
-                    | ValueNone -> None
-                )
+            for a in encoded do
+                if a.Kind = ArgKind.Positional then
+                    b.WriteBytes a.Bytes
 
-            for a in classified do
-                if a.Name.IsNone then
-                    a.WriteValue b
+            b.WriteUInt16(uint16 named.Length)
 
-            b.WriteUInt16(uint16 (List.length named))
+            for a in named do
+                b.WriteBytes a.Bytes
 
-            for (name, a) in named do
-                b.WriteByte 0x54uy
-
-                match a.EnumFullName with
-                | ValueSome enumName ->
-                    b.WriteByte 0x55uy
-                    b.WriteSerializedString enumName
-                | ValueNone -> b.WriteByte a.TypeByte
-
-                b.WriteSerializedString name
-                a.WriteValue b
-
-            ValueSome b
+            b
+        )

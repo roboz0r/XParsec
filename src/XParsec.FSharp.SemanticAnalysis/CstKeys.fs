@@ -242,6 +242,20 @@ module CstKeys =
     [<return: Struct>]
     let (|SingleIdent|_|) (e: Expr<SyntaxToken>) : SyntaxToken voption = trySingleIdent e
 
+    /// The items of a `[1; 2; 3]` / `[| 1; 2; 3 |]` body: the parser wraps two or more in
+    /// `Expr.Sequential`, and a one-item literal is the item alone.
+    let listLiteralItems (body: Expr<SyntaxToken>) : Expr<SyntaxToken> list =
+        match body with
+        | Expr.Sequential(exprs = items) -> [ for x in items -> x ]
+        | single -> [ single ]
+
+    /// The expression inside every grouping paren: `((e))`, `begin e end` and `e` all yield
+    /// `e`.
+    let rec ungroup (e: Expr<SyntaxToken>) : Expr<SyntaxToken> =
+        match e with
+        | Expr.EnclosedBlock(lParen = (ParenKind.Paren _ | ParenKind.BeginEnd _); expr = inner) -> ungroup inner
+        | _ -> e
+
     /// The segment tokens of an identifier expression, `Ident x` and `LongIdent[x; …]`
     /// alike.
     [<return: Struct>]

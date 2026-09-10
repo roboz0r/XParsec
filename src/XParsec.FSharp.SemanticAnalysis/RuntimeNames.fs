@@ -563,6 +563,10 @@ module IntrinsicTypePatterns =
         | TyConst(k, a) when a.Length = 1 && k = arrayKey1 -> Some a.[0]
         | _ -> None
 
+    /// The `elem[]` type, the form `TyArray` matches.
+    let tyArray (elem: SemType) : SemType =
+        TyConst(arrayKey1, Block.singleton elem)
+
     let (|TyByref|_|) (ty: SemType) =
         match ty with
         | TyConst(k, a) when a.Length = 1 && k = byrefKey -> Some a.[0]
@@ -594,6 +598,10 @@ module IntrinsicTypePatterns =
         match ft with
         | FTConst(k, a) when a.Length = 1 && k = arrayKey1 -> Some a.[0]
         | _ -> None
+
+    /// The frozen `elem[]` type, the form `FTArray` matches.
+    let ftArray (elem: FrozenType) : FrozenType =
+        FTConst(arrayKey1, Block.singleton elem)
 
     let (|FTByref|_|) (ft: FrozenType) =
         match ft with

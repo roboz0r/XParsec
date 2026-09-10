@@ -110,9 +110,3 @@ module TConstExpr =
 
     /// The scalar the expression denotes; `ValueNone` for `null`, a `typeof<T>` and an array.
     let tryScalar (e: TConstExpr) : TConstValue voption = TConstResult.tryScalar (result e)
-
-    /// The enum whose case(s) the expression was written as; `ValueNone` for every other type.
-    let tryEnumKey (e: TConstExpr) : TypeKey voption =
-        match ty e with
-        | FTEnum key -> ValueSome key
-        | _ -> ValueNone

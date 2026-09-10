@@ -2,6 +2,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.AttributeRowTests
 
 open System
 open System.IO
+open System.Reflection
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
 open Expecto
@@ -373,6 +374,90 @@ let tests =
                     named.TypedValue.ArgumentType.FullName
                     "KindsModule+Targets3"
                     "reflection resolves the enum through the module class"
+            }
+
+            // (i) An array argument encodes II.23.3's `SZARRAY` form: a `uint32` count then
+            // each item's `Elem`. A positional array follows the ctor's parameter type; a
+            // named array writes `0x1D` + the item's `FieldOrPropType` first.
+            test "array arguments encode as count-prefixed elements" {
+                let source =
+                    String.concat
+                        "\n"
+                        [
+                            "type Targets4 ="
+                            "    | A = 1"
+                            "    | B = 2"
+                            "    | C = 4"
+                            ""
+                            "type MarkAttribute(xs: int[], es: Targets4[]) ="
+                            "    let mutable named: int[] = [||]"
+                            "    member _.Xs = xs"
+                            "    member _.Es = es"
+                            "    member _.Named with get () = named and set (v: int[]) = named <- v"
+                            ""
+                            "[<Mark([| 1; 2 |], [| Targets4.A; Targets4.B ||| Targets4.C |], Named = [| 3; 4 |])>]"
+                            "type Tagged4() ="
+                            "    member _.X = 1"
+                        ]
+
+                let artifact = compileSource "AttrArrayArgs" source
+                let bytes = Codegen.toBytes artifact
+
+                let blob =
+                    customAttributeRowsOn bytes "Tagged4"
+                    |> List.pick (fun (ctorDecl, blob) -> if ctorDecl = "MarkAttribute" then Some blob else None)
+
+                let serString (s: string) =
+                    byte s.Length :: (Text.Encoding.UTF8.GetBytes s |> List.ofArray)
+
+                let int32Bytes (n: int) = List.ofArray (BitConverter.GetBytes n)
+
+                Expect.equal
+                    (List.ofArray blob)
+                    [
+                        yield! [ 1uy; 0uy ] // prolog
+                        yield! int32Bytes 2 // xs: count
+                        yield! int32Bytes 1
+                        yield! int32Bytes 2
+                        yield! int32Bytes 2 // es: count
+                        yield! int32Bytes 1 // Targets4.A at the underlying int32 width
+                        yield! int32Bytes 6 // Targets4.B ||| Targets4.C
+                        yield! [ 1uy; 0uy ] // named-argument count
+                        yield 0x54uy // PROPERTY
+                        yield! [ 0x1Duy; 0x08uy ] // FieldOrPropType: SZARRAY of I4
+                        yield! serString "Named"
+                        yield! int32Bytes 2 // count
+                        yield! int32Bytes 3
+                        yield! int32Bytes 4
+                    ]
+                    "each array is its count then its items; only the named one spells its type"
+
+                let asm = loadAssembly bytes
+
+                let mark =
+                    (asm.GetType "Tagged4").GetCustomAttributesData()
+                    |> Seq.find (fun a -> a.AttributeType.Name = "MarkAttribute")
+
+                let items (arg: CustomAttributeTypedArgument) : int list =
+                    let elements =
+                        arg.Value :?> Collections.ObjectModel.ReadOnlyCollection<CustomAttributeTypedArgument>
+
+                    [ for item in elements -> Convert.ToInt32 item.Value ]
+
+                Expect.equal (items mark.ConstructorArguments.[0]) [ 1; 2 ] "reflection reads the int[] fixed arg"
+
+                Expect.equal
+                    (items mark.ConstructorArguments.[1])
+                    [ 1; 6 ]
+                    "reflection reads the enum[] fixed arg at the underlying width"
+
+                Expect.equal
+                    (mark.ConstructorArguments.[1].ArgumentType.GetElementType().Name)
+                    "Targets4"
+                    "the enum[] fixed arg is typed by the ctor's parameter"
+
+                let named = mark.NamedArguments |> Seq.find (fun n -> n.MemberName = "Named")
+                Expect.equal (items named.TypedValue) [ 3; 4 ] "reflection reads the named int[] arg"
             }
 
             // (h) A defective row does not vanish silently: the reason lands on the artifact

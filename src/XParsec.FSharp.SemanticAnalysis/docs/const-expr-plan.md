@@ -424,27 +424,52 @@ Regressions: `AttributeRowTests` pins the `Type` element's blob bytes for a loca
 definition and a BCL primitive and reads both back through reflection; `ReifiedTypeTests` runs
 `typeof<T>` and `typedefof<T>` in expression position.
 
-#### 6b. Non-empty array literals
+#### 6b. Non-empty array literals — LANDED
 
-`Expr.ArrayOrList` in its array form with at least one item. Each item is checked with
-`check`; every item must have exactly the first item's type, and the node's `ty` is the
-frozen array of it. fsc reports a differing item as FS0267 at the item, not FS0001:
-`[<D([| 1; 2L |])>]` is FS0267 at `2L`. A nested array is FS0267 at the inner `[|`, so an
-item that is itself an `ArrayLit` is refused. `[||]`, `null` items and `obj[]` positions wait
-for 6c.
+The CST form is `Expr.EnclosedBlock(ParenKind.Array, body)`, not an `ArrayOrList` case; the
+body's items are split by `CstKeys.listLiteralItems`, moved there from `Elaborate/Args.fs` so
+the checker and `ElaborateExpr` share the one splitter. `ConstExprCheck.checkArray` checks
+every item, requires each to have exactly the first item's type, and types the node as the
+frozen `T[]`. A differing item is `Rejection.arrayItemType` at the item, one report per
+mismatch, matching fsc's FS0267 at `2L` in `[<D([| 1; 2L |])>]`. A nested array is
+`Rejection.nestedArray` at the inner `[|`, whether written bare, parenthesised or as `[||]`.
+`[||]` alone is `Rejection.emptyArray` (`NotYetSupported`) until 6c supplies the parameter's
+type; `null` items and `obj[]` positions wait with it.
+
+Two latent acceptances the arm split surfaced and closed: `Expr.EnclosedBlock` peeled every
+bracket kind, so `[1]` checked as the constant `1`, and `Expr.EmptyBlock` matched every kind,
+so `[||]` checked as `()`. Only `(…)` and `begin … end` peel now; `[…]`, `{…}` and `{|…|}`
+are `NotConstantExpression`.
 
 fsc refuses `byte[]` and `uint16[]` literals (`[<K([| 1uy |])>]` and `"s"B` are both FS0267)
 while accepting every other primitive element type. II.23.3 encodes both, and the refusal is
-a front-end gate on a target-neutral value, so Vesper accepts them. Recorded as a stated
-parity departure alongside `decimal` and `nativeint` in the Shape section.
+a front-end gate on a target-neutral value, so Vesper accepts them, pinned by
+`ConstExprCheckTests`. Recorded as a stated parity departure alongside `decimal` and
+`nativeint` in the Shape section.
 
-CLR: `SZARRAY` (`0x1D`) followed by the element's `FieldOrPropType` byte, a `uint32` count
-and each element's `Elem`. An enum-typed element writes at its underlying width, as a
-positional enum scalar does today. `tryClassify` becomes recursive over `TConstResult` rather
-than a scalar match.
+CLR: `AttributeBlob` is type-directed and yields bytes, never writers. `tryFieldOrPropType`
+spells a type's `FieldOrPropType` off the node's `FrozenType` (`0x55` + SerString for an
+enum, `0x1D` + the item type for an array, a primitive's byte off its key), and `tryElem`
+yields the value's `Elem` at that type (a `uint32` count then each item's `Elem` for an
+array, an enum at its underlying width). `tryEncodeArg` yields each argument's finished
+segment: a positional argument's `Elem` alone, since its type is the ctor's parameter type;
+a named argument's `0x54`, `FieldOrPropType`, SerString name and `Elem`, so
+`Named = [| 3; 4 |]` is `0x54 0x1D 0x08 "Named" …`. `tryEncode` is then prolog, positional
+segments, count, named segments; the all-or-nothing gathering at both levels is
+`Block.tryMap`. `TAttributeArg.EnumKey` and `TConstExpr.tryEnumKey` lost their last reader
+and are deleted, as the Shape section intended; `TAttributeArg.Value` keeps its one reader
+in `AttributeFold.declaredValidOn`.
 
-Done when: `[<D([| 1; 2 |])>]` and `[<J([| E.A; E.B ||| E.C |])>]` round-trip and read back
-from an emitted assembly, and the mixed-element and nested-array refusals are pinned.
+Nested-array detection is on the CST, before the item is checked: `CstKeys.ungroup` peels
+grouping parens and any array bracket underneath is `Rejection.nestedArray`, so
+`[| [| 1; 2L |] |]` and `[| ([||]) |]` report the nesting alone. The array node's type is
+`ftArray elemTy`, the constructor beside the `FTArray` pattern.
+
+Regressions: `ConstExprCheckTests`' `array literals` list (acceptance over int, string, enum
+mask, reified type and byte items; the mismatch, nested, empty and list-literal refusals),
+`AttributeFoldTests` round-tripping `[| 1; 2 |]` and an enum array through `FrozenCodec`, and
+`AttributeRowTests` pinning the positional and named blob bytes and reading both arrays
+back through reflection.
 
 #### 6c. Constructor selection, `null`, `[||]` and `obj` positions
 

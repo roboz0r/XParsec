@@ -171,6 +171,28 @@ module Block =
     let mapi (mapping: int<'M> -> 'T -> 'U) (xs: BlockM<'T, 'M>) : BlockM<'U, 'M> =
         BlockM<'U, 'M>(Array.mapi (fun i x -> mapping (LanguagePrimitives.Int32WithMeasure<'M> i) x) xs.Xs)
 
+    /// The values of `xs` when every element is `ValueSome`; `ValueNone` at the first
+    /// `ValueNone`, leaving the rest unvisited.
+    let tryOfSeq (xs: 'T voption seq) : BlockM<'T, 'M> voption =
+        let out = ResizeArray<'T>()
+        use e = xs.GetEnumerator()
+        let mutable complete = true
+
+        while complete && e.MoveNext() do
+            match e.Current with
+            | ValueSome x -> out.Add x
+            | ValueNone -> complete <- false
+
+        if complete then
+            ValueSome(BlockM<'T, 'M>(out.ToArray()))
+        else
+            ValueNone
+
+    /// `mapping` over every element when it yields `ValueSome` for each; `ValueNone` at the
+    /// first `ValueNone`, leaving the rest unvisited.
+    let tryMap (mapping: 'T -> 'U voption) (xs: BlockM<'T, 'M>) : BlockM<'U, 'M> voption =
+        tryOfSeq (Seq.map mapping xs.Xs)
+
     /// Reference-preserving map: `ValueNone`, allocating nothing, when `mapping` returns a
     /// reference-equal result for EVERY element, the common case when a structural walk reaches
     /// an already-resolved subtree. Reference types only; a struct element would box per item.

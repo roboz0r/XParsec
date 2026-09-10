@@ -18,10 +18,6 @@ type TAttributeArg =
     /// The scalar the argument denotes; `ValueNone` for `null`, a `typeof<T>` and an array.
     member this.Value: TConstValue voption = TConstExpr.tryScalar this.Expr
 
-    /// The enum whose case(s) the argument was written as (`AttributeTargets.Class ||| …`);
-    /// `ValueNone` for a non-enum constant.
-    member this.EnumKey: TypeKey voption = TConstExpr.tryEnumKey this.Expr
-
 /// One written attribute: the declaration's `TypeKey` and its checked arguments, in written
 /// order. An attribute with an argument outside the constant domain was diagnosed and is
 /// absent from its position's `TAttributes`.

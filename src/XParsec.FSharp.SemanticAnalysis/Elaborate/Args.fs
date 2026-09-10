@@ -50,10 +50,3 @@ module internal ElaborateExprArgs =
     let unitConst (ctx: PassContext) (e: Expr<SyntaxToken>) : TExpr =
         let key = CstKeys.ofExpr e
         TExpr.Const(TConstValue.Unit, typeOfKey ctx key, CstKeys.firstTokenOfExpr e)
-
-    /// `[1; 2; 3]` parses as `EnclosedBlock(ParenKind.List, Sequential [...])`;
-    /// a one-item literal `[1]` skips the Sequential wrapper.
-    let listLiteralItems (body: Expr<SyntaxToken>) : Expr<SyntaxToken> list =
-        match body with
-        | Expr.Sequential(exprs = items) -> [ for x in items -> x ]
-        | single -> [ single ]

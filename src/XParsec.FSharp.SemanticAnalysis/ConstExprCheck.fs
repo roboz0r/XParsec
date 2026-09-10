@@ -7,10 +7,9 @@ open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
 
-/// The attribute-argument constant domain: a literal, a named-constant reference (an enum
-/// case or a `[<Literal>]` value), `|||`/`&&&`/`^^^` on two integral constants of one type,
-/// unary minus on a numeric constant, an enum conversion, `typeof<T>` / `typedefof<T>`, and
-/// grouping parens.
+/// The attribute-argument constant domain: literals, named constants (enum cases and
+/// `[<Literal>]` values), `|||`/`&&&`/`^^^` and unary-minus folds, enum conversions,
+/// `typeof<T>` / `typedefof<T>`, non-empty array literals, and grouping parens.
 module ConstExprCheck =
 
     /// What a rejected expression reports, beside `Kind.NotConstantExpression` for a form
@@ -57,6 +56,21 @@ module ConstExprCheck =
         /// platform facts: a generic definition comes from an identity the target supplies.
         let structuralDefinition =
             Kind.Message "'typedefof' takes a type with a generic definition on the target"
+
+        /// `[| 1; 2L |]` (FS0267 at `2L`): every item of a constant array has the first
+        /// item's type.
+        let arrayItemType =
+            Kind.Message "Every item of a constant array literal has the type of its first item"
+
+        /// `[| [| 1 |] |]` (FS0267 at the inner `[|`): a constant array holds scalars, types
+        /// and strings, never an array.
+        let nestedArray =
+            Kind.Message "A constant array literal does not nest; an item cannot itself be an array"
+
+        /// `[||]`: the check does not yet receive the parameter type an empty array would take.
+        let emptyArray =
+            Kind.NotYetSupported
+                "an empty array literal in a constant position, which takes its type from the parameter"
 
     /// Reports `kind` at `e`'s first token. Arms propagate `ValueNone` without reporting again,
     /// so one rejected expression yields one diagnostic.
@@ -396,8 +410,12 @@ module ConstExprCheck =
             ValueSome(TConstExpr.Literal(v, typeOfValue ctx v, Anchor.ofToken (CstKeys.firstTokenOfExpr e)))
 
         match e with
-        | Expr.EnclosedBlock(expr = inner) -> check ctx useSite inner
-        | Expr.EmptyBlock _ -> literal TConstValue.Unit
+        | Expr.EnclosedBlock(lParen = (ParenKind.Paren _ | ParenKind.BeginEnd _); expr = inner) ->
+            check ctx useSite inner
+        | Expr.EnclosedBlock(lParen = ParenKind.Array _; expr = inner) ->
+            checkArray ctx useSite e (CstKeys.listLiteralItems inner)
+        | Expr.EmptyBlock(lParen = ParenKind.Array _) -> reject ctx e Rejection.emptyArray
+        | Expr.EmptyBlock(lParen = (ParenKind.Paren _ | ParenKind.BeginEnd _)) -> literal TConstValue.Unit
         | Expr.Const c ->
             match ConstLiteral.tryValue ctx.NameOf c with
             | Ok v -> literal v
@@ -478,3 +496,40 @@ module ConstExprCheck =
                         )
                 )
         | _ -> reject ctx e Kind.NotConstantExpression
+
+    /// `[| e1; …; en |]` with at least one item: every item at the first item's type, the
+    /// node typed as that type's array. Each rejected item is reported at the item.
+    and private checkArray
+        (ctx: PassContext)
+        (useSite: UseSite)
+        (e: Expr<SyntaxToken>)
+        (items: Expr<SyntaxToken> list)
+        : TConstExpr voption =
+        /// An item written as an array, however grouped, is rejected before it is checked.
+        let checkItem (item: Expr<SyntaxToken>) : TConstExpr voption =
+            match CstKeys.ungroup item with
+            | Expr.EnclosedBlock(lParen = ParenKind.Array _)
+            | Expr.EmptyBlock(lParen = ParenKind.Array _) -> reject ctx item Rejection.nestedArray
+            | _ -> check ctx useSite item
+
+        // Every item is checked, so each rejected item reports once.
+        let checkedItems = items |> List.map (fun item -> struct (item, checkItem item))
+
+        match checkedItems with
+        | struct (_, ValueSome first) :: _ ->
+            let elemTy = TConstExpr.ty first
+
+            /// The node at `elemTy`; `ValueNone` after reporting a node of another type.
+            let atElemTy (struct (item: Expr<SyntaxToken>, node: TConstExpr voption)) : TConstExpr voption =
+                match node with
+                | ValueSome n when TConstExpr.ty n = elemTy -> node
+                | ValueSome _ -> reject ctx item Rejection.arrayItemType
+                | ValueNone -> ValueNone
+
+            checkedItems
+            |> List.map atElemTy
+            |> Block.tryOfSeq
+            |> ValueOption.map (fun nodes ->
+                TConstExpr.ArrayLit(nodes, ftArray elemTy, Anchor.ofToken (CstKeys.firstTokenOfExpr e))
+            )
+        | _ -> ValueNone

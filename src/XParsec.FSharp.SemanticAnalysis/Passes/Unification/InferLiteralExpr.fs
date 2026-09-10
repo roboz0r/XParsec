@@ -55,7 +55,7 @@ module internal UnificationInferLiteralExpr =
             unify ctx tok itemTy elemTy
 
         if isArray then
-            TyConst(RuntimeNames.arrayKey 1, Block.singleton elemTy)
+            tyArray elemTy
         else
             listLiteralTy ctx tok elemTy
 
@@ -64,7 +64,7 @@ module internal UnificationInferLiteralExpr =
         let elemTy = TyVar(ctx.FreshTyVar())
 
         if isArray then
-            TyConst(RuntimeNames.arrayKey 1, Block.singleton elemTy)
+            tyArray elemTy
         else
             listLiteralTy ctx tok elemTy
 
