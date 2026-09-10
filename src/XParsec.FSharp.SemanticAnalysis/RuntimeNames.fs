@@ -141,20 +141,28 @@ module RuntimeNames =
     /// `nativeOnlyBindingKey`, widened to `SymbolKey` for lookup in mixed-key tables.
     let nativeOnlyKey: SymbolKey = SymbolKey.Binding nativeOnlyBindingKey
 
-    // The `Vesper` operators a constant expression may apply. `ConstFold` selects one by the
-    // operator's TOKEN, so a shadowing `let (|||)` folds as the intrinsic.
+    /// The `Vesper` modules declaring the operators a constant expression may apply.
+    [<RequireQualifiedAccess>]
+    type OperatorModule =
+        /// `Vesper.BitwiseOperators`: `|||`, `&&&`, `^^^`, `<<<`, `>>>`, `~~~`.
+        | Bitwise
+        /// `Vesper.ArithmeticOperators`: `+`, `-`, `*` and unary `~-`.
+        | Arithmetic
+        /// `Vesper.LogicalOperators`: `&&` and `||`.
+        | Logical
+        /// `Vesper.Operators`: `not`.
+        | Operators
 
-    let bitwiseBindingKey (op: BitwiseOp) : BindingKey =
-        let name =
-            match op with
-            | BitwiseOp.Or -> OperatorData.OpBitwiseOr
-            | BitwiseOp.And -> OperatorData.OpBitwiseAnd
-            | BitwiseOp.Xor -> OperatorData.OpExclusiveOr
+    /// `Vesper.<module>.<compiledName>`.
+    let operatorKey (m: OperatorModule) (compiledName: string) : BindingKey =
+        let moduleName =
+            match m with
+            | OperatorModule.Bitwise -> "BitwiseOperators"
+            | OperatorModule.Arithmetic -> "ArithmeticOperators"
+            | OperatorModule.Logical -> "LogicalOperators"
+            | OperatorModule.Operators -> "Operators"
 
-        SymbolKeyOps.moduleBindingKey intrinsicNamespace "BitwiseOperators" name
-
-    let unaryNegationBindingKey: BindingKey =
-        SymbolKeyOps.moduleBindingKey intrinsicNamespace "ArithmeticOperators" OperatorData.OpUnaryNegation
+        SymbolKeyOps.moduleBindingKey intrinsicNamespace moduleName compiledName
 
     // The two spellings of an enum conversion: the qualified `LanguagePrimitives.EnumOfValue`
     // and the auto-opened `enum`.

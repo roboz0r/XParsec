@@ -110,11 +110,38 @@ type IntValue =
     | NativeInt of int64
     | UNativeInt of uint64
 
+/// A per-bit operation on two integral values of one kind. The result depends on the
+/// operands' bits alone, so a pointer-width operand folds.
 [<RequireQualifiedAccess>]
-type BitwiseOp =
+type IntBitwiseOp =
     | Or
     | And
     | Xor
+
+/// Wrapping arithmetic on two integral values of one kind, computed at that kind's width.
+[<RequireQualifiedAccess>]
+type IntArithOp =
+    | Add
+    | Subtract
+    | Multiply
+
+/// A bit shift. The right operand is an `int32` count rather than a value of the shifted
+/// kind, and a signed kind shifts right arithmetically.
+[<RequireQualifiedAccess>]
+type IntShiftOp =
+    | Left
+    | Right
+
+/// Why an integral operation yields no value.
+[<RequireQualifiedAccess>]
+type IntFoldRejection =
+    /// The operands are of two kinds; a binary integral operation takes one.
+    | KindMismatch
+    /// The result depends on the operand's width, and a pointer-width kind takes the
+    /// target's.
+    | TargetWidth
+    /// The shift count lies outside `[0, width)`, which the targets mask differently.
+    | ShiftCount
 
 module IntValue =
 
@@ -208,13 +235,13 @@ module IntValue =
         | IntValue.UInt64 _
         | IntValue.UNativeInt _ -> ValueNone
 
-    /// `l op r` at the operands' shared kind, `ValueNone` when the kinds differ.
-    let bitwise (op: BitwiseOp) (l: IntValue) (r: IntValue) : IntValue voption =
+    /// `l op r` at the operands' shared kind; `ValueNone` where the kinds differ.
+    let bitwise (op: IntBitwiseOp) (l: IntValue) (r: IntValue) : IntValue voption =
         let inline apply (a: ^a) (b: ^a) : ^a =
             match op with
-            | BitwiseOp.Or -> a ||| b
-            | BitwiseOp.And -> a &&& b
-            | BitwiseOp.Xor -> a ^^^ b
+            | IntBitwiseOp.Or -> a ||| b
+            | IntBitwiseOp.And -> a &&& b
+            | IntBitwiseOp.Xor -> a ^^^ b
 
         match l, r with
         | IntValue.SByte a, IntValue.SByte b -> ValueSome(IntValue.SByte(apply a b))
@@ -228,6 +255,65 @@ module IntValue =
         | IntValue.NativeInt a, IntValue.NativeInt b -> ValueSome(IntValue.NativeInt(apply a b))
         | IntValue.UNativeInt a, IntValue.UNativeInt b -> ValueSome(IntValue.UNativeInt(apply a b))
         | _ -> ValueNone
+
+    /// `l op r` at the operands' shared kind, wrapping at that kind's width. A pointer-width
+    /// operand is refused, since the wrap is the target's.
+    let arithmetic (op: IntArithOp) (l: IntValue) (r: IntValue) : Result<IntValue, IntFoldRejection> =
+        let inline apply (a: ^a) (b: ^a) : ^a =
+            match op with
+            | IntArithOp.Add -> a + b
+            | IntArithOp.Subtract -> a - b
+            | IntArithOp.Multiply -> a * b
+
+        match l, r with
+        | IntValue.SByte a, IntValue.SByte b -> Ok(IntValue.SByte(apply a b))
+        | IntValue.Byte a, IntValue.Byte b -> Ok(IntValue.Byte(apply a b))
+        | IntValue.Int16 a, IntValue.Int16 b -> Ok(IntValue.Int16(apply a b))
+        | IntValue.UInt16 a, IntValue.UInt16 b -> Ok(IntValue.UInt16(apply a b))
+        | IntValue.Int32 a, IntValue.Int32 b -> Ok(IntValue.Int32(apply a b))
+        | IntValue.UInt32 a, IntValue.UInt32 b -> Ok(IntValue.UInt32(apply a b))
+        | IntValue.Int64 a, IntValue.Int64 b -> Ok(IntValue.Int64(apply a b))
+        | IntValue.UInt64 a, IntValue.UInt64 b -> Ok(IntValue.UInt64(apply a b))
+        | IntValue.NativeInt _, IntValue.NativeInt _
+        | IntValue.UNativeInt _, IntValue.UNativeInt _ -> Error IntFoldRejection.TargetWidth
+        | _ -> Error IntFoldRejection.KindMismatch
+
+    /// `v` shifted by `count` bits, logically for an unsigned kind and arithmetically for a
+    /// signed one. A count within the kind's width shifts identically on every target.
+    let shift (op: IntShiftOp) (v: IntValue) (count: int) : Result<IntValue, IntFoldRejection> =
+        let inline at (width: int) (mk: ^a -> IntValue) (a: ^a) : Result<IntValue, IntFoldRejection> =
+            if count < 0 || count >= width then
+                Error IntFoldRejection.ShiftCount
+            else
+                match op with
+                | IntShiftOp.Left -> Ok(mk (a <<< count))
+                | IntShiftOp.Right -> Ok(mk (a >>> count))
+
+        match v with
+        | IntValue.SByte a -> at 8 IntValue.SByte a
+        | IntValue.Byte a -> at 8 IntValue.Byte a
+        | IntValue.Int16 a -> at 16 IntValue.Int16 a
+        | IntValue.UInt16 a -> at 16 IntValue.UInt16 a
+        | IntValue.Int32 a -> at 32 IntValue.Int32 a
+        | IntValue.UInt32 a -> at 32 IntValue.UInt32 a
+        | IntValue.Int64 a -> at 64 IntValue.Int64 a
+        | IntValue.UInt64 a -> at 64 IntValue.UInt64 a
+        | IntValue.NativeInt _
+        | IntValue.UNativeInt _ -> Error IntFoldRejection.TargetWidth
+
+    /// `~~~v`, every bit of the value's own width inverted.
+    let complement (v: IntValue) : Result<IntValue, IntFoldRejection> =
+        match v with
+        | IntValue.SByte a -> Ok(IntValue.SByte(~~~a))
+        | IntValue.Byte a -> Ok(IntValue.Byte(~~~a))
+        | IntValue.Int16 a -> Ok(IntValue.Int16(~~~a))
+        | IntValue.UInt16 a -> Ok(IntValue.UInt16(~~~a))
+        | IntValue.Int32 a -> Ok(IntValue.Int32(~~~a))
+        | IntValue.UInt32 a -> Ok(IntValue.UInt32(~~~a))
+        | IntValue.Int64 a -> Ok(IntValue.Int64(~~~a))
+        | IntValue.UInt64 a -> Ok(IntValue.UInt64(~~~a))
+        | IntValue.NativeInt _
+        | IntValue.UNativeInt _ -> Error IntFoldRejection.TargetWidth
 
 [<RequireQualifiedAccess>]
 type NumericLiteralValue =

@@ -74,6 +74,7 @@
     <Compile Include="ConformanceBodyTests.fs" />
     <Compile Include="EnumTests.fs" />
     <Compile Include="ConstExprCheckTests.fs" />
+    <Compile Include="ConstFoldTests.fs" />
     <Compile Include="ExternMemberElabTests.fs" />
     <Compile Include="DefaultOfInlineTests.fs" />
     <Compile Include="IntrinsicKeyStampTests.fs" />

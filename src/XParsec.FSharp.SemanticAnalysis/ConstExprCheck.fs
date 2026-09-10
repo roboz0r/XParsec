@@ -8,7 +8,7 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
 
 /// The attribute-argument constant domain: literals, named constants (enum cases and
-/// `[<Literal>]` values), `|||`/`&&&`/`^^^` and unary-minus folds, enum conversions,
+/// `[<Literal>]` values), the folds of `ConstBinary` and `ConstUnary`, enum conversions,
 /// `typeof<T>` / `typedefof<T>`, array literals, `null` and grouping parens.
 module ConstExprCheck =
 
@@ -36,8 +36,42 @@ module ConstExprCheck =
 
         /// Bitwise operands that are not integral constants of one type: `1 ||| 2L`, and
         /// `E.A ||| 2` (FS0001 in fsc).
-        let kindMismatch =
+        let bitwiseOperands =
             Kind.Message "Bitwise operands of a constant expression must be integral constants of one type"
+
+        /// `1 + 2L`, `"a" + 1`, `E.A + E.B`: arithmetic takes two integral constants of one
+        /// primitive type, and `+` two strings.
+        let arithmeticOperands =
+            Kind.Message
+                "A constant arithmetic expression takes two integral constants of one primitive type, or two strings under '+'"
+
+        /// `1.0 + 2.0`, `1.5M * 2M`: the targets compute inexact arithmetic differently (the
+        /// JS bodies compute in float64), so a constant expression carries the literal alone.
+        let inexactArithmetic =
+            Kind.NotYetSupported "arithmetic on 'float', 'float32' or 'decimal' in a constant expression"
+
+        /// `1 <<< 1L`, `E.A <<< 1`: a shift takes an integral constant of a primitive type
+        /// and an `int` count.
+        let shiftOperands =
+            Kind.Message "A constant shift takes an integral constant of a primitive type and an 'int' count"
+
+        /// `1 <<< 32`, `1 <<< -1`: the targets mask an out-of-range count differently, so a
+        /// constant shift takes a count within the shifted type's width.
+        let shiftCount =
+            Kind.Message "A constant shift count must be between 0 and one below the shifted type's width"
+
+        /// `~~~E.A` (an `int` in fsc, rather than the enum), `~~~1.5`.
+        let complementOperand =
+            Kind.Message "A constant complement takes an integral constant of a primitive type"
+
+        /// `1 && true`, `not 1`.
+        let logicalOperands =
+            Kind.Message "A constant '&&', '||' or 'not' takes 'bool' constants"
+
+        /// `1n + 1n`, `1n <<< 3`, `~~~1n`: a fold whose result depends on the operand's width
+        /// refuses a pointer-width kind, which takes its width from the target.
+        let targetWidth =
+            Kind.Message "A constant expression cannot compute at the pointer width of 'nativeint' or 'unativeint'"
 
         /// `enum<E> "x"`: the underlying value of an enum constant is integral.
         let enumOperand =
@@ -164,39 +198,120 @@ module ConstExprCheck =
             | _ -> ValueNone
         | _ -> ValueNone
 
-    let private tryBitwiseOp (compiledName: string) : BitwiseOp voption =
+    /// A binary operator a constant expression folds.
+    [<RequireQualifiedAccess>]
+    type private ConstBinary =
+        /// `|||`, `&&&`, `^^^`: two integral constants of one type, two cases of one enum
+        /// included.
+        | Bits of IntBitwiseOp
+        /// `+`, `-`, `*`: two integral constants of one primitive type, wrapping at its
+        /// width; `+` also concatenates two strings.
+        | Arith of IntArithOp
+        /// `<<<`, `>>>`: an integral constant of a primitive type, by an `int` count within
+        /// its width.
+        | Shift of IntShiftOp
+        /// `&&`: two `bool` constants.
+        | AndAlso
+        /// `||`: two `bool` constants.
+        | OrElse
+
+    /// A unary operator a constant expression folds.
+    [<RequireQualifiedAccess>]
+    type private ConstUnary =
+        /// `-`: a signed numeric constant, wrapping at its width.
+        | Negate
+        /// `~~~`: an integral constant of a primitive type.
+        | Complement
+        /// `not`: a `bool` constant.
+        | Not
+
+    let private binaryModule (op: ConstBinary) : RuntimeNames.OperatorModule =
+        match op with
+        | ConstBinary.Bits _
+        | ConstBinary.Shift _ -> RuntimeNames.OperatorModule.Bitwise
+        | ConstBinary.Arith _ -> RuntimeNames.OperatorModule.Arithmetic
+        | ConstBinary.AndAlso
+        | ConstBinary.OrElse -> RuntimeNames.OperatorModule.Logical
+
+    let private unaryModule (op: ConstUnary) : RuntimeNames.OperatorModule =
+        match op with
+        | ConstUnary.Negate -> RuntimeNames.OperatorModule.Arithmetic
+        | ConstUnary.Complement -> RuntimeNames.OperatorModule.Bitwise
+        | ConstUnary.Not -> RuntimeNames.OperatorModule.Operators
+
+    /// The fold the INFIX operator `compiledName` denotes; `ValueNone` for every operator
+    /// outside the constant domain.
+    let private tryConstBinary (compiledName: string) : ConstBinary voption =
         match compiledName with
-        | OperatorData.OpBitwiseOr -> ValueSome BitwiseOp.Or
-        | OperatorData.OpBitwiseAnd -> ValueSome BitwiseOp.And
-        | OperatorData.OpExclusiveOr -> ValueSome BitwiseOp.Xor
+        | OperatorData.OpBitwiseOr -> ValueSome(ConstBinary.Bits IntBitwiseOp.Or)
+        | OperatorData.OpBitwiseAnd -> ValueSome(ConstBinary.Bits IntBitwiseOp.And)
+        | OperatorData.OpExclusiveOr -> ValueSome(ConstBinary.Bits IntBitwiseOp.Xor)
+        | OperatorData.OpLeftShift -> ValueSome(ConstBinary.Shift IntShiftOp.Left)
+        | OperatorData.OpRightShift -> ValueSome(ConstBinary.Shift IntShiftOp.Right)
+        | OperatorData.OpAddition -> ValueSome(ConstBinary.Arith IntArithOp.Add)
+        | OperatorData.OpSubtraction -> ValueSome(ConstBinary.Arith IntArithOp.Subtract)
+        | OperatorData.OpMultiply -> ValueSome(ConstBinary.Arith IntArithOp.Multiply)
+        | OperatorData.OpBooleanAnd -> ValueSome ConstBinary.AndAlso
+        | OperatorData.OpBooleanOr -> ValueSome ConstBinary.OrElse
         | _ -> ValueNone
 
-    /// True where `compiledName` denotes `intrinsic` at `useSite`. A `let (|||)` in scope
-    /// shadows the intrinsic.
-    let private appliesIntrinsic
+    /// The fold the PREFIX operator `compiledName` denotes.
+    let private tryConstPrefix (compiledName: string) : ConstUnary voption =
+        match compiledName with
+        | OperatorData.OpUnaryNegation -> ValueSome ConstUnary.Negate
+        | OperatorData.OpLogicalNot -> ValueSome ConstUnary.Complement
+        | _ -> ValueNone
+
+    /// A fold with the intrinsic binding its spelling resolved to. `Key` is what the checked
+    /// node records.
+    type private ResolvedOp<'op> = { Op: 'op; Key: BindingKey }
+
+    /// The fold `spelling` denotes at `useSite`; `ValueNone` where the spelling is not in
+    /// scope or resolves to any other binding. A `let (|||)` in scope shadows the intrinsic.
+    let private tryIntrinsicOp
         (ctx: PassContext)
         (useSite: UseSite)
-        (compiledName: string)
-        (intrinsic: BindingKey)
-        : bool =
-        tryBinding ctx useSite [| compiledName |] = ValueSome intrinsic
-
-    let private tryIntrinsicBitwise (ctx: PassContext) (useSite: UseSite) (op: SyntaxToken) : BitwiseOp voption =
-        match OperatorNames.ofSymbolic (ctx.NameOf op) op with
+        (table: string -> 'op voption)
+        (homeModule: 'op -> RuntimeNames.OperatorModule)
+        (spelling: string voption)
+        : ResolvedOp<'op> voption =
+        match spelling with
         | ValueSome compiledName ->
-            match tryBitwiseOp compiledName with
-            | ValueSome bitOp when appliesIntrinsic ctx useSite compiledName (RuntimeNames.bitwiseBindingKey bitOp) ->
-                ValueSome bitOp
-            | _ -> ValueNone
+            match table compiledName with
+            | ValueSome op ->
+                let key = RuntimeNames.operatorKey (homeModule op) compiledName
+
+                if tryBinding ctx useSite [| compiledName |] = ValueSome key then
+                    ValueSome { Op = op; Key = key }
+                else
+                    ValueNone
+            | ValueNone -> ValueNone
         | ValueNone -> ValueNone
 
-    let private isIntrinsicNegation (ctx: PassContext) (useSite: UseSite) (op: SyntaxToken) : bool =
-        op.Token = Token.OpSubtraction
-        && (
-            match OperatorNames.ofPrefix (ctx.NameOf op) op with
-            | ValueSome compiledName -> appliesIntrinsic ctx useSite compiledName RuntimeNames.unaryNegationBindingKey
-            | ValueNone -> false
-        )
+    /// The fold the applied name `idents` denotes at `useSite`: `not`, the one foldable
+    /// operator written as an ordinary application.
+    let private tryAppliedUnary
+        (ctx: PassContext)
+        (useSite: UseSite)
+        (idents: ImmutableArray<SyntaxToken>)
+        : ResolvedOp<ConstUnary> voption =
+        let key = RuntimeNames.operatorKey (unaryModule ConstUnary.Not) "not"
+
+        if tryBinding ctx useSite (segmentsOf ctx idents) = ValueSome key then
+            ValueSome { Op = ConstUnary.Not; Key = key }
+        else
+            ValueNone
+
+    /// An ordinary application of a name to exactly one argument: `not b` or `not(b)`.
+    [<return: Struct>]
+    let private (|AppliedName|_|)
+        (e: Expr<SyntaxToken>)
+        : struct (ImmutableArray<SyntaxToken> * Expr<SyntaxToken>) voption =
+        match e with
+        | Expr.App(funcExpr = CstKeys.IdentPath idents; argExprs = args) when args.Length = 1 ->
+            ValueSome(struct (idents, args.[0]))
+        | Expr.HighPrecedenceApp(funcExpr = CstKeys.IdentPath idents; argExpr = arg) -> ValueSome(struct (idents, arg))
+        | _ -> ValueNone
 
     /// An enum conversion: `enum<E>` or `LanguagePrimitives.EnumOfValue<int, E>`.
     type private EnumConversion = { Op: BindingKey; Enum: TypeKey }
@@ -405,21 +520,84 @@ module ConstExprCheck =
         // `-"abc"`, `-true`: a non-numeric scalar, `null`, a type value or an array.
         | _ -> Error Kind.NotConstantExpression
 
-    /// `l op r` over two integral constants of one type, typed as its operands are: two cases
-    /// of one enum combine within that enum.
-    let private combine
-        (op: BitwiseOp)
+    /// The scalar of a node of any type. An enum case matches, carrying its underlying value.
+    [<return: Struct>]
+    let private (|Scalar|_|) (e: TConstExpr) : TConstValue voption = TConstExpr.tryScalar e
+
+    /// The scalar of a node of a primitive type. An enum case is excluded: bitwise
+    /// combination within the enum is the only fold its cases take.
+    [<return: Struct>]
+    let private (|Primitive|_|) (e: TConstExpr) : TConstValue voption =
+        match TConstExpr.ty e with
+        | FTEnum _ -> ValueNone
+        | _ -> TConstExpr.tryScalar e
+
+    /// The diagnostic an integral fold's rejection reports, `operands` standing for the
+    /// operator's own domain.
+    let private foldRejection (operands: Kind) (r: IntFoldRejection) : Kind =
+        match r with
+        | IntFoldRejection.KindMismatch -> operands
+        | IntFoldRejection.TargetWidth -> Rejection.targetWidth
+        | IntFoldRejection.ShiftCount -> Rejection.shiftCount
+
+    /// `l op r`, typed as its operands are: two cases of one enum combine within that enum.
+    let private applyBinary
+        (op: ConstBinary)
         (l: TConstExpr)
         (r: TConstExpr)
         : Result<struct (TConstValue * FrozenType), Kind> =
         let ty = TConstExpr.ty l
+        let sameType = ty = TConstExpr.ty r
+        let integral (n: IntValue) = struct (TConstValue.Integral n, ty)
 
-        match TConstExpr.tryScalar l, TConstExpr.tryScalar r with
-        | ValueSome(TConstValue.Integral lv), ValueSome(TConstValue.Integral rv) when ty = TConstExpr.ty r ->
-            match IntValue.bitwise op lv rv with
-            | ValueSome n -> Ok(struct (TConstValue.Integral n, ty))
-            | ValueNone -> Error Rejection.kindMismatch
-        | _ -> Error Rejection.kindMismatch
+        match op, l, r with
+        | ConstBinary.Bits o, Scalar(TConstValue.Integral a), Scalar(TConstValue.Integral b) when sameType ->
+            match IntValue.bitwise o a b with
+            | ValueSome n -> Ok(integral n)
+            | ValueNone -> Error Rejection.bitwiseOperands
+        | ConstBinary.Bits _, _, _ -> Error Rejection.bitwiseOperands
+        | ConstBinary.Arith o, Primitive(TConstValue.Integral a), Primitive(TConstValue.Integral b) when sameType ->
+            IntValue.arithmetic o a b
+            |> Result.map integral
+            |> Result.mapError (foldRejection Rejection.arithmeticOperands)
+        | ConstBinary.Arith IntArithOp.Add, Primitive(TConstValue.String a), Primitive(TConstValue.String b) ->
+            Ok(struct (TConstValue.String(a + b), ty))
+        | ConstBinary.Arith _, Scalar(TConstValue.Float _ | TConstValue.Float32 _ | TConstValue.Decimal _), _
+        | ConstBinary.Arith _, _, Scalar(TConstValue.Float _ | TConstValue.Float32 _ | TConstValue.Decimal _) ->
+            Error Rejection.inexactArithmetic
+        | ConstBinary.Arith _, _, _ -> Error Rejection.arithmeticOperands
+        | ConstBinary.Shift o, Primitive(TConstValue.Integral a), Primitive(TConstValue.Integral(IntValue.Int32 count)) ->
+            IntValue.shift o a count
+            |> Result.map integral
+            |> Result.mapError (foldRejection Rejection.shiftOperands)
+        | ConstBinary.Shift _, _, _ -> Error Rejection.shiftOperands
+        | ConstBinary.AndAlso, Scalar(TConstValue.Bool a), Scalar(TConstValue.Bool b) ->
+            Ok(struct (TConstValue.Bool(a && b), ty))
+        | ConstBinary.OrElse, Scalar(TConstValue.Bool a), Scalar(TConstValue.Bool b) ->
+            Ok(struct (TConstValue.Bool(a || b), ty))
+        | ConstBinary.AndAlso, _, _
+        | ConstBinary.OrElse, _, _ -> Error Rejection.logicalOperands
+
+    /// `op operand`. Negation is typed by the value it yields, the complement and `not` by
+    /// the operand's own type.
+    let private applyUnary
+        (ctx: PassContext)
+        (op: ConstUnary)
+        (operand: TConstExpr)
+        : Result<struct (TConstValue * FrozenType), Kind> =
+        let ty = TConstExpr.ty operand
+
+        match op, operand with
+        | ConstUnary.Negate, _ ->
+            negateScalar (TConstExpr.tryScalar operand)
+            |> Result.map (fun n -> struct (n, typeOfValue ctx n))
+        | ConstUnary.Complement, Primitive(TConstValue.Integral a) ->
+            IntValue.complement a
+            |> Result.map (fun n -> struct (TConstValue.Integral n, ty))
+            |> Result.mapError (foldRejection Rejection.complementOperand)
+        | ConstUnary.Complement, _ -> Error Rejection.complementOperand
+        | ConstUnary.Not, Scalar(TConstValue.Bool b) -> Ok(struct (TConstValue.Bool(not b), ty))
+        | ConstUnary.Not, _ -> Error Rejection.logicalOperands
 
     /// The constant `e` denotes at `useSite`, before the position's type is enforced. `null` and
     /// `[||]` take the declared `expected` as their own type and are refused without it, and an
@@ -488,50 +666,52 @@ module ConstExprCheck =
 
             tryReifiedType ctx at reified written
             |> ValueOption.map (fun operand -> TConstExpr.TypeOf(operand, runtimeType ctx, Anchor.ofToken at))
+        | AppliedName(struct (idents, arg)) ->
+            match tryAppliedUnary ctx useSite idents with
+            | ValueNone -> reject ctx e Kind.NotConstantExpression
+            | ValueSome resolved -> checkUnary ctx useSite e resolved (Anchor.ofToken idents.[0]) arg
         // The lexer merges `-` into an ADJACENT numeric where the preceding token cannot be a
         // left operand, so `-1` arrives above as one literal. This arm takes the spaced `- 1`
-        // and `-(1)`.
-        | Expr.PrefixApp(op, operand) when isIntrinsicNegation ctx useSite op ->
-            checkForm ctx useSite ValueNone operand
-            |> ValueOption.bind (fun inner ->
-                match negateScalar (TConstExpr.tryScalar inner) with
-                | Error k -> reject ctx e k
-                | Ok v ->
-                    ValueSome(
-                        TConstExpr.Unary(
-                            RuntimeNames.unaryNegationBindingKey,
-                            inner,
-                            TConstResult.Scalar v,
-                            typeOfValue ctx v,
-                            Anchor.ofToken op
-                        )
-                    )
-            )
-        | Expr.InfixApp(leftExpr = left; infixOp = op; rightExpr = right) ->
-            match tryIntrinsicBitwise ctx useSite op with
+        // and `-(1)`, and every other prefix fold.
+        | Expr.PrefixApp(op, operand) ->
+            match tryIntrinsicOp ctx useSite tryConstPrefix unaryModule (OperatorNames.ofPrefix (ctx.NameOf op) op) with
             | ValueNone -> reject ctx e Kind.NotConstantExpression
-            | ValueSome bitOp ->
+            | ValueSome resolved -> checkUnary ctx useSite e resolved (Anchor.ofToken op) operand
+        | Expr.InfixApp(leftExpr = left; infixOp = op; rightExpr = right) ->
+            match
+                tryIntrinsicOp ctx useSite tryConstBinary binaryModule (OperatorNames.ofSymbolic (ctx.NameOf op) op)
+            with
+            | ValueNone -> reject ctx e Kind.NotConstantExpression
+            | ValueSome resolved ->
                 checkForm ctx useSite ValueNone left
                 |> ValueOption.bind (fun l ->
                     checkForm ctx useSite ValueNone right
                     |> ValueOption.map (fun r -> struct (l, r))
                 )
                 |> ValueOption.bind (fun (struct (l, r)) ->
-                    match combine bitOp l r with
+                    match applyBinary resolved.Op l r with
                     | Error k -> reject ctx e k
                     | Ok(struct (v, ty)) ->
-                        ValueSome(
-                            TConstExpr.Binary(
-                                RuntimeNames.bitwiseBindingKey bitOp,
-                                l,
-                                r,
-                                TConstResult.Scalar v,
-                                ty,
-                                Anchor.ofToken op
-                            )
-                        )
+                        ValueSome(TConstExpr.Binary(resolved.Key, l, r, TConstResult.Scalar v, ty, Anchor.ofToken op))
                 )
         | _ -> reject ctx e Kind.NotConstantExpression
+
+    /// `op operand`, the operator already resolved to the intrinsic it folds as. `at` is the
+    /// operator's own token.
+    and private checkUnary
+        (ctx: PassContext)
+        (useSite: UseSite)
+        (e: Expr<SyntaxToken>)
+        (resolved: ResolvedOp<ConstUnary>)
+        (at: Anchor)
+        (operand: Expr<SyntaxToken>)
+        : TConstExpr voption =
+        checkForm ctx useSite ValueNone operand
+        |> ValueOption.bind (fun inner ->
+            match applyUnary ctx resolved.Op inner with
+            | Error k -> reject ctx e k
+            | Ok(struct (v, ty)) -> ValueSome(TConstExpr.Unary(resolved.Key, inner, TConstResult.Scalar v, ty, at))
+        )
 
     /// `[| e1; …; en |]` with at least one item: every item at the element type, which an
     /// expected array type declares and the first item supplies otherwise; the node is typed

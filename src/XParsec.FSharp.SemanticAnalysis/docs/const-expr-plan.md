@@ -635,14 +635,48 @@ facts encode `decimal` and `nativeint`).
 
 ### 8. CLR encoding for the new cases — folded into 6a, 6b and 6c
 
-### 9. Wider operator domain
+### 9. Wider operator domain — LANDED
 
-Admit `+`, `*`, `<<<` and string concatenation, now that operators resolve rather than match by
-token. The constraint carried from the superseded emission plan still binds: a primitive's
-arithmetic is platform-defined (the JS bodies compute in float64 behind `Math.imul` / `| 0`), so
-widen only where the targets agree by construction — integral two's-complement operations,
-`bool`, string concatenation — and keep `float`, `float32` and `decimal` arithmetic out.
-Representing a `decimal` *literal* stays in; folding `1.0M + 2.0M` does not.
+The domain is `+`, `-`, `*` and `~~~` on integral primitives, `<<<` and `>>>`, `+` on two
+strings, and `&&`, `||` and `not` on `bool`, beside the `|||` / `&&&` / `^^^` and unary-minus
+folds already in. `float`, `float32` and `decimal` arithmetic stays out under
+`Rejection.inexactArithmetic` (`NotYetSupported`), because a primitive's arithmetic is
+platform-defined (the JS bodies compute in float64 behind `Math.imul` / `| 0`); representing a
+`decimal` LITERAL is unchanged.
+
+`ConstBinary` and `ConstUnary` enumerate the folds. `tryConstBinary` / `tryConstPrefix` map a
+compiled operator name to the fold, `binaryModule` / `unaryModule` map the fold to the
+`RuntimeNames.OperatorModule` its spelling must resolve into, and `tryIntrinsicOp` builds the
+binding key from the two, in place of `bitwiseBindingKey`. `IntValue.bitwise` over
+`IntBitwiseOp` keeps its `voption`, joined by `IntValue.arithmetic` over `IntArithOp`,
+`IntValue.shift` and `IntValue.complement`, each answering `Result<IntValue, IntFoldRejection>`.
+The bitwise / arithmetic split is two types rather than one predicate, since only arithmetic
+refuses a pointer-width operand.
+
+Four decisions the stage text left open:
+
+- **`/` and `%` are out.** Division faults at zero (fsc reports FS0193 for `[<Mark(1/0)>]`) and
+  overflows at `Int32.MinValue / -1`, and the targets differ on both. `1 <<< 32` is likewise
+  out: fsc masks the count by one below the width, the targets mask differently, so a constant
+  shift takes a count in `[0, width)` (`Rejection.shiftCount`).
+- **A pointer-width operand is refused where the fold reads beyond the operands' bits**
+  (`Rejection.targetWidth`): `1n + 1n`, `1n <<< 3` and `~~~1n` refuse, `1n ||| 2n` folds.
+  `IntValue.shift` carries the width per kind.
+- **Overflow wraps rather than refusing.** fsc reports FS3177 for `[<Mark(2147483647 + 1)>]`;
+  the wrapped value is what both targets compute at run time, so it folds, as
+  `IntValue.negate` already wrapped `-(-128y)`.
+- **Arithmetic, shifts and `~~~` refuse an enum operand**, where `|||` / `&&&` / `^^^` combine
+  two cases of one enum within it. fsc answers a bare `int` for `~~~E.A`; a constant expression
+  stays within the operand's type or refuses.
+
+`not` is the one fold written as an ordinary application, so `checkForm` takes `Expr.App` and
+`Expr.HighPrecedenceApp` of a name resolving to `Vesper.Operators.not`. `checkUnary` is shared
+by the prefix operators and by it.
+
+Regressions: `ConstFoldTests`' `arithmetic`, `string concatenation`, `shifts`, `bool` and
+`complement` lists over the accepted domain and every refusal above, and `AttributeFoldTests`
+round-tripping `[<Mark(2 * 3 + (1 <<< 4), Prefix + "fix", not false)>]` through `FrozenCodec`
+plus FS0267 for a shadowed `(+)`.
 
 ### 10. `nameof`
 

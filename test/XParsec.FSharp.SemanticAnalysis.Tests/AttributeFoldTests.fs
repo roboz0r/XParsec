@@ -365,7 +365,7 @@ let tests =
                                 "type MarkAttribute(n: int, s: string) ="
                                 "    member this.N = n"
                                 ""
-                                "[<Mark(1 + 1, \"x\")>]"
+                                "[<Mark(id 1, \"x\")>]"
                                 "type W = { Y: int }"
                             ]
                     )
@@ -504,6 +504,59 @@ let tests =
 
                 Expect.isEmpty (FrozenPools.blockingErrors pools) "no errors"
                 Expect.equal (markArgs (typeDecl pools "W").Attributes) [ positional (int32 3) ] "1 ||| 2"
+            }
+
+            test "arithmetic, shift, string and bool arguments fold through the intrinsics" {
+                let pools =
+                    freezeFor (
+                        src
+                            [
+                                "type MarkAttribute(n: int, s: string, b: bool) ="
+                                "    member this.N = n"
+                                ""
+                                "[<Literal>]"
+                                "let Prefix = \"pre-\""
+                                ""
+                                "[<Mark(2 * 3 + (1 <<< 4), Prefix + \"fix\", not false)>]"
+                                "type W = { Y: int }"
+                            ]
+                    )
+
+                Expect.isEmpty (FrozenPools.blockingErrors pools) "no errors"
+
+                Expect.equal
+                    (markArgs (typeDecl pools "W").Attributes)
+                    [
+                        positional (int32 22)
+                        positional (TConstValue.String "pre-fix")
+                        positional (TConstValue.Bool true)
+                    ]
+                    "each widened fold survives the codec"
+            }
+
+            // fsc reports FS0267 for the same source.
+            test "an argument whose + is shadowed by a local definition is FS0267" {
+                let pools =
+                    freezeFor (
+                        src
+                            [
+                                "type MarkAttribute(n: int) ="
+                                "    member this.N = n"
+                                ""
+                                "let (+) (a: int) (b: int) = 999"
+                                ""
+                                "[<Mark(1 + 2)>]"
+                                "type W = { Y: int }"
+                            ]
+                    )
+
+                match FrozenPools.blockingErrors pools |> List.map (fun d -> d.Message) with
+                | [ msg ] -> Expect.stringContains msg "not a valid constant expression" "FS0267's wording"
+                | other -> failtestf "expected exactly one error, got %A" other
+
+                Expect.isEmpty
+                    (Block.toList (typeDecl pools "W").Attributes)
+                    "the attribute with the shadowed operator is dropped whole"
             }
 
             test "a non-literal value reference in an attribute argument is FS0267" {

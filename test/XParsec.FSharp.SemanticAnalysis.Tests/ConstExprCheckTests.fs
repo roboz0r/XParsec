@@ -73,7 +73,7 @@ let private colorKey = SymbolKeyOps.qualifiedTypeKeyOf "Tests.Color" 0
 
 /// A check's outcome by what it denotes: two trees carrying equal values differ by their
 /// sites.
-let private plainC (v: TConstValue) : TConstDenotation =
+let plainC (v: TConstValue) : TConstDenotation =
     {
         Result = TConstResult.Scalar v
         Ty = FTConst(TConstValue.canonKey v, Block.empty)
@@ -136,21 +136,21 @@ let private checkExpectingAgainst
 let private checkAgainst (provider: IExternalSymbolProvider) (preamble: string list) (exprSrc: string) =
     checkExpectingAgainst provider ValueNone preamble exprSrc
 
-let private checkWith (preamble: string list) (exprSrc: string) =
+let checkWith (preamble: string list) (exprSrc: string) =
     checkAgainst provider.Value preamble exprSrc
 
-let private check (exprSrc: string) = checkWith [] exprSrc
+let check (exprSrc: string) = checkWith [] exprSrc
 
 /// `check` at a position declaring `expected`.
 let private checkExpecting (expected: FrozenType) (exprSrc: string) =
     checkExpectingAgainst provider.Value (ValueSome expected) [] exprSrc
 
-let private notConstant = Error [ Kind.NotConstantExpression ]
+let notConstant = Error [ Kind.NotConstantExpression ]
 
-let private int32 (v: int) = TConstValue.Integral(IntValue.Int32 v)
+let int32 (v: int) = TConstValue.Integral(IntValue.Int32 v)
 
 /// `E.A = 1`, `E.B = 4`, and a second enum `F.Bit = 8` at the same width.
-let private localEnums = [ "type E = | A = 1 | B = 4"; "type F = | Bit = 8" ]
+let localEnums = [ "type E = | A = 1 | B = 4"; "type F = | Bit = 8" ]
 
 /// An arity-1 record, for the reified generic instantiation and its definition.
 let private genericBox = [ "type Box<'T> = { v: 'T }" ]
@@ -285,31 +285,31 @@ let tests =
                     test "||| across two enums is rejected" {
                         Expect.equal
                             (checkWith localEnums "E.A ||| F.Bit")
-                            (Error [ ConstExprCheck.Rejection.kindMismatch ])
+                            (Error [ ConstExprCheck.Rejection.bitwiseOperands ])
                             "E.A ||| F.Bit"
                     }
 
                     test "||| of an enum case and a bare literal is rejected" {
                         Expect.equal
                             (checkWith localEnums "E.A ||| 2")
-                            (Error [ ConstExprCheck.Rejection.kindMismatch ])
+                            (Error [ ConstExprCheck.Rejection.bitwiseOperands ])
                             "E.A ||| 2"
                     }
 
                     test "nested ops" { Expect.equal (check "1 ||| 2 ||| 4") (Ok(plainC (int32 7))) "1 ||| 2 ||| 4" }
 
                     test "mismatched widths are rejected" {
-                        Expect.equal (check "1 ||| 2L") (Error [ ConstExprCheck.Rejection.kindMismatch ]) "1 ||| 2L"
+                        Expect.equal (check "1 ||| 2L") (Error [ ConstExprCheck.Rejection.bitwiseOperands ]) "1 ||| 2L"
                     }
 
                     test "signedness mismatch is rejected" {
-                        Expect.equal (check "1 ||| 2u") (Error [ ConstExprCheck.Rejection.kindMismatch ]) "1 ||| 2u"
+                        Expect.equal (check "1 ||| 2u") (Error [ ConstExprCheck.Rejection.bitwiseOperands ]) "1 ||| 2u"
                     }
 
                     test "non-integral operands are rejected" {
                         Expect.equal
                             (check "\"a\" ||| \"b\"")
-                            (Error [ ConstExprCheck.Rejection.kindMismatch ])
+                            (Error [ ConstExprCheck.Rejection.bitwiseOperands ])
                             "\"a\" ||| \"b\""
                     }
 
@@ -886,10 +886,13 @@ let tests =
                 [
                     test "a function call is rejected" { Expect.equal (check "id 1") notConstant "id 1" }
 
-                    test "arithmetic is rejected" { Expect.equal (check "1 + 1") notConstant "1 + 1" }
+                    test "comparison is rejected" {
+                        Expect.equal (check "1 = 1") notConstant "1 = 1"
+                        Expect.equal (check "1 < 2") notConstant "1 < 2"
+                    }
 
-                    test "string concatenation is rejected" {
-                        Expect.equal (check "\"a\" + \"b\"") notConstant "\"a\" + \"b\""
+                    test "a shadowed + is not a constant expression" {
+                        Expect.equal (checkWith [ "let (+) (a: int) (b: int) = 999" ] "1 + 2") notConstant "1 + 2"
                     }
                 ]
         ]
